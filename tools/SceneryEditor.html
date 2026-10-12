@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>布景编辑器 · DL Fan Level</title>
+<style>
+  :root {
+    --bg: #1b1d24; --panel: #242733; --line: #353949; --fg: #e6e8ee;
+    --dim: #8b93a3; --acc: #ff7ab8; --acc2: #6ea8fe;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--fg);
+    font: 13px/1.5 "Segoe UI", "Microsoft YaHei", sans-serif; }
+  #app { display: flex; flex-direction: column; height: 100%; }
+
+  /* 顶部工具栏 */
+  .bar { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+    background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .grp { display: flex; align-items: center; gap: 5px; padding-right: 9px;
+    border-right: 1px solid var(--line); }
+  .grp:last-child { border-right: none; }
+  .lbl { color: var(--dim); font-size: 12px; }
+  button { background: #2f3444; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 5px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  button:hover { background: #3a4054; }
+  button.on { background: var(--acc); border-color: var(--acc); color: #24121b; font-weight: 600; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: var(--acc2); border-color: var(--acc2); color: #10203a; font-weight: 600; }
+  input[type=number], select { background: #1b1e28; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; font-size: 12px; }
+  input[type=number] { width: 74px; }
+  input[type=checkbox] { accent-color: var(--acc); }
+
+  /* 主体 */
+  #main { flex: 1; display: flex; min-height: 0; }
+  #side { width: 236px; background: var(--panel); border-right: 1px solid var(--line);
+    padding: 10px; overflow-y: auto; }
+  #side h4 { margin: 12px 0 6px; font-size: 12px; color: var(--acc); font-weight: 600; }
+  #side h4:first-child { margin-top: 0; }
+  .row { display: flex; align-items: center; justify-content: space-between;
+    gap: 6px; margin: 4px 0; }
+  .row > span { color: var(--dim); font-size: 12px; }
+  #view { flex: 1; position: relative; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* 拖放区 */
+  #drop { position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; background: var(--bg);
+    color: var(--dim); }
+  #drop.hide { display: none; }
+  #drop b { color: var(--fg); font-size: 15px; }
+
+  #hint { position: absolute; left: 10px; bottom: 8px; color: var(--dim);
+    font-size: 12px; pointer-events: none; text-shadow: 0 1px 3px #000; }
+  #stat { position: absolute; right: 10px; bottom: 8px; color: var(--dim);
+    font-size: 12px; pointer-events: none; text-shadow: 0 1px 3px #000; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="bar">
+    <div class="grp">
+      <span class="lbl">关卡</span>
+      <select id="lvSel"></select>
+    </div>
+    <div class="grp">
+      <button id="tSelect" class="on">选择</button>
+      <button id="tPlace">放置</button>
+    </div>
+    <div class="grp">
+      <label class="lbl"><input type="checkbox" id="snapGrid" checked> 网格</label>
+      <select id="gridSize">
+        <option value="0.5">0.5m</option>
+        <option value="1" selected>1m</option>
+        <option value="2">2m</option>
+      </select>
+      <label class="lbl"><input type="checkbox" id="snapRef" checked> 吸附参考线</label>
+    </div>
+    <div class="grp">
+      <button id="btnUndo" disabled>↶ 撤销</button>
+      <button id="btnRedo" disabled>↷ 重做</button>
+    </div>
+    <div class="grp">
+      <button id="btnDup">复制</button>
+      <button id="btnDel">删除</button>
+    </div>
+    <div class="grp">
+      <button id="btnTop">俯视</button>
+      <button id="btn3D">透视</button>
+      <button id="btnFit">全览</button>
+    </div>
+    <div class="grp" style="margin-left:auto">
+      <button id="btnSave" class="primary" disabled>导出 level.json</button>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="side">
+      <h4>新建块的参数</h4>
+      <div class="row"><span>宽 W</span><input type="number" id="nW" value="3" step="0.5"></div>
+      <div class="row"><span>高 H</span><input type="number" id="nH" value="6" step="0.5"></div>
+      <div class="row"><span>深 D</span><input type="number" id="nD" value="3" step="0.5"></div>
+      <div class="row"><span>顶面高度</span><input type="number" id="nY" value="12" step="0.5"></div>
+
+      <h4>选中（<span id="selN">0</span> 个）</h4>
+      <div class="row"><span>X</span><input type="number" id="sX" step="0.5"></div>
+      <div class="row"><span>Y（顶面）</span><input type="number" id="sY" step="0.5"></div>
+      <div class="row"><span>Z</span><input type="number" id="sZ" step="0.5"></div>
+      <div class="row"><span>宽</span><input type="number" id="sW" step="0.5"></div>
+      <div class="row"><span>高</span><input type="number" id="sH" step="0.5"></div>
+      <div class="row"><span>深</span><input type="number" id="sD" step="0.5"></div>
+      <div class="row"><span>旋转°</span><input type="number" id="sR" step="15"></div>
+      <div class="row"><span>升降</span>
+        <button id="btnUp">Q ↑</button><button id="btnDn">E ↓</button>
+      </div>
+      <div class="row"><span>缩放</span>
+        <button id="btnBig">[ 大</button><button id="btnSmall">] 小</button>
+      </div>
+
+      <h4>参考线</h4>
+      <div class="row"><span>显示参考线</span><input type="checkbox" id="showRef" checked></div>
+      <div class="row"><span>显示转向点</span><input type="checkbox" id="showTurn" checked></div>
+      <div class="row"><span>桥面高度</span><span id="deckY">–</span></div>
+    </div>
+
+    <div id="view">
+      <canvas id="cv"></canvas>
+      <div id="drop">
+        <b>把 level.json 和 dance-line.json 拖进来</b>
+        <span>也可以直接拖整个关卡文件夹</span>
+        <button id="btnPick">选择文件…</button>
+        <input type="file" id="fileIn" multiple accept=".json" hidden>
+      </div>
+      <div id="hint"></div>
+      <div id="stat"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "../src/vendor/three.module.min.js";
+
+/* =====================================================================
+   布景编辑器
+   - 参考线：官方轨迹（白色），不画标准路面
+   - 景物：纯几何块，可放置 / 选择 / 移动 / 缩放 / 删除
+   - 吸附：网格、参考线（块顶面贴到桥面，即"吸附在参考线下面"）
+   ===================================================================== */
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+const S = {
+  items: [],            // { pos:[x,y,z] 中心, scale:[w,h,d], angY }
+  ref: [],              // 参考线点 {x,y,z,t}
+  turns: [],            // 转向点
+  sel: new Set(),
+  tool: 'select',
+  deckY: 0,
+  level: null,
+  hist: [], hi: -1,
+  cam: null, view: { cx: 0, cz: 0, zoom: 60, pitch: 0 },
+  mode3d: false,
+};
+
+/* ---------------------- Three.js ---------------------- */
+const cv = $('#cv');
+const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x242a36);
+scene.fog = new THREE.Fog(0x242a36, 300, 1400);
+scene.add(new THREE.DirectionalLight(0xffffff, 1.5));
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+
+let camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 6000);
+
+const matScenery = new THREE.MeshStandardMaterial({ color: 0xf8b0cc, roughness: .75 });
+const matSel = new THREE.MeshStandardMaterial({ color: 0x6ea8fe, roughness: .5,
+  emissive: 0x223a66 });
+let sceneryMesh = null, selMesh = null, ghost = null, refLine = null, turnDots = null;
+
+function ensureSize() {
+  const w = cv.clientWidth || 1, h = cv.clientHeight || 1;
+  renderer.setSize(w, h, false);
+  const z = S.view.zoom;
+  const a = w / h;
+  camera.left = -z * a; camera.right = z * a;
+  camera.top = z; camera.bottom = -z;
+  camera.updateProjectionMatrix();
+}
+
+/* ---------------------- 渲染景物 ---------------------- */
+function rebuild() {
+  if (sceneryMesh) { scene.remove(sceneryMesh); sceneryMesh.dispose(); }
+  const n = S.items.length;
+  sceneryMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), matScenery, Math.max(1, n));
+  const m = new THREE.Matrix4(), p = new THREE.Vector3(),
+        q = new THREE.Quaternion(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < n; i++) {
+    const it = S.items[i];
+    p.set(it.pos[0], it.pos[1], it.pos[2]);
+    q.setFromAxisAngle(up, it.angY || 0);
+    s.set(it.scale[0], it.scale[1], it.scale[2]);
+    m.compose(p, q, s);
+    sceneryMesh.setMatrixAt(i, m);
+  }
+  sceneryMesh.count = n;
+  sceneryMesh.instanceMatrix.needsUpdate = true;
+  scene.add(sceneryMesh);
+  updateStat();
+}
+
+function rebuildSel() {
+  if (selMesh) { scene.remove(selMesh); selMesh.geometry.dispose(); selMesh = null; }
+  if (!S.sel.size) { syncSelPanel(); return; }
+  const g = new THREE.BoxGeometry(1, 1, 1);
+  selMesh = new THREE.InstancedMesh(g, matSel, S.sel.size);
+  const m = new THREE.Matrix4(), p = new THREE.Vector3(),
+        q = new THREE.Quaternion(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  let k = 0;
+  for (const i of S.sel) {
+    const it = S.items[i]; if (!it) continue;
+    p.set(it.pos[0], it.pos[1], it.pos[2]);
+    q.setFromAxisAngle(up, it.angY || 0);
+    // 略大一点，形成"描边"效果
+    s.set(it.scale[0] * 1.04 + .12, it.scale[1] * 1.02 + .12, it.scale[2] * 1.04 + .12);
+    m.compose(p, q, s);
+    selMesh.setMatrixAt(k++, m);
+  }
+  scene.add(selMesh);
+  syncSelPanel();
+}
+
+/* ---------------------- 参考线（白色官方轨迹） ---------------------- */
+function buildRef() {
+  if (refLine) { scene.remove(refLine); refLine.geometry.dispose(); }
+  if (turnDots) { scene.remove(turnDots); turnDots.geometry.dispose(); turnDots = null; }
+  if (!S.ref.length) return;
+
+  const pts = S.ref.map(p => new THREE.Vector3(p.x, p.y, p.z));
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  refLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffffff }));
+  refLine.frustumCulled = false;
+  scene.add(refLine);
+
+  // 转向点：小白方块
+  const tg = [];
+  for (const p of S.turns) {
+    const s = .9, y = p.y + .05;
+    tg.push(-s, 0, -s, s, 0, -s, s, 0, s, -s, 0, s, -s, 0, -s, s, 0, s);
+    // 简单用小十字代替方块（避免建 mesh）
+  }
+  const dg = new THREE.BufferGeometry();
+  const dp = [];
+  for (const p of S.turns) {
+    const s = 1.1, y = p.y + .05;
+    dp.push(p.x - s, y, p.z, p.x + s, y, p.z, p.x, y, p.z - s, p.x, y, p.z + s);
+  }
+  dg.setAttribute('position', new THREE.Float32BufferAttribute(dp, 3));
+  turnDots = new THREE.LineSegments(dg, new THREE.LineBasicMaterial({ color: 0xffe9f4 }));
+  turnDots.frustumCulled = false;
+  scene.add(turnDots);
+}
+
+/* ---------------------- 相机 ---------------------- */
+function updateCam() {
+  const v = S.view;
+  if (S.mode3d) {
+    const d = v.zoom * 3.2;
+    camera.position.set(v.cx - d * .6, S.deckY + d * .8, v.cz - d * .6);
+    camera.lookAt(v.cx, S.deckY, v.cz);
+  } else {
+    camera.position.set(v.cx, S.deckY + 1500, v.cz);
+    camera.up.set(0, 0, -1);
+    camera.lookAt(v.cx, S.deckY, v.cz);
+  }
+  camera.updateMatrixWorld();
+}
+
+/* ---------------------- 历史 ---------------------- */
+function snapshot() { return JSON.stringify(S.items); }
+function pushHist() {
+  S.hist = S.hist.slice(0, S.hi + 1);
+  S.hist.push(snapshot());
+  if (S.hist.length > 60) S.hist.shift();
+  S.hi = S.hist.length - 1;
+  updHistBtn();
+}
+function apply(str) { S.items = JSON.parse(str); S.sel.clear(); rebuild(); rebuildSel(); }
+function undo() { if (S.hi > 0) { S.hi--; apply(S.hist[S.hi]); updHistBtn(); } }
+function redo() { if (S.hi < S.hist.length - 1) { S.hi++; apply(S.hist[S.hi]); updHistBtn(); } }
+function updHistBtn() {
+  $('#btnUndo').disabled = S.hi <= 0;
+  $('#btnRedo').disabled = S.hi >= S.hist.length - 1;
+}
+
+/* ---------------------- 屏幕 → 世界 ---------------------- */
+const ray = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+function pick(ev, planeY) {
+  const r = cv.getBoundingClientRect();
+  ndc.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+  ray.setFromCamera(ndc, camera);
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(planeY ?? S.deckY));
+  const hit = new THREE.Vector3();
+  return ray.ray.intersectPlane(plane, hit) ? hit : null;
+}
+function pickItem(ev) {
+  const r = cv.getBoundingClientRect();
+  ndc.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+  ray.setFromCamera(ndc, camera);
+  if (!sceneryMesh) return -1;
+  const hits = ray.intersectObject(sceneryMesh, false);
+  return hits.length ? hits[0].instanceId : -1;
+}
+
+/* ---------------------- 吸附 ---------------------- */
+function snapVal(v, on, step) { return on ? Math.round(v / step) * step : v; }
+
+// 吸附到参考线：找最近的参考线点，若够近则块顶面贴到该高度（"吸附在参考线下面"）
+function snapToRef(x, z, h) {
+  if (!S.ref.length) return null;
+  let best = null, bd = 1e9;
+  for (const p of S.ref) {
+    const d = Math.hypot(p.x - x, p.z - z);
+    if (d < bd) { bd = d; best = p; }
+  }
+  if (!best || bd > 26) return null;
+  return { x: best.x, z: best.z, y: best.y - h / 2 };   // 顶面与参考线齐平
+}
+
+/* ---------------------- 放置 ---------------------- */
+function placeAt(wx, wz) {
+  pushHist();
+  const w = +$('#nW').value, h = +$('#nH').value, d = +$('#nD').value;
+  const topY = +$('#nY').value;
+  let x = wx, z = wz, y = topY - h / 2;
+
+  if ($('#snapGrid').checked) {
+    const g = +$('#gridSize').value;
+    x = snapVal(x, true, g); z = snapVal(z, true, g);
+  }
+  if ($('#snapRef').checked) {
+    const s = snapToRef(x, z, h);
+    if (s) { x = s.x; z = s.z; y = s.y - h / 2; }
+  }
+  S.items.push({ pos: [+x.toFixed(2), +y.toFixed(2), +z.toFixed(2)],
+                 scale: [w, h, d], angY: 0 });
+  S.sel.clear(); S.sel.add(S.items.length - 1);
+  rebuild(); rebuildSel();
+}
+
+/* ---------------------- 交互 ---------------------- */
+let drag = null;
+
+cv.addEventListener('mousedown', e => {
+  if (!S.level) return;
+  if (e.button === 1 || e.button === 2 || e.shiftKey) {   // 平移视图
+    drag = { mode: 'pan', x: e.clientX, y: e.clientY, cx: S.view.cx, cz: S.view.cz };
+    return;
+  }
+  const id = pickItem(e);
+
+  if (S.tool === 'place') {
+    const p = pick(e);
+    if (p) placeAt(p.x, p.z);
+    return;
+  }
+  if (id >= 0) {
+    if (!S.sel.has(id)) { S.sel.clear(); S.sel.add(id); rebuildSel(); }
+    const p = pick(e, S.items[id].pos[1]);
+    drag = { mode: 'move', id0: id, lastX: p.x, lastZ: p.z, moved: false };
+    pushHist();
+  } else {
+    S.sel.clear(); rebuildSel();
+  }
+});
+
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  if (drag.mode === 'pan') {
+    const k = S.view.zoom / (cv.clientHeight || 1) * 2;
+    S.view.cx = drag.cx - (e.clientX - drag.x) * k;
+    S.view.cz = drag.cz - (e.clientY - drag.y) * k;
+    updateCam(); draw(); return;
+  }
+  if (drag.mode === 'move') {
+    const p = pick(e, S.items[drag.id0].pos[1]);
+    if (!p) return;
+    let dx = p.x - drag.lastX, dz = p.z - drag.lastZ;
+    if (Math.abs(dx) + Math.abs(dz) > 1e-6) drag.moved = true;
+    for (const i of S.sel) {
+      const it = S.items[i]; if (!it) continue;
+      let nx = it.pos[0] + dx, nz = it.pos[2] + dz;
+      if ($('#snapGrid').checked) {
+        const g = +$('#gridSize').value;
+        nx = snapVal(nx, true, g); nz = snapVal(nz, true, g);
+      }
+      it.pos[0] = +nx.toFixed(2); it.pos[2] = +nz.toFixed(2);
+      if ($('#snapRef').checked) {
+        const s = snapToRef(nx, nz, it.scale[1]);
+        if (s) { it.pos[0] = +s.x.toFixed(2); it.pos[2] = +s.z.toFixed(2);
+                 it.pos[1] = +(s.y - it.scale[1] / 2).toFixed(2); }
+      }
+    }
+    drag.lastX = p.x; drag.lastZ = p.z;
+    rebuild(); rebuildSel();
+  }
+});
+window.addEventListener('mouseup', () => { drag = null; });
+
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  S.view.zoom = clamp(S.view.zoom * (e.deltaY > 0 ? 1.12 : 1 / 1.12), 4, 900);
+  ensureSize(); updateCam(); draw();
+}, { passive: false });
+
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---------------------- 键盘 ---------------------- */
+window.addEventListener('keydown', e => {
+  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+  if (mod && e.key.toLowerCase() === 'c') { copySel(); return; }
+  if (mod && e.key.toLowerCase() === 'v') { paste(); return; }
+  if (e.key === 'Delete' || e.key === 'Backspace') { delSel(); return; }
+  if (e.key === 'q' || e.key === 'Q') { nudgeY(1); return; }
+  if (e.key === 'e' || e.key === 'E') { nudgeY(-1); return; }
+  if (e.key === '[') { scaleSel(1 / 1.1); return; }
+  if (e.key === ']') { scaleSel(1.1); return; }
+  if (e.key === 'Escape') { S.sel.clear(); rebuildSel(); return; }
+});
+
+function nudgeY(dy) {
+  if (!S.sel.size) return;
+  pushHist();
+  for (const i of S.sel) { const it = S.items[i]; if (it) it.pos[1] += dy; }
+  rebuild(); rebuildSel();
+}
+function scaleSel(k) {
+  if (!S.sel.size) return;
+  pushHist();
+  for (const i of S.sel) {
+    const it = S.items[i]; if (!it) continue;
+    it.scale = [+(it.scale[0] * k).toFixed(2), it.scale[1], +(it.scale[2] * k).toFixed(2)];
+  }
+  rebuild(); rebuildSel();
+}
+function delSel() {
+  if (!S.sel.size) return;
+  pushHist();
+  S.items = S.items.filter((_, i) => !S.sel.has(i));
+  S.sel.clear(); rebuild(); rebuildSel();
+}
+let clipboard = [];
+function copySel() { clipboard = S.sel.size ? [...S.sel].map(i => JSON.parse(JSON.stringify(S.items[i]))) : []; }
+function paste() {
+  if (!clipboard.length) return;
+  pushHist();
+  for (const c of clipboard) {
+    S.items.push({ pos: [c.pos[0] + 4, c.pos[1], c.pos[2] + 4],
+                   scale: [...c.scale], angY: c.angY || 0 });
+  }
+  S.sel.clear();
+  for (let i = S.items.length - clipboard.length; i < S.items.length; i++) S.sel.add(i);
+  rebuild(); rebuildSel();
+}
+
+/* ---------------------- 属性面板 ---------------------- */
+function syncSelPanel() {
+  $('#selN').textContent = S.sel.size;
+  const i = S.sel.size === 1 ? [...S.sel][0] : -1;
+  const it = i >= 0 ? S.items[i] : null;
+  $('#sX').value = it ? it.pos[0] : '';
+  $('#sY').value = it ? +(it.pos[1] + it.scale[1] / 2).toFixed(2) : '';
+  $('#sZ').value = it ? it.pos[2] : '';
+  $('#sW').value = it ? it.scale[0] : '';
+  $('#sH').value = it ? it.scale[1] : '';
+  $('#sD').value = it ? it.scale[2] : '';
+  $('#sR').value = it ? Math.round((it.angY || 0) * 180 / Math.PI) : '';
+}
+['sX','sY','sZ','sW','sH','sD','sR'].forEach(id => {
+  $('#' + id).addEventListener('change', () => {
+    if (S.sel.size !== 1) return;
+    const i = [...S.sel][0], it = S.items[i]; if (!it) return;
+    pushHist();
+    it.pos[0] = +$('#sX').value || 0;
+    it.pos[2] = +$('#sZ').value || 0;
+    it.scale = [+$('#sW').value || 1, +$('#sH').value || 1, +$('#sD').value || 1];
+    it.pos[1] = (+$('#sY').value || 0) - it.scale[1] / 2;
+    it.angY = (+$('#sR').value || 0) * Math.PI / 180;
+    rebuild(); rebuildSel();
+  });
+});
+$('#btnUp').onclick = () => nudgeY(1);
+$('#btnDn').onclick = () => nudgeY(-1);
+$('#btnBig').onclick = () => scaleSel(1.1);
+$('#btnSmall').onclick = () => scaleSel(1 / 1.1);
+$('#btnDup').onclick = () => { copySel(); paste(); };
+$('#btnDel').onclick = delSel;
+$('#btnUndo').onclick = undo;
+$('#btnRedo').onclick = redo;
+
+/* ---------------------- 工具 / 视图 ---------------------- */
+$('#tSelect').onclick = () => { S.tool = 'select'; $('#tSelect').classList.add('on'); $('#tPlace').classList.remove('on'); };
+$('#tPlace').onclick  = () => { S.tool = 'place';  $('#tPlace').classList.add('on');  $('#tSelect').classList.remove('on'); };
+$('#btnTop').onclick = () => { S.mode3d = false; camera.up.set(0, 0, -1); $('#btnTop').classList.add('on'); $('#btn3D').classList.remove('on'); updateCam(); draw(); };
+$('#btn3D').onclick  = () => { S.mode3d = true;  camera.up.set(0, 1, 0);  $('#btn3D').classList.add('on');  $('#btnTop').classList.remove('on'); updateCam(); draw(); };
+$('#btnFit').onclick = fitView;
+$('#showRef').onchange = e => { if (refLine) refLine.visible = e.target.checked; draw(); };
+$('#showTurn').onchange = e => { if (turnDots) turnDots.visible = e.target.checked; draw(); };
+
+function fitView() {
+  let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+  for (const p of S.ref) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+                           minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
+  S.view.cx = (minX + maxX) / 2; S.view.cz = (minZ + maxZ) / 2;
+  S.view.zoom = Math.max(30, Math.max(maxX - minX, maxZ - minZ) / 2 * 1.1);
+  ensureSize(); updateCam(); draw();
+}
+function updateStat() {
+  $('#stat').textContent = `景物 ${S.items.length} 块` + (S.sel.size ? ` · 选中 ${S.sel.size}` : '');
+  $('#hint').textContent = S.tool === 'place'
+    ? '点击放置块 · 右键/中键拖动平移 · 滚轮缩放'
+    : '点击选中 · 拖动移动 · Del 删除 · Q/E 升降 · [ ] 缩放 · Ctrl+C/V 复制粘贴 · 右键拖动平移';
+}
+
+/* ---------------------- 加载 ---------------------- */
+function applyLevel(lv, dl, dir) {
+  S.level = lv; S.dir = dir || S.dir;
+  // 参考线 = 官方轨迹（白色）。这里**不画标准路面**，路面由你手动摆。
+  S.ref = dl.points || [];
+  S.turns = (dl.points || []).filter(p => p.turn);
+  S.items = (lv.scenery && lv.scenery.items) ? lv.scenery.items : [];
+  S.deckY = (lv.motion?.spawn?.y) || (S.ref[0]?.y) || 0;
+  $('#deckY').textContent = S.deckY.toFixed(1) + ' m';
+  $('#nY').value = S.deckY.toFixed(0);
+  $('#nY').step = 0.5;
+
+  buildRef(); rebuild(); rebuildSel();
+  S.hist = [snapshot()]; S.hi = 0; updHistBtn();
+  $('#drop').classList.add('hide');
+  $('#btnSave').disabled = false;
+  fitView();
+}
+
+function loadFiles(files) {
+  const arr = [...files];
+  const jf = arr.find(f => f.name === 'level.json')
+          || arr.find(f => f.name.endsWith('.json') && !f.name.includes('dance-line'));
+  const df = arr.find(f => f.name.includes('dance-line'));
+  if (!jf || !df) { alert('需要 level.json 和 dance-line.json 两个文件'); return; }
+  Promise.all([jf.text(), df.text()])
+    .then(([lt, dt]) => applyLevel(JSON.parse(lt), JSON.parse(dt), null));
+}
+
+// 通过 dev-server 直接加载（打开就能看到白线）
+async function loadByDir(dir) {
+  const base = '/levels/' + encodeURIComponent(dir) + '/';
+  const [lt, dt] = await Promise.all([
+    fetch(base + 'level.json').then(r => r.text()),
+    fetch(base + 'dance-line.json').then(r => r.text()),
+  ]);
+  applyLevel(JSON.parse(lt), JSON.parse(dt), dir);
+}
+
+async function init() {
+  try {
+    const list = await (await fetch('/api/levels')).json();
+    const sel = $('#lvSel');
+    sel.innerHTML = '';
+    list.forEach(l => {
+      const o = document.createElement('option');
+      o.value = l.dir; o.textContent = l.title || l.dir;
+      sel.appendChild(o);
+    });
+    const q = new URLSearchParams(location.search).get('level');
+    const first = (q && list.find(l => l.dir === q)) || list[0];
+    if (first) {
+      sel.value = first.dir;
+      await loadByDir(first.dir);
+    }
+    sel.onchange = () => loadByDir(sel.value);
+  } catch (e) {
+    // 没有服务器（直接用 file:// 打开）→ 退回拖入方式
+    $('#drop').querySelector('span').textContent =
+      '当前是无服务器模式，拖入文件或用 启动客户端.bat 打开';
+  }
+}
+init();
+
+$('#btnPick').onclick = () => $('#fileIn').click();
+$('#fileIn').onchange = e => { if (e.target.files.length) loadFiles(e.target.files); };
+['dragover', 'dragenter'].forEach(t => window.addEventListener(t, e => e.preventDefault()));
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  const items = e.dataTransfer.items;
+  if (items && items.length && items[0].webkitGetAsEntry) {
+    // 拖入文件夹：读取里面的 json
+    const ent = items[0].webkitGetAsEntry();
+    if (ent && ent.isDirectory) {
+      const r = ent.createReader(); const out = [];
+      const read = () => r.readEntries(es => {
+        if (!es.length) { loadJsons(out); return; }
+        es.forEach(x => { if (x.isFile && x.name.endsWith('.json')) x.file(f => out.push(f)); });
+        read();
+      });
+      read(); return;
+    }
+  }
+  if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files);
+});
+function loadJsons(fs) {
+  const arr = [...fs];
+  loadFiles(arr);
+}
+
+/* ---------------------- 保存 ---------------------- */
+$('#btnSave').onclick = () => {
+  S.level.scenery = { seed: S.level.scenery?.seed ?? 1, count: S.items.length, items: S.items };
+  const blob = new Blob([JSON.stringify(S.level, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'level.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+/* ---------------------- 主循环 ---------------------- */
+function draw() { renderer.render(scene, camera); }
+function loop() {
+  ensureSize();
+  if (S.level) { updateCam(); draw(); }
+  requestAnimationFrame(loop);
+}
+window.addEventListener('resize', () => { ensureSize(); draw(); });
+loop();
+
+$('#btnTop').classList.add('on');
+</script>
+</body>
+</html>

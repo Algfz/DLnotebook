@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PathPreview · 路径预览器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #16181d; --panel: #1f232b; --panel2: #262b34; --line: #333a46;
+    --fg: #d9dee7; --dim: #8b93a3; --accent: #4ea1ff; --accent2: #ffb454;
+    --danger: #ff5f56; --ok: #4ec9a0;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  #toolbar {
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 7px 12px; display: flex; flex-wrap: wrap; gap: 7px 12px;
+    align-items: center; flex: 0 0 auto;
+  }
+  .grp { display: flex; align-items: center; gap: 5px; }
+  .grp + .grp { border-left: 1px solid var(--line); padding-left: 12px; }
+  .lbl { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  button {
+    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 9px; cursor: pointer; font-size: 12px;
+    font-family: inherit; white-space: nowrap;
+  }
+  button:hover:not(:disabled) { background: #30363f; border-color: #46505f; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: #1d4f7c; border-color: #2d6ba5; }
+  button.on { background: #1d4f7c; border-color: var(--accent); color: #fff; }
+  input[type=number] {
+    background: #12141a; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 6px; font-size: 12px; font-family: inherit; width: 66px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  .chk { display: flex; align-items: center; gap: 4px; color: var(--dim); font-size: 12px; cursor: pointer; }
+  .chk input { cursor: pointer; }
+
+  #stage { flex: 1 1 auto; position: relative; overflow: hidden; }
+  #cv { display: block; width: 100%; height: 100%; cursor: grab; }
+  #cv.drag { cursor: grabbing; }
+
+  #legend {
+    position: absolute; left: 12px; top: 12px; background: rgba(22,24,29,.85);
+    border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px;
+    font-size: 11px; display: none; flex-direction: column; gap: 4px;
+  }
+  #legend.show { display: flex; }
+  #legend .row { display: flex; align-items: center; gap: 6px; color: var(--dim); }
+  #legend .sw { width: 12px; height: 12px; border-radius: 2px; }
+
+  /* 画布上的大号时间显示器 */
+  #timeOv {
+    position: absolute; right: 14px; top: 12px; display: none;
+    background: rgba(18,20,26,.74); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 13px 7px; text-align: right; pointer-events: none;
+    font-family: Consolas, monospace; color: var(--fg);
+  }
+  #timeOv.show { display: block; }
+  #timeOv .big { font-size: 30px; font-weight: 700; line-height: 1.05; letter-spacing: .5px; }
+  #timeOv .big small { font-size: 13px; font-weight: 400; color: var(--dim); margin-left: 2px; }
+  #timeOv .sub { font-size: 11px; color: var(--dim); margin-top: 3px; }
+
+  #status {
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 5px 12px; font-size: 11px; color: var(--dim);
+    display: flex; gap: 15px; flex-wrap: wrap; flex: 0 0 auto;
+  }
+  #status b { color: var(--fg); font-weight: 600; }
+  #status .sc { padding: 1px 6px; border-radius: 3px; color: #0f1216; font-weight: 600; }
+
+  #drop {
+    position: fixed; inset: 0; background: rgba(22,24,29,.96); z-index: 50;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  }
+  #drop.hide { display: none; }
+  #drop h1 { font-size: 21px; font-weight: 600; }
+  #drop p { color: var(--dim); }
+  #dropBox {
+    width: 470px; max-width: 86vw; padding: 42px; text-align: center;
+    border: 2px dashed var(--line); border-radius: 10px; color: var(--dim); transition: .15s;
+  }
+  #dropBox.over { border-color: var(--accent); background: rgba(78,161,255,.07); color: var(--accent); }
+
+  #err {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 99; display: none;
+    background: #5a1a17; color: #ffd9d6; font: 11px Consolas, monospace;
+    padding: 6px 12px; max-height: 110px; overflow: auto; white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="grp">
+    <button id="btnOpen">选择关卡文件夹</button>
+    <input type="file" id="dirInput" webkitdirectory directory multiple hidden>
+    <span class="lbl" id="lvName">未加载</span>
+  </div>
+
+  <div class="grp">
+    <button id="btnPlay" disabled>播放</button>
+    <button id="btnStop" disabled>停止</button>
+    <label class="chk"><input type="checkbox" id="chkFollow" checked>跟随</label>
+  </div>
+
+  <div class="grp">
+    <button id="btnFit">适应窗口</button>
+    <button id="btnZoomIn">+</button>
+    <button id="btnZoomOut">−</button>
+    <span class="lbl" id="zoomInfo">–</span>
+  </div>
+
+  <div class="grp">
+    <label class="chk"><input type="checkbox" id="chkRoad" checked>参考路宽</label>
+    <input type="number" id="inpRoad" value="1.5" step="0.5" min="0.5" max="40">
+    <span class="lbl">m（仅供预览，实际路宽在关卡制作时决定）</span>
+  </div>
+
+  <div class="grp">
+    <label class="chk"><input type="checkbox" id="chkTurns">转折点</label>
+    <label class="chk"><input type="checkbox" id="chkGrid" checked>网格</label>
+    <label class="chk"><input type="checkbox" id="chkLegend" checked>图例</label>
+    <label class="chk"><input type="checkbox" id="chkTime" checked>时间</label>
+  </div>
+
+  <div class="grp">
+    <span class="lbl">延迟</span>
+    <input type="number" id="inpLat" value="0" step="10">
+    <span class="lbl">ms</span>
+  </div>
+</div>
+
+<div id="stage">
+  <canvas id="cv"></canvas>
+  <div id="legend"></div>
+  <div id="timeOv">
+    <div class="big"><span id="tCur">0.000</span><small>s</small></div>
+    <div class="sub">总 <span id="tDur">0.000</span>s&nbsp;·&nbsp;剩 <span id="tLeft">0.000</span>s</div>
+  </div>
+</div>
+
+<div id="status">
+  <span>时间 <b id="stTime">0.00</b> / <b id="stDur">0.00</b>s</span>
+  <span>幕 <span id="stScene" class="sc">–</span></span>
+  <span>坐标 <b id="stPos">–</b></span>
+  <span>高度 <b id="stY">–</b> m</span>
+  <span>速度 <b id="stSpd">–</b> m/s</span>
+  <span>转折 <b id="stTurn">0</b> / <b id="stTurnN">0</b></span>
+  <span id="stLinesWrap" style="display:none">各线 <b id="stLines">–</b></span>
+  <span>下个转折 <b id="stNext">–</b></span>
+  <span>路径总长 <b id="stLen">–</b> m</span>
+</div>
+
+<div id="drop">
+  <h1>PathPreview · 路径预览器</h1>
+  <div id="dropBox">
+    <p style="font-size:15px;margin-bottom:6px">把<b>关卡文件夹</b>拖到这里</p>
+    <p style="font-size:12px">需要包含 level.json 和音乐文件</p>
+    <p style="margin-top:18px"><button id="btnOpen2">或点击选择文件夹</button></p>
+  </div>
+  <p style="font-size:12px">纯本地运行，不上传任何数据</p>
+</div>
+
+<div id="err"></div>
+
+<script>
+"use strict";
+/* =====================================================================
+   PathPreview — 路径预览器
+   加载关卡文件夹（level.json + 音乐），俯视显示路径，
+   播放音乐时当前位置沿路径实时移动，用于验证关卡结构与音画同步。
+   ===================================================================== */
+
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];        // +x, +z, -x, -z
+const rot = (d, turn) => (d + (turn === "R" ? 1 : 3)) % 4;
+
+const THEME_COLOR = {
+  garden:   "#4ec9a0",
+  collapse: "#d4576f",
+  truth:    "#4ea1ff",
+  dawn:     "#ffb454",
+  city:     "#c9a227",
+  space:    "#8a7cff",
+  ocean:    "#3fc1c9",
+  forest:   "#5fbf63",
+  void:     "#8b93a3",
+};
+const colorOf = theme => THEME_COLOR[theme] || THEME_COLOR.void;
+// 多线关卡（同时控制两条线）配色：线 A 绿 / 线 B 紫，与采音器 BeatMarker 一致
+const LINE_COLOR = ["#4ec9a0", "#b388ff"];
+const lineColor = i => LINE_COLOR[i % LINE_COLOR.length];
+
+/* ---------------------- 状态 ---------------------- */
+const S = {
+  level: null,
+  musicName: "",
+  buf: null,          // AudioBuffer
+  dur: 0,
+  verts: [],          // 主路径顶点 [{x,y,z,t}]（= 第一条线，兼容旧逻辑）
+  lines: [],          // 多线关卡的每条线 [{ id, verts }]
+  bbox: null,
+  view: { cx: 0, cz: 0, scale: 1 },
+  playhead: 0,
+  playing: false,
+  latency: 0,
+  follow: true,
+  roadW: 1.5,
+};
+
+let AC = null, srcNode = null, playCtxT0 = 0, playOffset = 0;
+let cv, g, W = 0, H = 0;
+
+function showErr(e) {
+  const el = $("#err");
+  el.style.display = "block";
+  el.textContent = "出错：" + (e && e.stack || e);
+}
+
+/* ---------------------- 加载 ---------------------- */
+function ensureAC() {
+  if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+  if (AC.state === "suspended") AC.resume();
+  return AC;
+}
+function decodeAudio(ab) {
+  return new Promise((res, rej) => {
+    const p = AC.decodeAudioData(ab, res, rej);
+    if (p && p.then) p.then(res, rej);
+  });
+}
+
+async function loadFiles(files) {
+  const jf = files.find(f => f.name.toLowerCase() === "level.json")
+          || files.find(f => f.name.endsWith(".json") && f.name !== "package.json");
+  if (!jf) { alert("文件夹里没找到 level.json"); return; }
+
+  const text = await jf.text();
+  S.level = JSON.parse(text);
+
+  // gen-path.js 输出的 dance-line.json → 归一化成 level.json 的形状，
+  // 后面的 buildPath / 渲染逻辑无需区分两种格式
+  if (!S.level.motion && Array.isArray(S.level.points)) {
+    const L = S.level;
+    const v = (L.config && L.config.speedMps) || 14;
+    const bpm = L.bpm || 120;
+    S.level = {
+      format: "dance-line",
+      music: L.audio && L.audio.name,
+      latency_ms: 0,
+      meta: { title: (L.source || "").replace(/\.beat\.json$/, "") || "dance-line" },
+      motion: { spawn: L.spawn || { x: 0, y: 0, z: 0, dir: 0 }, speedBeats: v * 60 / bpm },
+      timing: { sections: [{ t: 0, bpm }] },
+      path: L.points.filter(p => p.turn)
+                    .map(p => ({ t: p.t, turn: p.turn, pos: [p.x, p.y, p.z] })),
+      scenes: (L.scenes || []).map(s => ({ id: s.id, title: s.id, t: s.t, theme: s.id })),
+      _dlPoints: L.points,     // 完整折线（含终点），buildPath 直接采用
+      _dlLines: Array.isArray(L.lines) ? L.lines : null,   // dance-line.json 的多线
+    };
+  } else if (S.level.format !== "dlfan.level") {
+    console.warn("未知 format:", S.level.format);
+  }
+
+  // 音乐
+  const want = S.level.music;
+  const mf = files.find(f => f.name === want)
+          || files.find(f => /\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name));
+  if (!mf) { alert("文件夹里没找到音乐文件：" + want); return; }
+  S.musicName = mf.name;
+
+  ensureAC();
+  S.buf = await decodeAudio(await mf.arrayBuffer());
+  S.dur = S.buf.duration;
+  S.latency = S.level.latency_ms || 0;
+  $("#inpLat").value = S.latency.toFixed(0);
+
+  buildPath();
+  $("#lvName").textContent = (S.level.meta && S.level.meta.title) || jf.name;
+  $("#stDur").textContent = S.dur.toFixed(2);
+  $("#btnPlay").disabled = false;
+  $("#btnStop").disabled = false;
+  $("#drop").classList.add("hide");
+
+  showTime($("#chkTime").checked);
+  buildLegend();
+  resize();      // 先确定画布尺寸，fitView 才能算出正确比例
+  fitView();
+}
+
+/* ---------------------- 路径几何 ---------------------- */
+function bpmAt(t) {
+  const secs = S.level.timing.sections;
+  let bpm = secs[0].bpm;
+  for (const s of secs) { if (s.t <= t + 1e-9) bpm = s.bpm; else break; }
+  return bpm;
+}
+const speedAt = t => S.level.motion.speedBeats * bpmAt(t) / 60;
+
+// 由 spawn + path（或完整 points）还原一条线的折线，含末尾延伸到音乐结束
+// 坐标格式 pos = [x, y, z]：y 为高度
+function vertsOf(def) {
+  if (def.points) {
+    // dance-line 格式：points 已是完整折线（含曲终点），直接采用
+    return def.points.map(p => ({ x: p.x, y: p.y || 0, z: p.z, t: p.t }));
+  }
+  const V = [];
+  const sp = def.spawn || S.level.motion.spawn;
+  let dir = sp.dir;
+  V.push({ x: sp.x, y: sp.y || 0, z: sp.z, t: 0 });
+  for (const p of def.path) {
+    V.push({ x: p.pos[0], y: p.pos[1], z: p.pos[2], t: p.t });
+    dir = rot(dir, p.turn);
+  }
+  const last = def.path[def.path.length - 1];
+  if (last) {
+    const dt = Math.max(0, S.dur - last.t);
+    const v = speedAt(last.t);
+    V.push({
+      x: last.pos[0] + DIRS[dir][0] * v * dt,
+      y: last.pos[1],
+      z: last.pos[2] + DIRS[dir][1] * v * dt,
+      t: S.dur,
+    });
+  }
+  return V;
+}
+
+// 找出这幅关卡里的所有线（按优先级）：
+//   level.json 的 lines[]  >  dance-line.json 的 lines[]  >  单条 path / points
+function lineDefs() {
+  if (Array.isArray(S.level.lines) && S.level.lines.length) {
+    return S.level.lines.map((L, i) => ({
+      id: L.id || (i === 0 ? "A" : "B"), spawn: L.spawn, path: L.path,
+    }));
+  }
+  if (Array.isArray(S.level._dlLines) && S.level._dlLines.length) {
+    return S.level._dlLines.map((L, i) => ({
+      id: L.id || (i === 0 ? "A" : "B"), points: L.points,
+    }));
+  }
+  if (S.level._dlPoints) return [{ id: "A", points: S.level._dlPoints }];
+  return [{ id: "A", spawn: S.level.motion.spawn, path: S.level.path }];
+}
+
+function buildPath() {
+  S.lines = lineDefs().map(d => ({ id: d.id, verts: vertsOf(d) }));
+  S.verts = S.lines[0].verts;
+
+  let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+  let minY = 1e9, maxY = -1e9, totalLen = 0;
+  for (const L of S.lines) {
+    let len = 0;
+    for (let i = 0; i < L.verts.length; i++) {
+      const p = L.verts[i];
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+      if (i) len += Math.hypot(p.x - L.verts[i - 1].x, p.z - L.verts[i - 1].z);
+    }
+    L.length = len;
+    L.turns = Math.max(0, L.verts.length - 2);   // 折线顶点数 − 起点与曲终延伸点
+    totalLen += len;
+  }
+  S.bbox = { minX, maxX, minZ, maxZ };
+  S.yRange = { minY, maxY };
+  $("#stLen").textContent = totalLen.toFixed(0);
+  $("#stTurnN").textContent = S.lines[0].turns;      // 顶部「转折 x / y」是主线的
+  const el = $("#stLines");
+  if (el) el.textContent = S.lines.map(L => L.id + " " + L.turns).join(" · ");
+  const wrap = $("#stLinesWrap");
+  if (wrap) wrap.style.display = S.lines.length > 1 ? "" : "none";
+}
+
+function posAt(V, t) {
+  if (!V || !V.length) return { x: 0, y: 0, z: 0 };
+  if (t <= V[0].t) return { x: V[0].x, y: V[0].y, z: V[0].z };
+  if (t >= V[V.length - 1].t)
+    return { x: V[V.length - 1].x, y: V[V.length - 1].y, z: V[V.length - 1].z };
+  let lo = 0, hi = V.length - 1;
+  while (lo < hi - 1) { const m = (lo + hi) >> 1; if (V[m].t <= t) lo = m; else hi = m; }
+  const a = V[lo], b = V[hi];
+  const span = b.t - a.t;
+  const k = span > 1e-9 ? (t - a.t) / span : 0;
+  return {
+    x: a.x + (b.x - a.x) * k,
+    y: a.y + (b.y - a.y) * k,
+    z: a.z + (b.z - a.z) * k,
+  };
+}
+
+// 高度 → 亮度：低处暗、高处亮，让高度差在俯视图上也能看出来
+function shade(hex, k) {
+  const r = parseInt(hex.slice(1, 3), 16), g2 = parseInt(hex.slice(3, 5), 16), b2 = parseInt(hex.slice(5, 7), 16);
+  const f = v => Math.max(0, Math.min(255, Math.round(v * k)));
+  return "rgb(" + f(r) + "," + f(g2) + "," + f(b2) + ")";
+}
+function colorAtY(theme, y) {
+  const r = S.yRange;
+  const span = Math.max(1e-6, r.maxY - r.minY);
+  const k = 0.5 + 0.85 * ((y - r.minY) / span);
+  return shade(colorOf(theme), k);
+}
+
+function sceneAt(t) {
+  const sc = S.level.scenes || [];
+  for (const s of sc) if (t >= s.t[0] && t < s.t[1]) return s;
+  return sc[sc.length - 1] || null;
+}
+
+/* ---------------------- 视图 ---------------------- */
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const st = $("#stage");
+  W = st.clientWidth; H = st.clientHeight;
+  cv.width = Math.max(1, Math.round(W * dpr));
+  cv.height = Math.max(1, Math.round(H * dpr));
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+window.addEventListener("resize", resize);
+
+const w2sx = x => (x - S.view.cx) * S.view.scale + W / 2;
+const w2sy = z => (z - S.view.cz) * S.view.scale + H / 2;
+const s2wx = sx => (sx - W / 2) / S.view.scale + S.view.cx;
+const s2wz = sy => (sy - H / 2) / S.view.scale + S.view.cz;
+
+function fitView() {
+  if (!S.bbox) return;
+  const bw = Math.max(1, S.bbox.maxX - S.bbox.minX);
+  const bh = Math.max(1, S.bbox.maxZ - S.bbox.minZ);
+  S.view.scale = Math.min(W / bw, H / bh) * 0.85;
+  S.view.cx = (S.bbox.minX + S.bbox.maxX) / 2;
+  S.view.cz = (S.bbox.minZ + S.bbox.maxZ) / 2;
+  draw();
+}
+function zoomAt(sx, sy, k) {
+  const wx = s2wx(sx), wz = s2wz(sy);
+  S.view.scale = clamp(S.view.scale * k, 1e-4, 1e4);
+  // 保持鼠标下的世界点不动
+  S.view.cx = wx - (sx - W / 2) / S.view.scale;
+  S.view.cz = wz - (sy - H / 2) / S.view.scale;
+  draw();
+}
+
+/* ---------------------- 绘制 ---------------------- */
+function draw() {
+  if (!g) return;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "#12141a";
+  g.fillRect(0, 0, W, H);
+  if (!S.level) return;
+
+  drawGrid();
+
+  const multi = S.lines.length > 1;
+  const t = songTime();
+  // 单线：按幕/高度着色；多线：每条线一个固定颜色，便于区分
+  const strokeFor = (li, sc, y) =>
+    multi ? lineColor(li) : colorAtY(sc ? sc.theme : "void", y);
+
+  // 1) 路面（带宽）
+  if ($("#chkRoad").checked && S.roadW > 0) {
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    g.globalAlpha = 0.28;
+    g.lineWidth = Math.max(1, S.roadW * S.view.scale);
+    S.lines.forEach((L, li) => {
+      const V = L.verts;
+      for (let i = 0; i < V.length - 1; i++) {
+        g.strokeStyle = strokeFor(li, sceneAt((V[i].t + V[i + 1].t) / 2), (V[i].y + V[i + 1].y) / 2);
+        g.beginPath();
+        g.moveTo(w2sx(V[i].x), w2sy(V[i].z));
+        g.lineTo(w2sx(V[i + 1].x), w2sy(V[i + 1].z));
+        g.stroke();
+      }
+    });
+    g.globalAlpha = 1;
+  }
+
+  // 2) 路径中心线
+  g.lineWidth = 1.6;
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  S.lines.forEach((L, li) => {
+    const V = L.verts;
+    for (let i = 0; i < V.length - 1; i++) {
+      g.strokeStyle = strokeFor(li, sceneAt((V[i].t + V[i + 1].t) / 2), (V[i].y + V[i + 1].y) / 2);
+      g.beginPath();
+      g.moveTo(w2sx(V[i].x), w2sy(V[i].z));
+      g.lineTo(w2sx(V[i + 1].x), w2sy(V[i + 1].z));
+      g.stroke();
+    }
+  });
+
+  // 3) 转折点
+  if ($("#chkTurns").checked) {
+    g.fillStyle = "rgba(255,255,255,.55)";
+    for (const L of S.lines) {
+      const V = L.verts;
+      for (let i = 1; i < V.length - 1; i++) {
+        g.beginPath();
+        g.arc(w2sx(V[i].x), w2sy(V[i].z), 1.8, 0, 7);
+        g.fill();
+      }
+    }
+  }
+
+  // 4) 起点 / 终点
+  for (const L of S.lines) {
+    const V = L.verts;
+    if (!V.length) continue;
+    const a = V[0], b = V[V.length - 1];
+    g.fillStyle = "#4ec9a0";
+    g.fillRect(w2sx(a.x) - 4, w2sy(a.z) - 4, 8, 8);
+    g.fillStyle = "#ff5f56";
+    g.fillRect(w2sx(b.x) - 4, w2sy(b.z) - 4, 8, 8);
+  }
+
+  // 5) 当前位置（每条线各一个移动光点）
+  let primary = null;
+  S.lines.forEach((L, li) => {
+    const p = posAt(L.verts, t);
+    const sx = w2sx(p.x), sy = w2sy(p.z);
+    const col = multi ? lineColor(li) : "#ff4d4d";
+    g.globalAlpha = 0.22;
+    g.fillStyle = col;
+    g.beginPath(); g.arc(sx, sy, 13, 0, 7); g.fill();
+    g.globalAlpha = 1;
+    g.fillStyle = col;
+    g.beginPath(); g.arc(sx, sy, 5, 0, 7); g.fill();
+    g.strokeStyle = "#fff"; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(sx, sy, 5, 0, 7); g.stroke();
+    if (li === 0) primary = p;
+  });
+
+  updateStatus(t, primary || { x: 0, y: 0, z: 0 });
+  $("#zoomInfo").textContent = S.view.scale.toFixed(3) + " px/m";
+}
+
+function drawGrid() {
+  if (!$("#chkGrid").checked) return;
+  // 自适应网格间距（1,2,5 × 10^n 米），目标约 70px
+  let step = 1;
+  while (step * S.view.scale < 70) step *= 2;
+  while (step * S.view.scale > 220) step /= 2;
+  if (step < 0.01) return;
+
+  const x0 = s2wx(0), x1 = s2wx(W), z0 = s2wz(0), z1 = s2wz(H);
+  g.strokeStyle = "rgba(255,255,255,.05)";
+  g.lineWidth = 1;
+  g.beginPath();
+  for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) {
+    const sx = Math.round(w2sx(x)) + .5;
+    g.moveTo(sx, 0); g.lineTo(sx, H);
+  }
+  for (let z = Math.ceil(z0 / step) * step; z <= z1; z += step) {
+    const sy = Math.round(w2sy(z)) + .5;
+    g.moveTo(0, sy); g.lineTo(W, sy);
+  }
+  g.stroke();
+
+  g.fillStyle = "rgba(255,255,255,.28)";
+  g.font = "10px Consolas, monospace";
+  g.fillText(step >= 1 ? step + " m" : step.toFixed(2) + " m", 8, H - 8);
+}
+
+function buildLegend() {
+  const box = $("#legend");
+  box.innerHTML = "";
+  // 多线关卡：先列出每条线的颜色
+  if (S.lines && S.lines.length > 1) {
+    S.lines.forEach((L, i) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = '<span class="sw" style="background:' + lineColor(i) + '"></span>' +
+                      '<span>线 ' + L.id + "　" + L.turns + " 转折</span>";
+      box.appendChild(row);
+    });
+  }
+  (S.level.scenes || []).forEach(s => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = '<span class="sw" style="background:' + colorOf(s.theme) + '"></span>' +
+                    '<span>' + (s.title || s.id) + "　" +
+                    s.t[0].toFixed(1) + "–" + s.t[1].toFixed(1) + "s</span>";
+    box.appendChild(row);
+  });
+  box.classList.toggle("show", $("#chkLegend").checked);
+}
+
+function updateStatus(t, p) {
+  $("#stTime").textContent = t.toFixed(2);
+  const sc = sceneAt(t);
+  const el = $("#stScene");
+  if (sc) {
+    el.textContent = (sc.title || sc.id);
+    el.style.background = colorOf(sc.theme);
+  } else { el.textContent = "–"; el.style.background = "transparent"; }
+  $("#stPos").textContent = p.x.toFixed(1) + ", " + p.z.toFixed(1);
+  $("#stY").textContent = (p.y || 0).toFixed(1);
+  $("#stSpd").textContent = S.level ? speedAt(t).toFixed(2) : "–";
+
+  // 主线（第一条线）的转折进度：折线顶点去掉首尾，中间都是转折点
+  const V = S.verts;
+  let passed = 0;
+  for (let i = 1; i < V.length - 1; i++) if (V[i].t <= t) passed = i;
+  $("#stTurn").textContent = passed;
+  const nxt = V.find((p, i) => i > 0 && i < V.length - 1 && p.t > t);
+  $("#stNext").textContent = nxt ? (nxt.t - t).toFixed(2) + "s" : "—";
+
+  // 画布上的大号时间显示器
+  $("#tCur").textContent = t.toFixed(3);
+  $("#tDur").textContent = S.dur.toFixed(3);
+  $("#tLeft").textContent = Math.max(0, S.dur - t).toFixed(3);
+}
+
+// 时间浮层的显示/隐藏（未加载关卡时不显示）
+function showTime(on) {
+  $("#timeOv").classList.toggle("show", !!on && !!S.level);
+}
+
+/* ---------------------- 播放 ---------------------- */
+function songTime() {
+  if (!S.playing) return S.playhead;
+  const L = S.latency / 1000;
+  return clamp(playOffset + (AC.currentTime - playCtxT0) - L, playOffset, S.dur);
+}
+function play() {
+  if (!S.level) return;
+  ensureAC(); stopNode();
+  const s = AC.createBufferSource();
+  s.buffer = S.buf;
+  s.connect(AC.destination);
+  s.start(0, clamp(S.playhead, 0, S.dur));
+  srcNode = s; playCtxT0 = AC.currentTime; playOffset = S.playhead; S.playing = true;
+  $("#btnPlay").textContent = "暂停";
+}
+function pause() {
+  if (!S.playing) return;
+  S.playhead = songTime(); stopNode(); S.playing = false;
+  $("#btnPlay").textContent = "播放";
+}
+function stopNode() { if (srcNode) { try { srcNode.stop(); } catch (e) {} srcNode = null; } }
+function stopAll() {
+  S.playhead = S.playing ? songTime() : S.playhead;
+  stopNode(); S.playing = false; $("#btnPlay").textContent = "播放";
+}
+
+function loop() {
+  if (S.playing) {
+    const t = songTime();
+    if (t >= S.dur - 1e-3) { stopAll(); S.playhead = S.dur; }
+    else if (S.follow) {
+      const p = posAt(S.verts, t);        // 跟随时看主线
+      S.view.cx = p.x; S.view.cz = p.z;
+    }
+  }
+  try { draw(); } catch (e) { showErr(e); }
+  requestAnimationFrame(loop);
+}
+
+/* ---------------------- 交互 ---------------------- */
+let drag = null;
+function initCanvas() {
+  cv = $("#cv");
+  g = cv.getContext("2d");
+
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    zoomAt(e.offsetX, e.offsetY, e.deltaY > 0 ? 1 / 1.15 : 1.15);
+  }, { passive: false });
+
+  cv.addEventListener("mousedown", e => {
+    if (e.button === 2) return;
+    drag = { x: e.clientX, y: e.clientY, cx: S.view.cx, cz: S.view.cz, moved: 0 };
+    cv.classList.add("drag");
+  });
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.moved += Math.abs(dx) + Math.abs(dy);
+    S.view.cx = drag.cx - dx / S.view.scale;
+    S.view.cz = drag.cz - dy / S.view.scale;
+    if (drag.moved > 3) $("#chkFollow").checked = false;   // 手动平移后停止跟随
+    S.follow = $("#chkFollow").checked;
+  });
+  window.addEventListener("mouseup", () => { drag = null; cv.classList.remove("drag"); });
+}
+
+/* ---------------------- 事件绑定 ---------------------- */
+$("#btnOpen").onclick = $("#btnOpen2").onclick = () => $("#dirInput").click();
+$("#dirInput").onchange = e => {
+  const files = Array.from(e.target.files);
+  if (files.length) loadFiles(files).catch(showErr);
+};
+
+$("#btnPlay").onclick = () => { S.playing ? pause() : play(); };
+$("#btnStop").onclick = () => { stopAll(); S.playhead = 0; draw(); };
+$("#chkFollow").onchange = e => { S.follow = e.target.checked; };
+
+$("#btnFit").onclick = fitView;
+$("#btnZoomIn").onclick = () => zoomAt(W / 2, H / 2, 1.3);
+$("#btnZoomOut").onclick = () => zoomAt(W / 2, H / 2, 1 / 1.3);
+
+$("#chkRoad").onchange = draw;
+$("#inpRoad").oninput = e => { S.roadW = parseFloat(e.target.value) || 0; draw(); };
+$("#chkTurns").onchange = draw;
+$("#chkGrid").onchange = draw;
+$("#chkLegend").onchange = e => $("#legend").classList.toggle("show", e.target.checked);
+$("#chkTime").onchange = e => showTime(e.target.checked);
+$("#inpLat").onchange = e => { S.latency = parseFloat(e.target.value) || 0; draw(); };
+
+// 键盘
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.code === "Space") { e.preventDefault(); S.level && (S.playing ? pause() : play()); }
+  else if (e.key === "f" || e.key === "F") fitView();
+});
+
+// 拖放文件夹
+async function collectFiles(items) {
+  const out = [];
+  const walk = entry => new Promise(res => {
+    if (entry.isFile) entry.file(f => { out.push(f); res(); });
+    else if (entry.isDirectory) {
+      const r = entry.createReader();
+      const all = [];
+      const readMore = () => r.readEntries(async es => {
+        if (!es.length) { for (const e2 of all) await walk(e2); res(); }
+        else { all.push(...es); readMore(); }
+      });
+      readMore();
+    } else res();
+  });
+  for (const it of items) {
+    const ent = it.webkitGetAsEntry && it.webkitGetAsEntry();
+    if (ent) await walk(ent);
+  }
+  return out;
+}
+const dropBox = $("#dropBox");
+["dragenter", "dragover"].forEach(ev => dropBox.addEventListener(ev, e => {
+  e.preventDefault(); dropBox.classList.add("over");
+}));
+["dragleave", "drop"].forEach(ev => dropBox.addEventListener(ev, e => {
+  e.preventDefault(); dropBox.classList.remove("over");
+}));
+dropBox.addEventListener("drop", async e => {
+  e.preventDefault(); e.stopPropagation();
+  const files = await collectFiles(Array.from(e.dataTransfer.items));
+  if (files.length) loadFiles(files).catch(showErr);
+});
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", e => e.preventDefault());
+
+/* ---------------------- 启动 ---------------------- */
+initCanvas();
+resize();                    // 启动即确定画布尺寸（否则首帧 W/H 为 0）
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

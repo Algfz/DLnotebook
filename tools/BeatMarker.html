@@ -1,0 +1,1679 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BeatMarker · 踩音标记器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #16181d; --panel: #1f232b; --panel2: #262b34; --line: #333a46;
+    --fg: #d9dee7; --dim: #8b93a3; --accent: #4ea1ff; --accent2: #ffb454;
+    --danger: #ff5f56; --ok: #4ec9a0;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* ---------- 工具栏 ---------- */
+  #toolbar {
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 7px 12px; display: flex; flex-wrap: wrap; gap: 7px 12px;
+    align-items: center; flex: 0 0 auto;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 7px 12px; align-items: center; width: 100%; }
+  .grp { display: flex; align-items: center; gap: 5px; }
+  .grp + .grp { border-left: 1px solid var(--line); padding-left: 12px; }
+  .lbl { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  button {
+    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 9px; cursor: pointer; font-size: 12px;
+    font-family: inherit; white-space: nowrap;
+  }
+  button:hover:not(:disabled) { background: #30363f; border-color: #46505f; }
+  button:active:not(:disabled) { background: #3a414c; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: #1d4f7c; border-color: #2d6ba5; }
+  button.primary:hover:not(:disabled) { background: #245f95; }
+  button.on { background: #1d4f7c; border-color: var(--accent); color: #fff; }
+  input[type=number], input[type=text], select {
+    background: #12141a; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 6px; font-size: 12px; font-family: inherit;
+  }
+  input[type=number] { width: 72px; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .chk { display: flex; align-items: center; gap: 4px; color: var(--dim); font-size: 12px; cursor: pointer; }
+  .chk input { cursor: pointer; }
+
+  #modeInd {
+    padding: 4px 11px; border-radius: 4px; font-weight: 600; font-size: 12px; border: 1px solid var(--line);
+  }
+  #modeInd.mark { background: #1d4f7c; border-color: var(--accent); color: #cfe6ff; }
+  #modeInd.bpm  { background: #6b4a12; border-color: var(--accent2); color: #ffe0b0; }
+
+  .secTag {
+    background: #1d4f7c; border: 1px solid var(--accent); color: #cfe6ff;
+    border-radius: 4px; padding: 4px 9px; font-size: 12px; font-weight: 600;
+  }
+  .secTag.free { background: #6b2320; border-color: var(--danger); color: #ffd4d0; }
+
+  /* ---------- 双轨（两条线）---------- */
+  button.trk { padding: 4px 10px; font-weight: 600; }
+  button.trk.on[data-trk="0"] { background: #14513f; border-color: #4ec9a0; color: #d7fff2; }
+  button.trk.on[data-trk="1"] { background: #412a5e; border-color: #b388ff; color: #f0e6ff; }
+  .trkDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+  .trkDot.a { background: #4ec9a0; }
+  .trkDot.b { background: #b388ff; }
+
+  /* ---------- 变速段列表 ---------- */
+  #secBar {
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 5px 12px; display: flex; align-items: center; gap: 8px;
+    flex: 0 0 auto; overflow-x: auto;
+  }
+  #secList { display: flex; gap: 5px; flex-wrap: wrap; }
+  .schip {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 3px;
+    padding: 2px 7px; font-size: 11px; cursor: pointer; display: flex; gap: 6px; align-items: center;
+    white-space: nowrap;
+  }
+  .schip:hover { border-color: #5a6473; }
+  .schip.sel { border-color: var(--accent); background: #1d3550; }
+  .schip.free { border-color: #7a3b37; }
+  .schip.free.sel { background: #4a2320; border-color: var(--danger); }
+  .schip b { color: var(--accent2); font-weight: 600; }
+  .schip i { font-style: normal; color: var(--dim); }
+  .schip .x { color: var(--dim); font-weight: 700; padding: 0 2px; }
+  .schip .x:hover { color: var(--danger); }
+
+  /* ---------- 轨道 ---------- */
+  #tracks { flex: 1 1 auto; overflow: hidden; display: flex; flex-direction: column; }
+  .track { display: grid; grid-template-columns: 82px 1fr; border-bottom: 1px solid var(--line); }
+  .track.grow { flex: 1 1 auto; min-height: 0; }
+  .tl {
+    background: var(--panel); border-right: 1px solid var(--line);
+    padding: 4px 8px; font-size: 11px; color: var(--dim);
+    display: flex; flex-direction: column; justify-content: center; gap: 2px;
+  }
+  .tl b { color: var(--fg); font-size: 12px; font-weight: 600; }
+  .tl span { font-size: 10px; line-height: 1.3; }
+  .tc { position: relative; overflow: hidden; }
+  canvas { display: block; width: 100%; }
+  #cvTrack { cursor: crosshair; }
+
+  /* ---------- 状态栏 ---------- */
+  #status {
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 5px 12px; font-size: 11px; color: var(--dim);
+    display: flex; gap: 15px; flex-wrap: wrap; flex: 0 0 auto;
+  }
+  #status b { color: var(--fg); font-weight: 600; }
+  kbd {
+    background: #12141a; border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 3px; padding: 1px 5px; font: 11px Consolas, monospace; color: var(--fg);
+  }
+
+  /* ---------- 拖放 ---------- */
+  #drop {
+    position: fixed; inset: 0; background: rgba(22,24,29,.96); z-index: 50;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  }
+  #drop.hide { display: none; }
+  #drop h1 { font-size: 22px; font-weight: 600; }
+  #drop p { color: var(--dim); }
+  #dropBox {
+    width: 460px; max-width: 86vw; padding: 44px; text-align: center;
+    border: 2px dashed var(--line); border-radius: 10px; color: var(--dim); transition: .15s;
+  }
+  #dropBox.over { border-color: var(--accent); background: rgba(78,161,255,.07); color: var(--accent); }
+
+  /* ---------- 进度 ---------- */
+  #prog {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 22px 34px; z-index: 60; text-align: center; min-width: 280px;
+  }
+  #prog.hide { display: none; }
+  #progBar { height: 5px; background: #12141a; border-radius: 3px; margin-top: 12px; overflow: hidden; }
+  #progFill { height: 100%; width: 0%; background: var(--accent); transition: width .1s; }
+
+  /* ---------- 弹窗 ---------- */
+  #modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 70;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #modal.hide { display: none; }
+  #modalBox {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    width: 720px; max-width: 92vw; max-height: 84vh; display: flex; flex-direction: column;
+  }
+  #modalBox h3 { padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  #jsonOut {
+    flex: 1 1 auto; margin: 12px 16px; padding: 10px; background: #12141a;
+    border: 1px solid var(--line); border-radius: 4px; color: #b8c4d4;
+    font: 11px/1.5 Consolas, "Courier New", monospace; resize: none; min-height: 300px;
+  }
+  #modalFoot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* ---------- 校准弹窗 ---------- */
+  #calModal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 80;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #calModal.hide { display: none; }
+  #calBox {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    width: 520px; max-width: 92vw; display: flex; flex-direction: column;
+  }
+  #calBox h3 { padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  #calBody { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  #calBody .hint { font-size: 12px; color: var(--fg); line-height: 1.6; }
+  #calBody .hint2 { font-size: 11px; color: var(--dim); line-height: 1.6; }
+  #calBody .warn { font-size: 11px; color: var(--accent2); line-height: 1.5; min-height: 16px; }
+  .calStat { display: flex; gap: 18px; font-size: 12px; color: var(--dim); }
+  .calStat b { color: var(--accent); font-size: 15px; font-family: Consolas, monospace; }
+  #calBars {
+    display: flex; align-items: flex-end; gap: 2px; height: 64px;
+    background: #12141a; border: 1px solid var(--line); border-radius: 4px; padding: 4px;
+  }
+  #calBars i { flex: 1; min-width: 2px; background: var(--accent); border-radius: 1px 1px 0 0; }
+  #calBars i.bad { background: var(--danger); }
+  .calRow { display: flex; align-items: center; gap: 8px; }
+  #calFoot {
+    padding: 12px 16px; border-top: 1px solid var(--line);
+    display: flex; gap: 8px; justify-content: flex-end;
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="row">
+    <div class="grp">
+      <button id="btnOpen">打开音频</button>
+      <input type="file" id="fileInput" accept="audio/*" hidden>
+      <input type="file" id="jsonInput" accept=".json" hidden>
+      <span class="lbl" id="fileName">未加载</span>
+    </div>
+
+    <div class="grp">
+      <button id="btnUndo" title="Ctrl+Z" disabled>↶ 撤销</button>
+      <button id="btnRedo" title="Ctrl+Shift+Z" disabled>↷ 重做</button>
+      <button id="btnClear" title="清除所有踩音点">清除点</button>
+    </div>
+
+    <div class="grp">
+      <button id="btnPlay" title="播放 / 暂停（A）">播放</button>
+      <button id="btnStop" title="停止并回到开头（S）">停止</button>
+      <label class="chk"><input type="checkbox" id="chkFollow" checked>跟随</label>
+    </div>
+
+    <div class="grp">
+      <button id="btnCal">延迟校准</button>
+      <span class="lbl">补偿</span>
+      <button id="btnLatM" title="Alt + ,">−</button>
+      <input type="number" id="inpLat" value="0" step="5" style="width:64px">
+      <span class="lbl">ms</span>
+      <button id="btnLatP" title="Alt + .">+</button>
+    </div>
+
+    <div class="grp">
+      <button id="btnZoomIn">+</button>
+      <button id="btnZoomOut">−</button>
+      <button id="btnFit">全览</button>
+    </div>
+
+    <div class="grp">
+      <span id="modeInd" class="mark">空格 = 打踩音</span>
+    </div>
+
+    <div class="grp">
+      <span class="lbl">当前轨道</span>
+      <button id="btnTrkA" class="trk on" data-trk="0" title="按 1 切换"><span class="trkDot a"></span>线 A</button>
+      <button id="btnTrkB" class="trk" data-trk="1" title="按 2 切换"><span class="trkDot b"></span>线 B</button>
+      <label class="chk"><input type="checkbox" id="chkDual" title="一次打点同时记到两条线">双轨同录</label>
+    </div>
+
+    <div class="grp" style="margin-left:auto">
+      <button id="btnImport">导入工程</button>
+      <button id="btnExport" class="primary" disabled>导出 JSON</button>
+    </div>
+  </div>
+
+  <div class="row" style="border-top:1px solid var(--line);padding-top:7px">
+    <div class="grp">
+      <span class="lbl">当前段</span>
+      <span id="secTag" class="secTag">#1</span>
+    </div>
+    <div class="grp">
+      <span class="lbl">BPM</span>
+      <input type="number" id="inpBPM" value="120" step="0.01" min="20" max="400">
+      <button id="btnTap">Tap (T)</button>
+      <span class="lbl" id="tapInfo"></span>
+    </div>
+    <div class="grp">
+      <span class="lbl">吸附细分</span>
+      <select id="selDiv">
+        <option value="1">1/1 整拍</option>
+        <option value="2">1/2</option>
+        <option value="3">1/3 三连音</option>
+        <option value="4">1/4</option>
+        <option value="6">1/6</option>
+        <option value="8">1/8</option>
+        <option value="16">1/16</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="chkSnapSec" checked>本段吸附</label>
+    </div>
+    <div class="grp">
+      <span class="lbl">相位</span>
+      <button id="btnPhMM">−10</button>
+      <button id="btnPhM">−1</button>
+      <input type="number" id="inpPhase" value="0" step="1" style="width:66px">
+      <span class="lbl">ms</span>
+      <button id="btnPhP">+1</button>
+      <button id="btnPhPP">+10</button>
+    </div>
+    <div class="grp">
+      <button id="btnSplit" title="在播放头处新增一个网格段">从播放头分段</button>
+      <button id="btnSetFirst" title="把播放头设为第 1 拍">设为第一拍</button>
+    </div>
+    <div class="grp">
+      <span class="lbl">拍号</span>
+      <select id="selMeter">
+        <option value="4">4/4</option>
+        <option value="3">3/4</option>
+        <option value="6">6/8</option>
+        <option value="5">5/4</option>
+        <option value="7">7/8</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<div id="secBar">
+  <span class="lbl">网格段（点击选中 · × 删除 · 拖顶部段带可平移网格）：</span>
+  <div id="secList"></div>
+</div>
+
+<div id="tracks">
+  <div class="track">
+    <div class="tl"><b>标尺</b><span>时间</span></div>
+    <div class="tc"><canvas id="cvRuler"></canvas></div>
+  </div>
+  <div class="track">
+    <div class="tl"><b>波形</b><span>振幅</span></div>
+    <div class="tc"><canvas id="cvWave"></canvas></div>
+  </div>
+  <div class="track grow">
+    <div class="tl"><b>频谱</b><span>对数频率<br>看乐器</span></div>
+    <div class="tc"><canvas id="cvSpec"></canvas></div>
+  </div>
+  <div class="track">
+    <div class="tl"><b>踩音轨</b><span>双轨 A/B<br>空格打点·右键删</span></div>
+    <div class="tc"><canvas id="cvTrack"></canvas></div>
+  </div>
+</div>
+
+<div id="status">
+  <span>时间 <b id="stTime">0.000</b>s</span>
+  <span>拍号 <b id="stBeat">–</b></span>
+  <span>视窗 <b id="stView">0.00 – 0.00</b>s</span>
+  <span>缩放 <b id="stZoom">–</b> px/s</span>
+  <span>踩音点 A/B <b id="stMarks">0 / 0</b></span>
+  <span>补偿 <b id="latLabel">0</b> ms</span>
+  <span>历史 <b id="stHist">0</b></span>
+  <span><kbd>空格</kbd> 打点/采集 &nbsp;<kbd>A</kbd> 播放/暂停 &nbsp;<kbd>S</kbd> 停止 &nbsp;<kbd>1</kbd><kbd>2</kbd> 切轨(A/B) &nbsp;<kbd>Tab</kbd> 模式 &nbsp;<kbd>Ctrl+Z</kbd> 撤销 &nbsp;<kbd>,</kbd><kbd>.</kbd> 相位∓1ms &nbsp;<kbd>Alt+,</kbd><kbd>Alt+.</kbd> 延迟∓10ms &nbsp;<kbd>滚轮</kbd> 缩放 &nbsp;<kbd>拖拽</kbd> 平移</span>
+</div>
+
+<div id="drop">
+  <h1>BeatMarker · 踩音标记器</h1>
+  <div id="dropBox">
+    <p style="font-size:15px;margin-bottom:6px">把音频文件拖到这里</p>
+    <p style="font-size:12px">mp3 / wav / ogg / flac / m4a</p>
+    <p style="margin-top:18px"><button id="btnOpen2">或点击选择文件</button></p>
+  </div>
+  <p style="font-size:12px">纯本地运行，音频不会上传到任何地方</p>
+</div>
+
+<div id="prog" class="hide">
+  <div id="progText">分析中…</div>
+  <div id="progBar"><div id="progFill"></div></div>
+</div>
+
+<div id="modal" class="hide">
+  <div id="modalBox">
+    <h3>导出结果 · 复制后交给 AI 即可</h3>
+    <textarea id="jsonOut" readonly spellcheck="false"></textarea>
+    <div id="modalFoot">
+      <button id="btnCopy">复制到剪贴板</button>
+      <button id="btnDownload">下载 .json</button>
+      <button id="btnCloseModal" class="primary">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="calModal" class="hide">
+  <div id="calBox">
+    <h3>延迟校准</h3>
+    <div id="calBody">
+      <p class="hint">戴上耳机 → 点「开始」→ 跟着蜂鸣声按 <kbd>空格</kbd>。至少敲 8 次，越多越准。<br>
+      跟着节奏敲就行，<b>不用刻意等听到再反应</b>——你怎么敲得稳就怎么敲。</p>
+      <p id="calWarn" class="warn"></p>
+      <div class="calRow">
+        <span class="lbl">蜂鸣间隔</span>
+        <select id="selCalIv">
+          <option value="0.5">0.5 秒</option>
+          <option value="0.75">0.75 秒</option>
+          <option value="1" selected>1.0 秒</option>
+          <option value="1.5">1.5 秒</option>
+        </select>
+        <span class="lbl">固定间隔，方便跟上节奏</span>
+      </div>
+      <div class="calStat">
+        <div>样本 <b id="calN">0</b></div>
+        <div>中位数 <b id="calMed">–</b> ms</div>
+        <div>抖动 ±<b id="calStd">–</b> ms</div>
+      </div>
+      <div id="calBars"></div>
+      <div class="calRow">
+        <span class="lbl">延迟补偿</span>
+        <input type="number" id="inpLatency" value="0" step="1"> ms
+        <button id="btnCalApply" class="primary">应用并关闭</button>
+      </div>
+      <p class="hint2">数值 = 音频输出延迟 + 你的反应时间，正常应在 <b>100~500ms</b>。<br>
+      蓝牙耳机会明显变大。敲的过程中画面会实时跟着变，可以边敲边感受。<br>
+      关掉后仍可用工具栏输入框或 <kbd>Alt+,</kbd> / <kbd>Alt+.</kbd> 微调，<b>播放中也能实时改</b>。</p>
+    </div>
+    <div id="calFoot">
+      <button id="btnCalToggle">开始</button>
+      <button id="btnCalReset">清空样本</button>
+      <button id="btnCalClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   BeatMarker v0.3 — 踩音标记器
+   · 可分段网格（每段独立 BPM / 细分 / 相位 / 吸附开关）
+   · 双轨踩音（线 A / 线 B 各自独立，可双轨同录）——为「两条线」玩法准备
+   · 完整撤销重做
+   · 纯前端单文件
+   ===================================================================== */
+
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const fmt = t => {
+  const neg = t < 0; t = Math.abs(t);
+  const m = Math.floor(t / 60), s = Math.floor(t % 60), ms = Math.floor((t % 1) * 1000);
+  return (neg ? '-' : '') + m + ':' + String(s).padStart(2, '0') + '.' + String(ms).padStart(3, '0');
+};
+
+/* ---------------------- FFT ---------------------- */
+let TW_N = 0, TW_C = null, TW_S = null, REV = null;
+function fftInit(n) {
+  if (TW_N === n) return;
+  TW_N = n; TW_C = new Float32Array(n / 2); TW_S = new Float32Array(n / 2);
+  for (let i = 0; i < n / 2; i++) {
+    TW_C[i] = Math.cos(-2 * Math.PI * i / n);
+    TW_S[i] = Math.sin(-2 * Math.PI * i / n);
+  }
+  REV = new Uint32Array(n);
+  const bits = Math.log2(n) | 0;
+  for (let i = 0; i < n; i++) {
+    let r = 0;
+    for (let b = 0; b < bits; b++) if (i & (1 << b)) r |= 1 << (bits - 1 - b);
+    REV[i] = r;
+  }
+}
+function fft(re, im) {
+  const n = re.length; fftInit(n);
+  for (let i = 0; i < n; i++) {
+    const j = REV[i];
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const step = n / len, half = len >> 1;
+    for (let i = 0; i < n; i += len) {
+      for (let k = 0; k < half; k++) {
+        const ti = k * step, wr = TW_C[ti], wi = TW_S[ti];
+        const a = i + k, b = a + half;
+        const vr = re[b] * wr - im[b] * wi;
+        const vi = re[b] * wi + im[b] * wr;
+        re[b] = re[a] - vr; im[b] = im[a] - vi;
+        re[a] += vr;        im[a] += vi;
+      }
+    }
+  }
+}
+
+/* ---------------------- 状态 ---------------------- */
+const S = {
+  buf: null, mono: null, name: '', sr: 44100, dur: 0,
+  peaks: null, spec: null, specMeta: null,
+  view: { a: 0, b: 10 },
+  playhead: 0, playing: false,
+  // 网格分段：每段 { t 起始时间, bpm, phase 相位(秒), div 细分, snap 吸附 }
+  sections: [{ t: 0, bpm: 120, phase: 0, div: 4, snap: true }],
+  curSec: 0,
+  beats: [],
+  // 两条线各一组踩音点：tracks[0]=线 A，tracks[1]=线 B，各自独立
+  tracks: [{ marks: [] }, { marks: [] }],
+  curTrack: 0,          // 当前正在录/编辑的轨道（0=A，1=B）
+  dual: false,          // 双轨同录：一次打点同时记到两条线
+  meter: 4,
+  latency: 0,            // 延迟补偿（毫秒）= 输出延迟 + 人的反应
+  mode: 'mark',
+  follow: true,
+};
+
+let AC = null, srcNode = null, playCtxT0 = 0, playOffset = 0;
+
+// 两条线的配色与名称（线 A 绿、线 B 紫）
+const TRK_COLOR = ['#4ec9a0', '#b388ff'];
+const TRK_NAME = ['A', 'B'];
+const curMarks = () => S.tracks[S.curTrack].marks;
+
+/* =====================================================================
+   撤销 / 重做
+   ===================================================================== */
+const Hist = { u: [], r: [], MAX: 150 };
+function snapshot() {
+  return JSON.stringify({
+    tracks: S.tracks, sections: S.sections, meter: S.meter,
+    curSec: S.curSec, curTrack: S.curTrack,
+  });
+}
+function restore(str) {
+  const o = JSON.parse(str);
+  S.tracks = o.tracks; S.sections = o.sections;
+  S.meter = o.meter; S.curSec = clamp(o.curSec, 0, S.sections.length - 1);
+  S.curTrack = clamp(o.curTrack || 0, 0, S.tracks.length - 1);
+  histTag = '';                      // 撤销后打断合并链
+  rebuildBeats(); syncUI(); drawAll();
+}
+// tag 相同且间隔很短的连续操作合并为一条历史（如连续微调相位）
+let histTag = '', histAt = 0;
+function pushHist(tag) {
+  const now = Date.now();
+  if (tag && tag === histTag && now - histAt < 700) {
+    histAt = now;                 // 合并，不新增条目
+    Hist.r.length = 0;
+    return;
+  }
+  Hist.u.push(snapshot());
+  if (Hist.u.length > Hist.MAX) Hist.u.shift();
+  Hist.r.length = 0;
+  histTag = tag || ''; histAt = now;
+  updHistBtns();
+}
+function undo() {
+  if (!Hist.u.length) return;
+  Hist.r.push(snapshot()); restore(Hist.u.pop()); updHistBtns();
+}
+function redo() {
+  if (!Hist.r.length) return;
+  Hist.u.push(snapshot()); restore(Hist.r.pop()); updHistBtns();
+}
+function updHistBtns() {
+  $('#btnUndo').disabled = !Hist.u.length;
+  $('#btnRedo').disabled = !Hist.r.length;
+  $('#stHist').textContent = Hist.u.length + ' / ' + Hist.r.length;
+}
+
+/* =====================================================================
+   网格分段
+   ===================================================================== */
+function sectionAt(t) {
+  let idx = 0;
+  for (let i = 0; i < S.sections.length; i++) if (S.sections[i].t <= t + 1e-9) idx = i;
+  return idx;
+}
+function secEnd(i) {
+  return (i + 1 < S.sections.length) ? S.sections[i + 1].t : S.dur;
+}
+function curSection() { return S.sections[S.curSec] || S.sections[0]; }
+
+// 重建拍点（跨段连续拍号）
+function rebuildBeats() {
+  const out = [];
+  let bi = 0;
+  for (let s = 0; s < S.sections.length; s++) {
+    const sec = S.sections[s];
+    const endT = secEnd(s);
+    const beatLen = 60 / sec.bpm;
+    let t = sec.t + sec.phase;
+    let guard = 0;
+    while (t < endT - 1e-9 && t <= S.dur + 0.001 && guard++ < 200000) {
+      out.push({ t, i: bi, sec: s });
+      t += beatLen; bi++;
+    }
+  }
+  out.sort((a, b) => a.t - b.t);
+  S.beats = out;
+}
+
+// 吸附：按所在段的网格对齐
+function snapTime(t) {
+  const sec = S.sections[sectionAt(t)];
+  if (!sec || !sec.snap) return t;
+  const step = (60 / sec.bpm) / sec.div;
+  const origin = sec.t + sec.phase;
+  return origin + Math.round((t - origin) / step) * step;
+}
+function timeToBeat(t) {
+  const B = S.beats;
+  if (!B.length) return 0;
+  if (t <= B[0].t) return (t - B[0].t) / beatLenAt(B[0]);
+  let lo = 0, hi = B.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (B[m].t <= t) lo = m; else hi = m - 1; }
+  if (lo >= B.length - 1) return B[B.length - 1].i + (t - B[B.length - 1].t) / beatLenAt(B[B.length - 1]);
+  return B[lo].i + (t - B[lo].t) / (B[lo + 1].t - B[lo].t);
+}
+function beatLenAt(b) {
+  const sec = S.sections[b.sec != null ? b.sec : sectionAt(b.t)];
+  return 60 / (sec ? sec.bpm : 120);
+}
+function visibleBeatRange(a, b) {
+  const B = S.beats;
+  let lo = 0, hi = B.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (B[m].t < a) lo = m + 1; else hi = m; }
+  const i0 = Math.max(0, lo - 1);
+  let i1 = i0;
+  while (i1 < B.length && B[i1].t <= b) i1++;
+  return [i0, Math.min(B.length, i1 + 1)];
+}
+
+/* =====================================================================
+   音频加载
+   ===================================================================== */
+function ensureAC() {
+  if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function decodeAudio(ab) {
+  return new Promise((res, rej) => {
+    const p = AC.decodeAudioData(ab, res, rej);
+    if (p && p.then) p.then(res, rej);
+  });
+}
+const nextTick = () => new Promise(r => setTimeout(r, 0));
+function setProg(v, txt) {
+  $('#progFill').style.width = (v * 100).toFixed(1) + '%';
+  if (txt) $('#progText').textContent = txt;
+}
+async function loadFile(file) {
+  $('#prog').classList.remove('hide');
+  setProg(0, '解码音频…');
+  try {
+    ensureAC();
+    const arr = await file.arrayBuffer();
+    const buf = await decodeAudio(arr);
+    S.buf = buf; S.name = file.name; S.sr = buf.sampleRate; S.dur = buf.duration;
+    $('#fileName').textContent = file.name;
+    $('#drop').classList.add('hide');
+
+    const n = buf.length, chs = buf.numberOfChannels;
+    const mono = new Float32Array(n);
+    for (let c = 0; c < chs; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < n; i++) mono[i] += d[i];
+    }
+    if (chs > 1) for (let i = 0; i < n; i++) mono[i] /= chs;
+    S.mono = mono;
+
+    setProg(0.05, '计算波形…'); await nextTick();
+    S.peaks = computePeaks(mono);
+    setProg(0.15, '计算频谱…'); await nextTick();
+    await computeSpectrogram(mono, S.sr);
+
+    S.view = { a: 0, b: Math.min(S.dur, 20) };
+    S.sections = [{ t: 0, bpm: parseFloat($('#inpBPM').value) || 120, phase: 0, div: 4, snap: true }];
+    S.curSec = 0; S.playhead = 0;
+    S.tracks = [{ marks: [] }, { marks: [] }]; S.curTrack = 0;   // 两条线清空
+    Hist.u.length = 0; Hist.r.length = 0; updHistBtns();
+    rebuildBeats(); syncUI();
+    $('#btnExport').disabled = false;
+    $('#prog').classList.add('hide');
+    resize(); drawAll();
+  } catch (e) {
+    $('#prog').classList.add('hide');
+    alert('加载失败：' + e.message);
+  }
+}
+
+function computePeaks(d) {
+  const levels = [];
+  let spb = 256;
+  while (spb / S.sr < 4) {
+    const n = Math.ceil(d.length / spb);
+    const mn = new Float32Array(n), mx = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const s = i * spb, e = Math.min(s + spb, d.length);
+      let lo = 1e9, hi = -1e9;
+      for (let j = s; j < e; j++) { const v = d[j]; if (v < lo) lo = v; if (v > hi) hi = v; }
+      mn[i] = lo; mx[i] = hi;
+    }
+    levels.push({ spb, mn, mx, n });
+    spb *= 4;
+  }
+  return levels;
+}
+
+/* ---------------------- 频谱图 ---------------------- */
+const FFT_N = 2048, SPEC_H = 320, DB_MIN = -92, DB_MAX = -12;
+function computeSpectrogram(d, sr) {
+  return new Promise(resolve => {
+    const fMin = 40, fMax = Math.min(16000, sr / 2), binHz = sr / FFT_N;
+    const MAXW = 32000;
+    let hop = 512;
+    let frames = Math.max(1, Math.floor((d.length - FFT_N) / hop) + 1);
+    if (frames > MAXW) {
+      hop = Math.max(hop, Math.ceil((d.length - FFT_N) / (MAXW - 1)));
+      frames = Math.max(1, Math.floor((d.length - FFT_N) / hop) + 1);
+    }
+    // y=0 顶部=高频，y=SPEC_H-1 底部=低频
+    const rowB0 = new Int32Array(SPEC_H), rowB1 = new Int32Array(SPEC_H);
+    for (let y = 0; y < SPEC_H; y++) {
+      const f0 = fMin * Math.pow(fMax / fMin, (SPEC_H - 1 - y) / (SPEC_H - 1));
+      const f1 = fMin * Math.pow(fMax / fMin, (SPEC_H - y) / (SPEC_H - 1));
+      let b0 = Math.floor(f0 / binHz), b1 = Math.ceil(f1 / binHz);
+      b0 = clamp(b0, 0, FFT_N / 2 - 1); b1 = clamp(b1, b0 + 1, FFT_N / 2);
+      rowB0[y] = b0; rowB1[y] = b1;
+    }
+    const win = new Float32Array(FFT_N);
+    for (let i = 0; i < FFT_N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (FFT_N - 1));
+
+    const cv = document.createElement('canvas');
+    cv.width = frames; cv.height = SPEC_H;
+    const g = cv.getContext('2d');
+    const img = g.createImageData(frames, SPEC_H);
+    const px = img.data;
+    const re = new Float32Array(FFT_N), im = new Float32Array(FFT_N);
+    const mags = new Float32Array(FFT_N / 2);
+    let f = 0;
+
+    function chunk() {
+      const end = Math.min(f + 150, frames);
+      for (; f < end; f++) {
+        const off = f * hop;
+        for (let i = 0; i < FFT_N; i++) { re[i] = (d[off + i] || 0) * win[i]; im[i] = 0; }
+        fft(re, im);
+        for (let k = 0; k < FFT_N / 2; k++) mags[k] = Math.sqrt(re[k] * re[k] + im[k] * im[k]) / (FFT_N / 2);
+        for (let y = 0; y < SPEC_H; y++) {
+          let m = 0;
+          for (let b = rowB0[y]; b < rowB1[y]; b++) if (mags[b] > m) m = mags[b];
+          const db = 20 * Math.log10(m + 1e-12);
+          const v = clamp((db - DB_MIN) / (DB_MAX - DB_MIN), 0, 1);
+          const c = colormap(v);
+          const p = (y * frames + f) * 4;
+          px[p] = c[0]; px[p + 1] = c[1]; px[p + 2] = c[2]; px[p + 3] = 255;
+        }
+      }
+      setProg(0.15 + 0.85 * f / frames, '计算频谱… ' + Math.round(100 * f / frames) + '%');
+      if (f < frames) setTimeout(chunk, 0);
+      else {
+        g.putImageData(img, 0, 0);
+        S.spec = cv;
+        S.specMeta = { frames, hop, fftN: FFT_N, specH: SPEC_H, fMin, fMax };
+        resolve();
+      }
+    }
+    chunk();
+  });
+}
+const CM = [
+  [0.00, 0, 0, 0], [0.13, 22, 11, 57], [0.25, 66, 10, 104],
+  [0.38, 106, 23, 110], [0.50, 147, 38, 103], [0.63, 188, 55, 84],
+  [0.75, 221, 81, 58], [0.85, 243, 120, 25], [0.93, 252, 165, 10],
+  [0.98, 246, 215, 70], [1.00, 252, 255, 164]
+];
+function colormap(v) {
+  v = clamp(v, 0, 1);
+  for (let i = 1; i < CM.length; i++) {
+    if (v <= CM[i][0]) {
+      const a = CM[i - 1], b = CM[i], k = (v - a[0]) / (b[0] - a[0] || 1);
+      return [a[1] + (b[1] - a[1]) * k | 0, a[2] + (b[2] - a[2]) * k | 0, a[3] + (b[3] - a[3]) * k | 0];
+    }
+  }
+  return [252, 255, 164];
+}
+
+/* =====================================================================
+   绘制
+   ===================================================================== */
+const CVS = {};
+const SEC_RIB = 16;                       // 段带高度
+function fitCanvas(cv, cssH) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.parentElement.clientWidth;
+  cv.style.height = cssH + 'px';
+  cv.width = Math.max(1, Math.round(w * dpr));
+  cv.height = Math.max(1, Math.round(cssH * dpr));
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { g, w, h: cssH };
+}
+function resize() {
+  if (!$('#tracks').clientHeight) return;
+  const avail = $('#tracks').clientHeight;
+  const specH = Math.max(120, avail - 28 - 130 - 110 - 3);
+  CVS.ruler = fitCanvas($('#cvRuler'), 28);
+  CVS.wave  = fitCanvas($('#cvWave'), 130);
+  CVS.spec  = fitCanvas($('#cvSpec'), specH);
+  CVS.track = fitCanvas($('#cvTrack'), 110);
+  drawAll();
+}
+window.addEventListener('resize', resize);
+
+const tx = t => (t - S.view.a) / (S.view.b - S.view.a) * CVS.wave.w;
+const xt = x => S.view.a + x / CVS.wave.w * (S.view.b - S.view.a);
+
+function drawAll() {
+  if (!S.buf || !S.peaks) return;      // 波形峰值就绪前不绘制（加载中）
+  drawRuler(); drawWave(); drawSpec(); drawTrack();
+  const t = songTime();
+  $('#stTime').textContent = t.toFixed(3);
+  $('#stBeat').textContent = S.beats.length ? timeToBeat(t).toFixed(2) : '–';
+  $('#stView').textContent = S.view.a.toFixed(2) + ' – ' + S.view.b.toFixed(2);
+  $('#stZoom').textContent = (CVS.wave.w / (S.view.b - S.view.a)).toFixed(0);
+  $('#stMarks').textContent = S.tracks[0].marks.length + ' / ' + S.tracks[1].marks.length;
+}
+function drawPlayhead(g, h) {
+  const x = tx(songTime());
+  if (x < -2 || x > CVS.wave.w + 2) return;
+  g.strokeStyle = '#ff4d4d'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x + .5, 0); g.lineTo(x + .5, h); g.stroke();
+  g.fillStyle = '#ff4d4d';
+  g.beginPath(); g.moveTo(x - 5, 0); g.lineTo(x + 5, 0); g.lineTo(x, 7); g.closePath(); g.fill();
+}
+
+function drawRuler() {
+  const { g, w, h } = CVS.ruler;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#1a1d23'; g.fillRect(0, 0, w, h);
+  const span = S.view.b - S.view.a;
+  const steps = [0.001,0.005,0.01,0.05,0.1,0.25,0.5,1,2,5,10,15,30,60,120,300];
+  const step = steps.find(s => s / span * w > 62) || 300;
+  g.fillStyle = '#8b93a3'; g.font = '10px Consolas, monospace';
+  g.strokeStyle = '#3a4250';
+  for (let t = Math.ceil(S.view.a / step) * step; t <= S.view.b; t += step) {
+    const x = Math.round(tx(t)) + .5;
+    g.beginPath(); g.moveTo(x, h - 9); g.lineTo(x, h); g.stroke();
+    g.fillText(fmt(t), x + 3, 11);
+  }
+  drawPlayhead(g, h);
+}
+
+function drawWave() {
+  const { g, w, h } = CVS.wave;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#14161b'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#2a2f38';
+  g.beginPath(); g.moveTo(0, h / 2 + .5); g.lineTo(w, h / 2 + .5); g.stroke();
+
+  const spbTarget = (S.view.b - S.view.a) * S.sr / w;
+  let lv = S.peaks[0];
+  for (const L of S.peaks) { if (L.spb <= spbTarget) lv = L; else break; }
+  const i0 = Math.max(0, Math.floor(S.view.a * S.sr / lv.spb));
+  const i1 = Math.min(lv.n, Math.ceil(S.view.b * S.sr / lv.spb));
+  const mid = h / 2, amp = h / 2 - 3;
+  g.fillStyle = '#4ea1ff'; g.beginPath();
+  for (let i = i0; i < i1; i++) {
+    const x = tx(i * lv.spb / S.sr), y = mid - clamp(lv.mx[i], -1, 1) * amp;
+    i === i0 ? g.moveTo(x, y) : g.lineTo(x, y);
+  }
+  for (let i = i1 - 1; i >= i0; i--) {
+    const x = tx(i * lv.spb / S.sr), y = mid - clamp(lv.mn[i], -1, 1) * amp;
+    g.lineTo(x, y);
+  }
+  g.closePath(); g.fill();
+
+  drawBeatLines(g, h, 'rgba(255,255,255,0.13)', 'rgba(255,180,84,0.35)', false);
+  drawSectionBg(g, w, h, 'rgba(78,161,255,0.05)');
+  drawPlayhead(g, h);
+}
+
+function drawSpec() {
+  const { g, w, h } = CVS.spec;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#0d0f13'; g.fillRect(0, 0, w, h);
+  if (S.spec) {
+    const M = S.specMeta;
+    const f0 = clamp(Math.floor(S.view.a * S.sr / M.hop), 0, M.frames - 1);
+    const f1 = clamp(Math.ceil(S.view.b * S.sr / M.hop), f0 + 1, M.frames);
+    g.imageSmoothingEnabled = (w / (f1 - f0)) < 2;
+    try { g.drawImage(S.spec, f0, 0, f1 - f0, M.specH, 0, 0, w, h); } catch (e) {}
+    g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(w - 52, 0, 52, h);
+    g.fillStyle = '#c9d1dd'; g.font = '10px Consolas, monospace';
+    for (const f of [100, 250, 500, 1000, 2000, 4000, 8000, 16000]) {
+      if (f > M.fMax) continue;
+      const y = h - (Math.log(f / M.fMin) / Math.log(M.fMax / M.fMin)) * h;
+      g.fillText(f >= 1000 ? (f / 1000) + 'k' : String(f), w - 48, clamp(y + 3, 10, h - 2));
+    }
+  }
+  drawBeatLines(g, h, 'rgba(255,255,255,0.10)', 'rgba(255,180,84,0.30)', false);
+  drawPlayhead(g, h);
+}
+
+function drawTrack() {
+  const { g, w, h } = CVS.track;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#181b21'; g.fillRect(0, 0, w, h);
+
+  drawGridLines(g, h);                 // 细分格 + 拍线
+  drawSectionBg(g, w, h, 'rgba(78,161,255,0.06)');
+  drawBeatLines(g, h, 'rgba(255,255,255,0.16)', 'rgba(255,180,84,0.55)', true);
+
+  // 标记：两条线各一组。当前轨道全亮、另一条淡显；
+  // 圆点上下错开，避免同一时刻两条线重合时看不清。
+  const DOTY = [SEC_RIB + 12, SEC_RIB + 30];
+  for (let ti = 0; ti < S.tracks.length; ti++) {
+    const act = ti === S.curTrack;
+    const col = TRK_COLOR[ti], yc = DOTY[ti];
+    g.globalAlpha = act ? 1 : 0.5;
+    for (const m of S.tracks[ti].marks) {
+      const x = tx(m.t);
+      if (x < -10 || x > w + 10) continue;
+      g.strokeStyle = col; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(x, yc + 6); g.lineTo(x, h - 4); g.stroke();
+      g.fillStyle = col;
+      g.beginPath(); g.arc(x, yc, 5, 0, 7); g.fill();
+      if (act) {                      // 拍号只在当前轨道的点上显示，免得拥挤
+        g.fillStyle = '#0f1216'; g.font = 'bold 9px Consolas, monospace'; g.textAlign = 'center';
+        g.fillText(String(Math.round(timeToBeat(m.t))), x, yc + 3);
+        g.textAlign = 'left';
+      }
+    }
+    g.globalAlpha = 1;
+  }
+
+  drawSectionRibbon(g, w);
+  drawPlayhead(g, h);
+}
+
+// 细分网格线（吸附格）
+function drawGridLines(g, h) {
+  const a = S.view.a, b = S.view.b;
+  for (let s = 0; s < S.sections.length; s++) {
+    const sec = S.sections[s];
+    if (!sec.snap || sec.div <= 1) continue;      // 不吸附段不画细分格
+    const startT = Math.max(a, sec.t - 1), stopT = Math.min(b, secEnd(s));
+    if (stopT <= startT) continue;
+    const step = (60 / sec.bpm) / sec.div;
+    if (step * (tx(1) - tx(0)) < 2.5) continue;   // 太密就不画
+    const origin = sec.t + sec.phase;
+    const n0 = Math.floor((startT - origin) / step), n1 = Math.ceil((stopT - origin) / step);
+    g.strokeStyle = 'rgba(255,255,255,0.07)'; g.lineWidth = 1;
+    g.beginPath();
+    for (let n = n0; n <= n1; n++) {
+      if (n % sec.div === 0) continue;            // 整拍线单独画
+      const t = origin + n * step;
+      if (t < startT || t > stopT) continue;
+      const x = Math.round(tx(t)) + .5;
+      g.moveTo(x, SEC_RIB); g.lineTo(x, h);
+    }
+    g.stroke();
+  }
+}
+
+// 拍线 / 小节线
+function drawBeatLines(g, h, cNorm, cBar, withNumber) {
+  const B = S.beats; if (!B.length) return;
+  const [i0, i1] = visibleBeatRange(S.view.a, S.view.b);
+  for (let i = i0; i < i1; i++) {
+    const bt = B[i];
+    if (bt.t < 0) continue;
+    const x = Math.round(tx(bt.t)) + .5;
+    const isBar = bt.i % S.meter === 0;
+    g.strokeStyle = isBar ? cBar : cNorm; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x, withNumber ? SEC_RIB : 0); g.lineTo(x, h); g.stroke();
+    if (isBar && withNumber) {
+      g.fillStyle = 'rgba(255,180,84,.8)'; g.font = '9px Consolas, monospace';
+      g.fillText(String(bt.i / S.meter + 1), x + 2, h - 3);
+    }
+  }
+}
+
+// 段背景（选中高亮 / 不吸附区红色）
+function drawSectionBg(g, w, h, base) {
+  for (let s = 0; s < S.sections.length; s++) {
+    const sec = S.sections[s];
+    const x0 = tx(Math.max(sec.t, S.view.a)), x1 = tx(Math.min(secEnd(s), S.view.b));
+    if (x1 < 0 || x0 > w || x1 <= x0) continue;
+    let c = base;
+    if (!sec.snap) c = 'rgba(255,95,86,0.07)';
+    if (s === S.curSec) c = sec.snap ? 'rgba(78,161,255,0.10)' : 'rgba(255,95,86,0.13)';
+    g.fillStyle = c; g.fillRect(x0, 0, x1 - x0, h);
+  }
+}
+
+// 顶部段带：显示范围与参数，可拖拽平移相位
+function drawSectionRibbon(g, w) {
+  const H = SEC_RIB;
+  g.fillStyle = '#12141a'; g.fillRect(0, 0, w, H);
+  for (let s = 0; s < S.sections.length; s++) {
+    const sec = S.sections[s];
+    const endT = secEnd(s);
+    const x0 = tx(Math.max(sec.t, S.view.a)), x1 = tx(Math.min(endT, S.view.b));
+    if (x1 < -1 || x0 > w + 1) continue;
+    const sel = s === S.curSec;
+    g.fillStyle = !sec.snap ? (sel ? '#7a3b37' : '#43211f') : (sel ? '#1d4f7c' : '#252a33');
+    g.fillRect(x0, 0, Math.max(1, x1 - x0), H - 1);
+    g.strokeStyle = sel ? '#4ea1ff' : '#39414e'; g.lineWidth = 1;
+    g.strokeRect(x0 + .5, .5, Math.max(1, x1 - x0) - 1, H - 2);
+
+    if (x1 - x0 > 46) {
+      g.fillStyle = sel ? '#eaf3ff' : '#9aa3b2';
+      g.font = '9px Consolas, monospace';
+      const ph = (sec.phase * 1000).toFixed(0);
+      const txt = '#' + (s + 1) + ' ' + sec.bpm.toFixed(0) + ' 1/' + sec.div +
+                  (sec.snap ? ' ' + (ph >= 0 ? '+' : '') + ph : ' 自由');
+      g.save(); g.beginPath(); g.rect(x0 + 3, 0, x1 - x0 - 6, H); g.clip();
+      g.fillText(txt, x0 + 4, 11);
+      g.restore();
+    }
+  }
+  g.strokeStyle = '#2a303a';
+  g.beginPath(); g.moveTo(0, H - .5); g.lineTo(w, H - .5); g.stroke();
+}
+
+/* =====================================================================
+   播放
+   ===================================================================== */
+function songTime() {
+  if (!S.playing) return S.playhead;
+  // 音频从 playOffset 起播；画面与打点延后 latency 启动（音频先跑一段，画面再跟上）
+  // 下界取 playOffset：避免补偿期内播放头往回倒退
+  const L = S.latency / 1000;
+  return clamp(playOffset + (AC.currentTime - playCtxT0) - L, playOffset, S.dur);
+}
+function play() {
+  if (!S.buf) return;
+  ensureAC(); stopNode();
+  const s = AC.createBufferSource(); s.buffer = S.buf; s.connect(AC.destination);
+  s.start(0, clamp(S.playhead, 0, S.dur));
+  srcNode = s; playCtxT0 = AC.currentTime; playOffset = S.playhead; S.playing = true;
+  $('#btnPlay').textContent = '暂停';
+}
+function pause() {
+  if (!S.playing) return;
+  S.playhead = songTime(); stopNode(); S.playing = false;
+  $('#btnPlay').textContent = '播放';
+}
+function stopNode() { if (srcNode) { try { srcNode.stop(); } catch (e) {} srcNode = null; } }
+function stopAll() {
+  S.playhead = S.playing ? songTime() : S.playhead;
+  stopNode(); S.playing = false; $('#btnPlay').textContent = '播放';
+}
+function seek(t) {
+  t = clamp(t, 0, S.dur);
+  if (S.playing) { S.playhead = t; play(); } else S.playhead = t;
+}
+function tickPlay() {
+  if (!S.playing) return;
+  const t = songTime();
+  if (t >= S.dur - 1e-3) { stopAll(); S.playhead = S.dur; }
+  else if (S.follow) {
+    const span = S.view.b - S.view.a;
+    if (t > S.view.b - span * 0.15 || t < S.view.a) {
+      const a = clamp(t - span * 0.3, 0, Math.max(0, S.dur - span));
+      S.view.a = a; S.view.b = a + span;
+    }
+  }
+}
+// 页面可见错误条：任何绘制异常直接显示出来，而不是无声卡死
+let errBox = null;
+function showErr(err) {
+  if (!errBox) {
+    errBox = document.createElement('div');
+    errBox.style.cssText =
+      'position:fixed;left:0;right:0;bottom:0;z-index:99;background:#5a1a17;color:#ffd9d6;' +
+      'font:11px Consolas,monospace;padding:6px 12px;max-height:110px;overflow:auto;white-space:pre-wrap';
+    document.body.appendChild(errBox);
+  }
+  errBox.textContent = '绘制循环出错：' + (err && err.stack || err);
+}
+let lastFrameAt = 0, okFrames = 0;
+function loop() {
+  lastFrameAt = performance.now();
+  try {
+    tickPlay();
+    drawAll();
+    okFrames++;
+    if (okFrames === 90 && errBox) errBox.style.display = 'none';  // 稳定运行后收起错误条
+  } catch (err) {
+    okFrames = 0;
+    if (errBox) errBox.style.display = '';
+    showErr(err);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// 兜底心跳：浏览器节流 requestAnimationFrame 时（如 Edge 效率模式），由定时器接管重绘
+setInterval(() => {
+  if (!S.playing) return;
+  if (performance.now() - lastFrameAt < 150) return;   // rAF 还活着，不干预
+  try { tickPlay(); drawAll(); } catch (err) { showErr(err); }
+}, 80);
+
+/* =====================================================================
+   交互：缩放 / 平移 / 打点 / 拖网格
+   ===================================================================== */
+function zoomAt(focusT, k) {
+  if (!S.buf) return;
+  const span0 = S.view.b - S.view.a;
+  const span1 = clamp(span0 * k, 0.02, Math.max(S.dur, 0.1));
+  const r = clamp((focusT - S.view.a) / span0, 0, 1);
+  let a = focusT - r * span1;
+  a = clamp(a, Math.min(0, S.dur - span1), Math.max(0, S.dur - span1));
+  S.view.a = a; S.view.b = a + span1;
+  drawAll();
+}
+function panBy(dt) {
+  const span = S.view.b - S.view.a;
+  const a = clamp(S.view.a + dt, 0, Math.max(0, S.dur - span));
+  S.view.a = a; S.view.b = a + span; drawAll();
+}
+
+// 单一拖拽状态：mode = 'pan' 平移视窗 | 'grid' 平移网格相位
+let drag = null;
+
+for (const id of ['cvRuler', 'cvWave', 'cvSpec', 'cvTrack']) {
+  const cv = document.getElementById(id);
+  cv.addEventListener('wheel', e => {
+    if (!S.buf) return;
+    e.preventDefault();
+    zoomAt(xt(e.offsetX), e.deltaY > 0 ? 1.18 : 1 / 1.18);
+  }, { passive: false });
+
+  cv.addEventListener('mousedown', e => {
+    if (!S.buf || e.button === 2) return;
+    const onRib = (cv.id === 'cvTrack' && e.offsetY <= SEC_RIB);
+    if (onRib || (cv.id === 'cvTrack' && e.shiftKey)) {
+      // 拖段带 / Shift 拖拽 → 平移该段网格
+      const si = sectionAt(xt(e.offsetX));
+      if (S.curSec !== si) { S.curSec = si; syncUI(); }
+      drag = {
+        cv, mode: 'grid', startClientX: e.clientX, moved: false,
+        sec: S.sections[si], startPhase: S.sections[si].phase,
+      };
+      pushHist();
+    } else {
+      drag = {
+        cv, mode: 'pan', lastX: e.clientX, moved: 0,
+        downX: e.offsetX, downY: e.offsetY,
+      };
+    }
+  });
+
+  cv.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (!S.buf) return;
+    handleRightClick(cv, e.offsetX, e.offsetY);
+  });
+}
+
+// 全局只注册一次
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  if (drag.mode === 'grid') {
+    drag.moved = true;
+    const dt = (e.clientX - drag.startClientX) / CVS.wave.w * (S.view.b - S.view.a);
+    drag.sec.phase = drag.startPhase + dt;
+    rebuildBeats(); syncPhaseInput(); drawAll();
+  } else {
+    const dx = e.clientX - drag.lastX; drag.lastX = e.clientX; drag.moved += Math.abs(dx);
+    if (drag.moved > 3) panBy(-dx / CVS.wave.w * (S.view.b - S.view.a));
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (d.mode === 'grid') {
+    // 只是点选、没有真正拖动 → 丢弃刚才那条无变化的历史
+    if (!d.moved) { Hist.u.pop(); updHistBtns(); }
+    return;
+  }
+  if (d.moved <= 3) handleClick(d.cv, d.downX, d.downY);
+});
+
+function handleClick(cv, offsetX, offsetY) {
+  const t = xt(offsetX);
+  if (cv.id === 'cvTrack') {
+    if (offsetY <= SEC_RIB) {                       // 点段带 = 选中段
+      const si = sectionAt(t);
+      if (si !== S.curSec) { S.curSec = si; syncUI(); drawAll(); }
+      return;
+    }
+    // 先删：优先删当前轨道的点，其次删另一条线的点（点哪里删哪里）
+    const del = hitAnyTrack(t, 6);
+    if (del) { pushHist(); S.tracks[del.ti].marks.splice(del.i, 1); }
+    else { pushHist(); if (S.dual) addMarkAll(t); else addMark(t); }
+  } else {
+    seek(t);
+  }
+  drawAll();
+}
+function handleRightClick(cv, offsetX, offsetY) {
+  if (cv.id !== 'cvTrack' || offsetY <= SEC_RIB) return;
+  const del = hitAnyTrack(xt(offsetX), 6);
+  if (del) { pushHist(); S.tracks[del.ti].marks.splice(del.i, 1); drawAll(); }
+}
+// 在某一轨道上找离 t 最近的点（返回下标，找不到 -1）
+function findMark(t, pxTol, ti) {
+  ti = (ti == null) ? S.curTrack : ti;
+  const tol = pxTol / CVS.wave.w * (S.view.b - S.view.a);
+  let best = -1, bd = 1e9;
+  S.tracks[ti].marks.forEach((m, i) => { const d = Math.abs(m.t - t); if (d < tol && d < bd) { bd = d; best = i; } });
+  return best;
+}
+// 先看当前轨道、再看另一条线，返回 {ti,i} 或 null
+function hitAnyTrack(t, pxTol) {
+  let i = findMark(t, pxTol, S.curTrack);
+  if (i >= 0) return { ti: S.curTrack, i };
+  const o = 1 - S.curTrack;
+  i = findMark(t, pxTol, o);
+  return i >= 0 ? { ti: o, i } : null;
+}
+function addMark(t, ti) {
+  ti = (ti == null) ? S.curTrack : ti;
+  const tt = clamp(snapTime(t), 0, S.dur);
+  const arr = S.tracks[ti].marks;
+  const dup = arr.findIndex(m => Math.abs(m.t - tt) < 1e-4);
+  if (dup >= 0) arr.splice(dup, 1);                 // 同一时刻再点一次 = 撤销该点
+  else { arr.push({ t: tt }); arr.sort((a, b) => a.t - b.t); }
+}
+// 双轨同录时一口气写两条线
+function addMarkAll(t) {
+  for (let i = 0; i < S.tracks.length; i++) addMark(t, i);
+}
+
+/* =====================================================================
+   延迟校准
+   ===================================================================== */
+const cal = { active: false, clicks: [], samples: [], nextT: 0, timer: null, nodes: [], iv: 1.0 };
+
+function calClick(t) {
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.frequency.setValueAtTime(1200, t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.4, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+  o.connect(g); g.connect(AC.destination);
+  o.start(t); o.stop(t + 0.07);
+  cal.nodes.push(o);
+  o.onended = () => { const i = cal.nodes.indexOf(o); if (i >= 0) cal.nodes.splice(i, 1); };
+}
+function calSchedule() {
+  // 固定间隔（默认 1 秒）：好跟上节奏。
+  // 间隔够长是关键——半间隔 500ms 远大于任何合理延迟，绝不会错配到下一声。
+  const iv = cal.iv;
+  while (cal.nextT < AC.currentTime + iv + 0.4) {   // 预调度未来一个多间隔
+    calClick(cal.nextT);
+    cal.clicks.push(cal.nextT);
+    if (cal.clicks.length > 48) cal.clicks.shift();
+    cal.nextT += iv;
+  }
+}
+function calStart() {
+  ensureAC();
+  cal.active = true; cal.clicks = []; cal.nodes = [];
+  cal.nextT = AC.currentTime + 0.6;
+  calSchedule();
+  cal.timer = setInterval(calSchedule, 120);
+  $('#btnCalToggle').textContent = '停止';
+  $('#btnCalToggle').classList.add('on');
+}
+function calStop() {
+  cal.active = false;
+  if (cal.timer) { clearInterval(cal.timer); cal.timer = null; }
+  cal.nodes.slice().forEach(o => { try { o.stop(); } catch (e) {} });
+  cal.nodes = [];
+  $('#btnCalToggle').textContent = '开始';
+  $('#btnCalToggle').classList.remove('on');
+}
+function calTap() {
+  if (!cal.active) return;
+  const now = AC.currentTime;
+  // 只匹配「最近响过的那一声」：优先取最小的非负差值，匹配窗口 = 一个间隔。
+  // 不能用「绝对值最近」——延迟大时会错配到下一声，导致测值严重偏小。
+  let bd = null, best = 1e9;
+  for (const c of cal.clicks) {
+    const d = now - c;
+    if (d < -0.2 || d >= cal.iv) continue;
+    const score = d >= 0 ? d : 1000 + Math.abs(d);   // 非负优先，全负时才接受
+    if (score < best) { best = score; bd = d; }
+  }
+  if (bd === null) return;
+  cal.samples.push(bd * 1000);
+  if (cal.samples.length > 48) cal.samples.shift();
+  calUpdate();
+}
+function calUpdate() {
+  const s = cal.samples;
+  $('#calN').textContent = s.length;
+  if (!s.length) {
+    $('#calMed').textContent = '–'; $('#calStd').textContent = '–';
+    $('#calBars').innerHTML = ''; return;
+  }
+  // 用中位数剔除离群值（±150ms），再算中位数与抖动
+  const srt = s.slice().sort((a, b) => a - b);
+  const rough = srt[srt.length >> 1];
+  const kept = s.filter(v => Math.abs(v - rough) < 150).sort((a, b) => a - b);
+  let med = kept[kept.length >> 1];
+  if (kept.length % 2 === 0 && kept.length) med = (kept[kept.length / 2 - 1] + kept[kept.length / 2]) / 2;
+  const mean = kept.reduce((a, b) => a + b, 0) / (kept.length || 1);
+  const std = Math.sqrt(kept.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (kept.length || 1));
+  $('#calMed').textContent = med.toFixed(0);
+  $('#calStd').textContent = std.toFixed(1);
+  $('#inpLatency').value = med.toFixed(0);
+  setLatency(med, false);                       // 实时预览：敲几下就能立刻看到画面变化
+
+  const w = $('#calWarn');                      // 合理性检查
+  if (w) {
+    if (kept.length >= 6 && med < 60)
+      w.textContent = '⚠ 数值偏小：多半是漏敲或抢拍，建议清空重测（正常应在 100ms 以上）';
+    else if (med > 700)
+      w.textContent = '⚠ 数值过大：确认音频没有经过蓝牙或音效处理链路';
+    else if (kept.length >= 6 && std > 60)
+      w.textContent = '⚠ 抖动偏大：节奏不稳，多敲几次取稳定值';
+    else w.textContent = '';
+  }
+  // 条形图：每次敲击的偏差，红色为被剔除的离群值
+  $('#calBars').innerHTML = s.map(v => {
+    const bad = Math.abs(v - med) >= 150;
+    const h = clamp(v, 0, 500) / 500 * 100;
+    return '<i class="' + (bad ? 'bad' : '') + '" style="height:' + h.toFixed(1) + '%"></i>';
+  }).join('');
+}
+function loadLat() {
+  try { const v = parseFloat(localStorage.getItem('bm_latency')); if (isFinite(v)) S.latency = v; }
+  catch (e) {}
+}
+function saveLat() {
+  try { localStorage.setItem('bm_latency', String(S.latency)); } catch (e) {}
+}
+function updLatLabel() {
+  const v = S.latency.toFixed(0);
+  if ($('#latLabel')) $('#latLabel').textContent = v;
+  const inp = $('#inpLat');
+  if (inp && document.activeElement !== inp) inp.value = v;   // 正在输入时不打断
+}
+function setLatency(v, save) {
+  S.latency = clamp(v, -300, 1500);
+  updLatLabel();
+  if (save) saveLat();
+  drawAll();
+}
+
+/* ---------------------- 键盘 ---------------------- */
+const tapTimes = [];
+function doTap() {
+  const now = performance.now() / 1000;
+  if (tapTimes.length && now - tapTimes[tapTimes.length - 1] > 2.2) tapTimes.length = 0;
+  tapTimes.push(now);
+  if (tapTimes.length > 9) tapTimes.shift();
+  if (tapTimes.length >= 2) {
+    const iv = [];
+    for (let i = 1; i < tapTimes.length; i++) iv.push(tapTimes[i] - tapTimes[i - 1]);
+    iv.sort((a, b) => a - b);
+    let bpm = 60 / iv[iv.length >> 1];
+    while (bpm < 70) bpm *= 2;
+    while (bpm > 190) bpm /= 2;
+    $('#inpBPM').value = bpm.toFixed(2);
+    $('#tapInfo').textContent = '×' + tapTimes.length + ' → ' + bpm.toFixed(1);
+    pushHist(); curSection().bpm = bpm; rebuildBeats(); syncUI(); drawAll();
+  } else $('#tapInfo').textContent = '继续敲…';
+}
+
+window.addEventListener('keydown', e => {
+  const tag = e.target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+  // 校准进行中：空格专用于跟着蜂鸣敲击
+  if (cal.active && e.code === 'Space') { e.preventDefault(); calTap(); return; }
+
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+    e.preventDefault(); e.shiftKey ? redo() : undo(); return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
+  // Alt + , / . ：实时微调延迟补偿（可在播放中边听边调）
+  if (e.altKey && (e.code === 'Comma' || e.code === 'Period')) {
+    e.preventDefault();
+    const d = (e.code === 'Comma' ? -1 : 1) * (e.shiftKey ? 50 : 10);
+    setLatency(S.latency + d, true);
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (S.mode === 'mark') {
+      if (S.buf) {
+        pushHist();
+        if (S.dual) addMarkAll(songTime());         // 双轨同录：两条线一起打
+        else addMark(songTime(), S.curTrack);
+        drawAll();
+      }
+    } else doTap();
+  } else if (e.code === 'Tab') {
+    e.preventDefault();
+    S.mode = S.mode === 'mark' ? 'bpm' : 'mark'; updateModeInd();
+  } else if (e.key === 'a' || e.key === 'A') {
+    e.preventDefault(); togglePlay();
+  } else if (e.key === 's' || e.key === 'S') {
+    e.preventDefault(); stopPlayback();
+  } else if (e.key === '1' || e.key === '2') {
+    e.preventDefault(); setTrack(e.key === '1' ? 0 : 1);   // 切换当前轨道（播放中也能切）
+  } else if (e.key === 't' || e.key === 'T') {
+    e.preventDefault(); doTap();
+  } else if (e.key === ',' || e.key === '<') {
+    e.preventDefault(); nudgePhase(e.shiftKey ? -0.010 : -0.001);
+  } else if (e.key === '.' || e.key === '>') {
+    e.preventDefault(); nudgePhase(e.shiftKey ? 0.010 : 0.001);
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault();
+    if (!S.buf) return;
+    const d = (S.view.b - S.view.a) * (e.shiftKey ? 0.05 : 0.01) * (e.key === 'ArrowLeft' ? -1 : 1);
+    seek(songTime() + d); drawAll();
+  } else if (e.key === 'Delete' || e.key === 'Backspace') {
+    const i = findMark(songTime(), 8, S.curTrack);
+    if (i >= 0) { pushHist(); S.tracks[S.curTrack].marks.splice(i, 1); drawAll(); }
+  }
+});
+// 播放 / 暂停（快捷键 A，与「播放」按钮同一动作）
+function togglePlay() {
+  if (!S.buf) return;
+  S.playing ? pause() : play();
+}
+// 停止并回到开头（快捷键 S，与「停止」按钮同一动作）
+function stopPlayback() {
+  if (!S.buf) return;
+  stopAll(); S.playhead = 0; drawAll();
+}
+// 切换当前轨道（0=A，1=B）
+function setTrack(i) {
+  S.curTrack = i === 1 ? 1 : 0;
+  renderTrackButtons(); drawAll();
+}
+function renderTrackButtons() {
+  $('#btnTrkA').classList.toggle('on', S.curTrack === 0);
+  $('#btnTrkB').classList.toggle('on', S.curTrack === 1);
+}
+function nudgePhase(d) {
+  if (!S.buf) return;
+  pushHist('phase');                 // 连续微调合并为一条历史
+  curSection().phase += d;
+  rebuildBeats(); syncPhaseInput(); drawAll();
+}
+function updateModeInd() {
+  const el = $('#modeInd');
+  el.className = S.mode;
+  el.textContent = S.mode === 'mark' ? '空格 = 打踩音' : '空格 = 采集 BPM';
+}
+
+/* =====================================================================
+   段 UI
+   ===================================================================== */
+function renderSectionChips() {
+  const box = $('#secList'); box.innerHTML = '';
+  S.sections.forEach((sec, i) => {
+    const el = document.createElement('div');
+    el.className = 'schip' + (i === S.curSec ? ' sel' : '') + (sec.snap ? '' : ' free');
+    const ph = (sec.phase * 1000).toFixed(0);
+    el.innerHTML = '<span>#' + (i + 1) + ' <i>' + fmt(sec.t) + '</i></span>' +
+                   '<b>' + sec.bpm.toFixed(1) + '</b>' +
+                   '<i>1/' + sec.div + '</i>' +
+                   (sec.snap ? '<i>' + (ph >= 0 ? '+' : '') + ph + 'ms</i>' : '<i>自由</i>');
+    el.onclick = ev => {
+      if (ev.target.classList.contains('x')) {
+        if (i === 0) { alert('第一段不能删除（它是整首歌的基准）。'); return; }
+        pushHist(); S.sections.splice(i, 1);
+        S.curSec = clamp(S.curSec, 0, S.sections.length - 1);
+        rebuildBeats(); syncUI(); drawAll();
+        return;
+      }
+      S.curSec = i; syncUI(); drawAll();
+    };
+    if (i > 0) {
+      const x = document.createElement('span');
+      x.className = 'x'; x.textContent = '×'; x.title = '删除该段';
+      el.appendChild(x);
+    }
+    box.appendChild(el);
+  });
+  const sec = curSection();
+  const tag = $('#secTag');
+  tag.textContent = '#' + (S.curSec + 1) + (sec.snap ? '' : ' · 自由');
+  tag.className = 'secTag' + (sec.snap ? '' : ' free');
+}
+function syncPhaseInput() {
+  $('#inpPhase').value = (curSection().phase * 1000).toFixed(1);
+}
+function syncUI() {
+  const sec = curSection();
+  $('#inpBPM').value = sec.bpm.toFixed(2);
+  $('#selDiv').value = String(sec.div);
+  $('#chkSnapSec').checked = !!sec.snap;
+  syncPhaseInput();
+  $('#selMeter').value = String(S.meter);
+  renderSectionChips();
+  renderTrackButtons();
+}
+
+/* =====================================================================
+   导出 / 导入
+   ===================================================================== */
+function buildJSON() {
+  const pack = ti => S.tracks[ti].marks.map((m, i) => ({
+    i, time: +m.t.toFixed(6), beat: +timeToBeat(m.t).toFixed(4),
+  }));
+  const a = pack(0), b = pack(1);
+  return {
+    tool: 'BeatMarker',
+    version: '0.3',
+    audio: { name: S.name, duration: +S.dur.toFixed(4), sampleRate: S.sr },
+    latency_ms: +S.latency.toFixed(1),      // 校准出的设备延迟补偿（仅参考）
+    timing: {
+      offset: +(S.sections[0].phase).toFixed(6),
+      meter: S.meter,
+      sections: S.sections.map(s => ({
+        t: +s.t.toFixed(6), bpm: +s.bpm.toFixed(4),
+        phase: +s.phase.toFixed(6), div: s.div, snap: !!s.snap,
+      })),
+    },
+    beats: S.beats.filter(b => b.t >= 0).map(b => +b.t.toFixed(6)),
+    // 两条线各一组踩音点（这就是「两条采音」）
+    tracks: [
+      { id: 'A', count: a.length, marks: a },
+      { id: 'B', count: b.length, marks: b },
+    ],
+    // 兼容旧读取方：只认单轨时，取线 A
+    marks: a, count: a.length,
+  };
+}
+
+/* =====================================================================
+   事件绑定
+   ===================================================================== */
+$('#btnOpen').onclick = $('#btnOpen2').onclick = () => $('#fileInput').click();
+$('#fileInput').onchange = e => { if (e.target.files[0]) loadFile(e.target.files[0]); };
+
+$('#btnUndo').onclick = undo;
+$('#btnRedo').onclick = redo;
+$('#btnClear').onclick = () => {
+  const arr = curMarks();
+  if (!arr.length) return;
+  if (!confirm('清除线 ' + TRK_NAME[S.curTrack] + ' 的 ' + arr.length + ' 个踩音点？（可撤销，另一条线不受影响）')) return;
+  pushHist(); S.tracks[S.curTrack].marks = []; drawAll();
+};
+$('#btnTrkA').onclick = () => setTrack(0);
+$('#btnTrkB').onclick = () => setTrack(1);
+$('#chkDual').onchange = e => S.dual = e.target.checked;
+
+$('#btnPlay').onclick = togglePlay;
+$('#btnStop').onclick = stopPlayback;
+$('#chkFollow').onchange = e => S.follow = e.target.checked;
+
+$('#inpBPM').onchange = e => {
+  const bpm = clamp(parseFloat(e.target.value) || 120, 20, 400);
+  e.target.value = bpm;
+  pushHist(); curSection().bpm = bpm; rebuildBeats(); syncUI(); drawAll();
+};
+$('#btnTap').onclick = doTap;
+
+$('#selDiv').onchange = e => {
+  pushHist(); curSection().div = parseInt(e.target.value, 10);
+  rebuildBeats(); syncUI(); drawAll();
+};
+$('#chkSnapSec').onchange = e => {
+  pushHist(); curSection().snap = e.target.checked;
+  rebuildBeats(); syncUI(); drawAll();
+};
+const setPhase = v => {
+  pushHist(); curSection().phase = v; rebuildBeats(); syncPhaseInput(); drawAll();
+};
+$('#inpPhase').onchange = e => setPhase((parseFloat(e.target.value) || 0) / 1000);
+$('#btnPhMM').onclick = () => setPhase(curSection().phase - 0.010);
+$('#btnPhM').onclick  = () => setPhase(curSection().phase - 0.001);
+$('#btnPhP').onclick  = () => setPhase(curSection().phase + 0.001);
+$('#btnPhPP').onclick = () => setPhase(curSection().phase + 0.010);
+
+$('#btnSplit').onclick = () => {
+  if (!S.buf) return;
+  const t = songTime();
+  const cur = curSection();
+  if (S.sections.some(x => Math.abs(x.t - t) < 1e-6)) return;
+  pushHist();
+  S.sections.push({ t, bpm: cur.bpm, phase: 0, div: cur.div, snap: cur.snap });
+  S.sections.sort((a, b) => a.t - b.t);
+  S.curSec = S.sections.findIndex(x => Math.abs(x.t - t) < 1e-6);
+  rebuildBeats(); syncUI(); drawAll();
+};
+$('#btnSetFirst').onclick = () => {
+  if (!S.buf) return;
+  pushHist();
+  S.curSec = 0;
+  S.sections[0].phase = songTime() - S.sections[0].t;
+  rebuildBeats(); syncUI(); drawAll();
+};
+$('#selMeter').onchange = e => { S.meter = parseInt(e.target.value, 10); drawAll(); };
+
+$('#btnCal').onclick = () => {
+  if (S.playing) pause();
+  $('#inpLatency').value = S.latency.toFixed(0);
+  calUpdate();
+  $('#calModal').classList.remove('hide');
+};
+$('#btnCalToggle').onclick = () => { cal.active ? calStop() : calStart(); };
+$('#selCalIv').onchange = e => {
+  cal.iv = parseFloat(e.target.value) || 1.0;
+  if (cal.active) { calStop(); calStart(); }        // 立即用新间隔重启
+};
+$('#btnCalReset').onclick = () => { cal.samples = []; calUpdate(); };
+$('#btnCalClose').onclick = () => { calStop(); $('#calModal').classList.add('hide'); };
+$('#btnCalApply').onclick = () => {
+  const v = clamp(parseFloat($('#inpLatency').value) || 0, -300, 1500);
+  S.latency = v; saveLat(); updLatLabel();
+  calStop(); $('#calModal').classList.add('hide'); drawAll();
+};
+$('#inpLatency').onchange = e => {
+  const v = clamp(parseFloat(e.target.value) || 0, -300, 1500);
+  e.target.value = v; S.latency = v; saveLat(); updLatLabel(); drawAll();
+};
+$('#inpLat').onchange = e => setLatency(parseFloat(e.target.value) || 0, true);
+$('#btnLatM').onclick = () => setLatency(S.latency - 10, true);
+$('#btnLatP').onclick = () => setLatency(S.latency + 10, true);
+
+$('#btnZoomIn').onclick = () => zoomAt(songTime(), 1 / 1.5);
+$('#btnZoomOut').onclick = () => zoomAt(songTime(), 1.5);
+$('#btnFit').onclick = () => { if (S.buf) { S.view = { a: 0, b: S.dur }; drawAll(); } };
+
+$('#btnExport').onclick = () => {
+  $('#jsonOut').value = JSON.stringify(buildJSON(), null, 2);
+  $('#modal').classList.remove('hide');
+};
+$('#btnCloseModal').onclick = () => $('#modal').classList.add('hide');
+$('#btnCopy').onclick = () => {
+  $('#jsonOut').select();
+  try { document.execCommand('copy'); $('#btnCopy').textContent = '已复制 ✓'; }
+  catch (e) { $('#btnCopy').textContent = '请手动复制'; }
+  setTimeout(() => $('#btnCopy').textContent = '复制到剪贴板', 1500);
+};
+$('#btnDownload').onclick = () => {
+  const blob = new Blob([$('#jsonOut').value], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = S.name.replace(/\.[^.]+$/, '') + '.beat.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+$('#btnImport').onclick = () => {
+  if (!S.buf) { alert('请先加载对应的音频文件，再导入工程。'); return; }
+  $('#jsonInput').click();
+};
+$('#jsonInput').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!d.timing || !d.timing.sections) throw new Error('不是 BeatMarker 工程文件');
+      pushHist();
+      S.sections = d.timing.sections.map(s => ({
+        t: s.t, bpm: s.bpm, phase: s.phase || 0, div: s.div || 1, snap: s.snap !== false,
+      }));
+      // 双轨工程读两条线；旧单轨工程把 marks 视为线 A
+      if (Array.isArray(d.tracks)) {
+        S.tracks = [0, 1].map(ti => ({
+          marks: ((d.tracks[ti] && d.tracks[ti].marks) || []).map(m => ({ t: m.time })),
+        }));
+      } else {
+        S.tracks = [{ marks: (d.marks || []).map(m => ({ t: m.time })) }, { marks: [] }];
+      }
+      S.meter = d.timing.meter || 4;
+      S.curSec = 0; S.curTrack = 0;
+      rebuildBeats(); syncUI(); drawAll();
+    } catch (err) { alert('导入失败：' + err.message); }
+  };
+  r.readAsText(f);
+  e.target.value = '';
+};
+
+/* 拖放 */
+const dropBox = $('#dropBox');
+['dragenter', 'dragover'].forEach(ev => dropBox.addEventListener(ev, e => {
+  e.preventDefault(); dropBox.classList.add('over');
+}));
+['dragleave', 'drop'].forEach(ev => dropBox.addEventListener(ev, e => {
+  e.preventDefault(); dropBox.classList.remove('over');
+}));
+dropBox.addEventListener('drop', e => {
+  e.stopPropagation();
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  if (e.dataTransfer.files[0] && !S.buf) loadFile(e.dataTransfer.files[0]);
+});
+
+document.querySelectorAll('button').forEach(b =>
+  b.addEventListener('click', () => b.blur())
+);
+
+loadLat(); updLatLabel();
+updateModeInd();
+syncUI();
+resize();
+</script>
+</body>
+</html>

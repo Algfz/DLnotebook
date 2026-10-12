@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DLnotebook</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #12141a; --panel: #1b1f27; --panel2: #242a34; --line: #333a46;
+    --fg: #e4e9f0; --dim: #8b93a3; --accent: #4ea1ff; --accent2: #ffb454;
+    --danger: #ff5f56; --ok: #4ec9a0;
+  }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  .view { position: absolute; inset: 0; }
+  .hide { display: none !important; }
+  button {
+    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 5px; padding: 7px 14px; cursor: pointer; font-size: 13px;
+    font-family: inherit; transition: .15s;
+  }
+  button:hover { background: #2e3540; border-color: #4b5563; }
+  button.primary { background: #1d5f9c; border-color: #2d7bc0; }
+  button.primary:hover { background: #2370b4; }
+
+  /* ================= 选关界面 ================= */
+  #selBg {
+    position: absolute; inset: -40px;
+    background-size: cover; background-position: center;
+    filter: blur(38px) brightness(.42) saturate(1.15);
+    transform: scale(1.1); transition: background-image .35s;
+  }
+  #selVeil {
+    position: absolute; inset: 0;
+    background: linear-gradient(105deg, rgba(10,12,16,.94) 0%, rgba(10,12,16,.80) 46%, rgba(10,12,16,.55) 100%);
+  }
+  .selTop { position: absolute; top: 18px; right: 22px; z-index: 3; }
+  .selMain {
+    position: absolute; inset: 0; z-index: 2;
+    display: grid; grid-template-columns: 330px 1fr; gap: 40px;
+    padding: 62px 56px; align-items: center;
+  }
+
+  /* 关卡列表 */
+  .selList { max-height: 100%; overflow-y: auto; padding-right: 8px; }
+  .selList::-webkit-scrollbar { width: 6px; }
+  .selList::-webkit-scrollbar-thumb { background: #39414e; border-radius: 3px; }
+  .lvItem {
+    display: flex; gap: 12px; align-items: center; padding: 10px;
+    border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+    transition: .15s; margin-bottom: 6px;
+  }
+  .lvItem:hover { background: rgba(255,255,255,.05); }
+  .lvItem.sel { background: rgba(78,161,255,.14); border-color: var(--accent); }
+  .lvThumb {
+    width: 62px; height: 62px; border-radius: 6px; flex: 0 0 auto;
+    background-size: cover; background-position: center; background-color: #1e242e;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: #5b6472;
+  }
+  .lvMeta { overflow: hidden; }
+  .lvMeta .t { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lvMeta .s { font-size: 11px; color: var(--dim); }
+
+  /* 详情 */
+  .selDetail { display: flex; flex-direction: column; gap: 18px; max-width: 620px; }
+  .cover {
+    width: 100%; aspect-ratio: 16/9; border-radius: 12px; background-size: cover;
+    background-position: center; background-color: #1a1f28;
+    box-shadow: 0 18px 50px rgba(0,0,0,.55);
+    display: flex; align-items: center; justify-content: center; color: #4a5262; font-size: 15px;
+  }
+  .title { font-size: 30px; font-weight: 700; line-height: 1.25; }
+  .artist { font-size: 14px; color: var(--dim); margin-top: -10px; }
+  .subtitle { font-size: 12px; color: var(--accent2); margin-top: -6px; }
+
+  .previewRow { display: flex; align-items: center; gap: 12px; }
+  .previewRow button { width: 40px; height: 40px; border-radius: 50%; padding: 0; font-size: 14px; }
+  .bar { flex: 1; height: 5px; background: rgba(255,255,255,.13); border-radius: 3px; cursor: pointer; overflow: hidden; }
+  .bar .fill { height: 100%; width: 0%; background: var(--accent); transition: width .1s linear; }
+  .ptime { font-size: 12px; color: var(--dim); font-family: Consolas, monospace; min-width: 74px; }
+
+  .actions { display: flex; gap: 12px; align-items: center; }
+  .actions .playBtn { font-size: 16px; padding: 12px 40px; font-weight: 600; }
+  .diff { font-size: 12px; color: var(--dim); }
+  .diff b { color: var(--accent2); }
+
+  /* ================= 游戏界面 ================= */
+  #gameCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: absolute; inset: 0; pointer-events: none; }
+  #hud button, #hud label, #hud input { pointer-events: auto; }
+  .hudBtn { background: rgba(20,24,30,.72); backdrop-filter: blur(6px); }
+  .bl { position: absolute; left: 20px; bottom: 20px; }
+  .tr { position: absolute; right: 20px; top: 20px; }
+  /* 右下角：上面是各线的「操作按键」按钮，下面是引导线/自动播放/延迟 */
+  .brCol {
+    position: absolute; right: 20px; bottom: 20px;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+  }
+  .br { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .keyRows { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .autoBox { display: flex; gap: 10px; align-items: center; }
+  #hud .keyBtn {
+    background: rgba(20,24,30,.72); backdrop-filter: blur(6px);
+    border: 1px solid var(--line); border-radius: 5px; padding: 6px 11px;
+    font-size: 12px; color: var(--dim); font-family: inherit; cursor: pointer;
+  }
+  #hud .keyBtn:hover { background: rgba(46,53,64,.85); border-color: #4b5563; }
+  #hud .keyBtn b { color: var(--fg); font-weight: 600; }
+  #hud .keyBtn.capturing { border-color: var(--accent); color: var(--accent); }
+  #hud .keyBtn.capturing b { color: var(--accent); }
+  #hud .keyBtn .warn { color: var(--danger); }
+  .keySw {
+    display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+    border: 1px solid #79818e; margin-right: 6px; vertical-align: -1px;
+  }
+  #hud label {
+    background: rgba(20,24,30,.72); backdrop-filter: blur(6px);
+    border: 1px solid var(--line); border-radius: 5px; padding: 6px 11px;
+    font-size: 12px; color: var(--dim); cursor: pointer; display: flex; gap: 6px; align-items: center;
+  }
+  #startHint {
+    position: absolute; left: 50%; top: 62%; transform: translateX(-50%);
+    font-size: 15px; color: rgba(255,255,255,.82); text-shadow: 0 2px 12px rgba(0,0,0,.8);
+    background: rgba(0,0,0,.25); padding: 10px 22px; border-radius: 20px;
+    transition: opacity .3s; white-space: nowrap;
+  }
+  #hudInfo {
+    position: absolute; left: 20px; top: 20px; font-size: 12px; color: rgba(255,255,255,.62);
+    font-family: Consolas, monospace; line-height: 1.7; text-shadow: 0 1px 4px rgba(0,0,0,.7);
+  }
+  #deathFlash {
+    position: absolute; inset: 0; background: rgba(180,30,26,.28);
+    opacity: 0; transition: opacity .12s; pointer-events: none;
+  }
+  #deathFlash.on { opacity: 1; }
+
+  /* ================= 弹窗 ================= */
+  .modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.62); z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modalBox {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    width: 420px; max-width: 92vw; padding: 22px;
+  }
+  .modalBox h3 { font-size: 15px; margin-bottom: 16px; }
+  .fRow { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .fRow label { font-size: 13px; color: var(--dim); min-width: 84px; }
+  .fRow input[type=number] {
+    background: #12141a; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 8px; font-size: 13px; font-family: inherit; width: 110px;
+  }
+  .fRow .hint { font-size: 11px; color: var(--dim); }
+  .modalFoot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+  kbd {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 3px;
+    padding: 0 4px; font-family: inherit; font-size: 11px;
+  }
+  /* ================= 延迟校准（弹窗内） ================= */
+  .modalBox.wide { width: 500px; }
+  .calHint { font-size: 12px; color: var(--fg); line-height: 1.65; margin-bottom: 14px; }
+  .calHint2 { font-size: 11px; color: var(--dim); line-height: 1.65; margin-top: 12px; }
+  .calWarn { font-size: 11px; color: var(--accent2); line-height: 1.5; min-height: 16px; margin-bottom: 4px; }
+  .calStat { display: flex; gap: 18px; font-size: 12px; color: var(--dim); margin-bottom: 10px; }
+  .calStat b { color: var(--accent); font-size: 15px; font-family: Consolas, monospace; }
+  #calBars {
+    display: flex; align-items: flex-end; gap: 2px; height: 60px;
+    background: #12141a; border: 1px solid var(--line); border-radius: 4px;
+    padding: 4px; margin-bottom: 12px;
+  }
+  #calBars i { flex: 1; min-width: 2px; background: var(--accent); border-radius: 1px 1px 0 0; }
+  #calBars i.bad { background: var(--danger); }
+  #btnCalToggle.on { border-color: var(--accent); color: var(--accent); }
+  /* 校准进行中：把画面往中间推一点，提示正在敲 */
+  .modalBox.calibrating { border-color: var(--accent); }
+  /* 场景瞬移的白屏过渡层 */
+  #whiteFade {
+    position: fixed; inset: 0; background: #fff; opacity: 0;
+    pointer-events: none; z-index: 30;
+  }
+
+  .err {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 99; display: none;
+    background: #5a1a17; color: #ffd9d6; font: 11px Consolas, monospace;
+    padding: 8px 14px; max-height: 130px; overflow: auto; white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+
+<!-- 诊断脚本：普通 script（不依赖模块系统），任何情况下都会执行。
+     用于捕获：① file:// 直接打开（最常见错误）② 模块加载失败 ③ 运行时异常 -->
+<script>
+(function () {
+  function showFatal(msg) {
+    var b = document.getElementById("fatal");
+    if (!b) {
+      b = document.createElement("div");
+      b.id = "fatal";
+      b.style.cssText = "position:fixed;inset:0;z-index:999;background:rgba(10,12,16,.97);" +
+        "color:#ffd9d6;font:14px/1.9 'Segoe UI','Microsoft YaHei',sans-serif;" +
+        "padding:56px 44px;overflow:auto;white-space:pre-wrap;";
+      document.body.appendChild(b);
+    }
+    b.style.display = "block";
+    b.textContent += msg + "\n\n";
+  }
+  window.__fatal = showFatal;
+
+  window.addEventListener("error", function (e) {
+    showFatal("脚本错误：" + (e.message || "未知") +
+      (e.filename ? "\n位置：" + e.filename.split("/").pop() + ":" + e.lineno : ""));
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    showFatal("未处理的异常：" + ((e.reason && e.reason.stack) || e.reason));
+  });
+
+  if (location.protocol === "file:") {
+    showFatal(
+      "检测到你直接双击打开了网页文件。\n\n" +
+      "浏览器的安全策略会阻止 file:// 页面加载脚本和读取本地关卡，所以什么都点不动。\n\n" +
+      "正确启动方式：\n" +
+      "  双击项目根目录的「启动客户端.bat」\n" +
+      "  它会启动本地服务器并自动打开浏览器（地址栏应该是 http://localhost:8080）");
+  }
+})();
+</script>
+
+<!-- ==================== 选关界面 ==================== -->
+<div id="viewSelect" class="view">
+  <div id="selBg"></div>
+  <div id="selVeil"></div>
+  <div class="selTop"><button id="btnSettings">设置</button></div>
+
+  <div class="selMain">
+    <div class="selList" id="selList"></div>
+
+    <div class="selDetail">
+      <div class="cover" id="selCover">无封面</div>
+      <div>
+        <div class="title" id="selTitle">—</div>
+        <div class="subtitle" id="selSubtitle"></div>
+        <div class="artist" id="selArtist"></div>
+      </div>
+      <div class="previewRow">
+        <button id="btnPreview" title="试听">▶</button>
+        <div class="bar" id="prevBar"><div class="fill" id="prevFill"></div></div>
+        <span class="ptime" id="prevTime">0:00 / 0:00</span>
+      </div>
+      <div class="actions">
+        <button id="btnPlay" class="primary playBtn">Play</button>
+        <span class="diff">难度 <b id="selDiff">–</b></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 游戏界面 ==================== -->
+<div id="viewGame" class="view hide">
+  <canvas id="gameCanvas"></canvas>
+  <div id="deathFlash"></div>
+  <div id="hud">
+    <div id="hudInfo"></div>
+    <button id="btnBack" class="hudBtn bl">返回</button>
+    <button id="btnGameSet" class="hudBtn tr">设置</button>
+    <div class="brCol">
+      <!-- 各线的操作按键（点击后按任意键重绑；多线关卡为「白线/黑线操作按键」） -->
+      <div class="keyRows" id="keyRows"></div>
+      <div class="br">
+        <label><input type="checkbox" id="chkGuide"> 引导线</label>
+        <!-- 每条线一个「自动」开关（单线关卡只有一个） -->
+        <span class="autoBox" id="autoBox"></span>
+        <button id="btnLat" class="hudBtn">音频延迟</button>
+      </div>
+    </div>
+    <div id="startHint">点击屏幕或按空格、上箭头开始游戏</div>
+  </div>
+</div>
+
+<!-- ==================== 音频延迟校准（弹窗） ==================== -->
+<!-- 与采音器 BeatMarker 的校准器同一套算法：固定间隔蜂鸣 → 跟着敲 → 取中位数 -->
+<div id="latModal" class="modal hide">
+  <div class="modalBox wide">
+    <h3>音频延迟校准</h3>
+
+    <p class="calHint">点「开始校准」，跟着蜂鸣敲 <kbd>空格</kbd>，至少 8 次。</p>
+
+    <div class="fRow">
+      <label>蜂鸣间隔</label>
+      <select id="selCalIv" style="background:#12141a;color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-family:inherit">
+        <option value="0.5">0.5 秒</option>
+        <option value="0.75">0.75 秒</option>
+        <option value="1" selected>1.0 秒</option>
+        <option value="1.5">1.5 秒</option>
+      </select>
+      <span class="hint">固定间隔，方便跟上节奏</span>
+    </div>
+
+    <div class="calStat">
+      <div>样本 <b id="calN">0</b></div>
+      <div>中位数 <b id="calMed">–</b> ms</div>
+      <div>抖动 ±<b id="calStd">–</b> ms</div>
+    </div>
+
+    <div id="calBars"></div>
+    <p class="calWarn" id="calWarn"></p>
+
+    <div class="fRow">
+      <label>延迟补偿</label>
+      <input type="number" id="inpLat" step="5">
+      <span class="hint">毫秒</span>
+    </div>
+
+    <p class="calHint2" id="calRef"></p>
+    <p class="calHint2">
+      数值 = 音频输出延迟 + 你的反应时间，正常在 <b>100~500ms</b>；蓝牙耳机会明显变大。
+      敲的过程中画面会实时跟着变，可以边敲边感受。校准期间关卡仍在跑（会失败），
+      建议在「首帧」状态（点击开始之前）做。
+    </p>
+
+    <div class="modalFoot">
+      <button id="btnCalToggle">开始校准</button>
+      <button id="btnCalReset">清空样本</button>
+      <button id="btnLatClose" class="primary">完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 设置弹窗 ==================== -->
+<div id="setModal" class="modal hide">
+  <div class="modalBox">
+    <h3>设置</h3>
+    <div class="fRow">
+      <label>音量</label>
+      <input type="range" id="inpVol" min="0" max="100" step="1" style="flex:1">
+      <span class="hint" id="volVal">80</span>
+    </div>
+    <div class="fRow">
+      <label>画质</label>
+      <select id="selQuality" style="background:#12141a;color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-family:inherit">
+        <option value="high">高</option>
+        <option value="medium" selected>中</option>
+        <option value="low">低</option>
+      </select>
+    </div>
+    <div class="fRow"><span class="hint">设置会保存在本机，下次打开自动生效。</span></div>
+    <div class="modalFoot"><button id="btnSetClose" class="primary">完成</button></div>
+  </div>
+</div>
+
+<!-- 场景瞬移的白屏过渡层 -->
+<div id="whiteFade"></div>
+
+<div class="err" id="errBox"></div>
+
+<!-- 检测 ES 模块是否真正执行了（importmap/模块静默失败时 main.js 不会跑） -->
+<script>
+  window.__moduleLoaded = false;
+  setTimeout(function () {
+    if (!window.__moduleLoaded && window.__fatal) {
+      window.__fatal(
+        "JavaScript 模块没有执行。\n\n" +
+        "可能原因：浏览器不支持 ES 模块，或资源请求失败。\n\n" +
+        "请按 F12 打开「控制台（Console）」，把红色的报错截图发给我。");
+    }
+  }, 2500);
+</script>
+<!-- 必须用绝对路径：页面通过 / 提供服务时，相对路径 ./js/ 会解析到 /js/（404）。
+     绝对路径 /src/js/ 无论以 / 还是 /src/index.html 访问都正确。 -->
+<script type="module" src="/src/js/main.js"></script>
+</body>
+</html>

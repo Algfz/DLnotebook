@@ -1,0 +1,21 @@
+# 依赖
+node_modules/
+
+# 打包输出
+dist/
+out/
+release/
+
+# 日志与临时文件
+*.log
+_*.js
+_*.txt
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 编辑器
+.vscode/
+.idea/
