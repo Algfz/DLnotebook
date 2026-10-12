@@ -343,14 +343,15 @@
 | `side` | `"left"\|"right"` | 两侧都放 | 强制只放在某一侧 |
 | `scale` | `[number,number]` | `[1,1]` | 尺寸随机区间（倍率） |
 | `cluster` | `[number,number]` | `[1,1]` | 一簇放几个（在 `off` 附近散开） |
+| `row` | boolean | `false` | **成列**：沿路等距排成一条线，间距 = `every`，零件朝向对齐路的切线（栅栏/柱廊/路灯） |
 | `jitter` | number | `0` | 位置额外随机抖动的米数 |
 | `dy` | number | `0` | 抬高多少米（用于把道具放到高台顶面上） |
 | `palette` | string | 跟随该时间所在段 | 覆盖色卡 |
 | `rotRandom` | boolean | `false` | 额外随机朝向 |
 
 **道具种类**（`src/js/props.js` 的 `PROPS`）：
-`tree` `pine` `appleTree` `bush` `rock` `flower` `mushroom` `fence` `lamp` `note`
-`crystal` `cloudlet` `snowman`
+`tree` `pine` `appleTree` `bush` `rock` `flower` `grass` `mushroom` `fence` `lamp`
+`note` `crystal` `column` `patch` `cloudlet` `snowman`
 
 **颜色不进关卡**：道具只写色槽名（`foliage`/`wood`/`stone`/`bloom`/`accent`），
 实际颜色由色卡决定（`PROP_COLORS[palette]`）；没写 `palette` 的规则自动取**该时间

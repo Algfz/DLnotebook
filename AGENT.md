@@ -253,8 +253,20 @@ DLnotebook/
   `cluster` 一簇几个 / `side` 强制 `left`/`right` / `jitter` 位置抖动 /
   `dy` 抬高多少米 / `rotRandom` 额外随机朝向 / `palette` 覆盖色卡
 - 已实现的道具（`src/js/props.js` 的 `PROPS`，全部由**基本几何体**拼）：
-  `tree` / `pine` / `appleTree` / `bush` / `rock` / `flower` / `mushroom` /
-  `fence` / `lamp` / `note` / `crystal` / `cloudlet` / `snowman`
+  `tree` / `pine` / `appleTree` / `bush` / `rock` / `flower` / `grass` / `mushroom` /
+  `fence` / `lamp` / `note` / `crystal` / `column` / `patch` / `block` / `cloudlet` / `snowman`
+  - `patch`（**贴地色块**）是性价比最高的一个：一大片很薄的方板铺在地上，
+    真实关卡里"田块 / 花海"就是这么做的，地面立刻不像一张纯色纸
+  - 规则里可以写 `"slot": "foliage"` 之类的**颜色槽覆盖**（不写就用零件自带的槽）
+- **`"row": true` = 成列摆放**（2026-10-12 调研后加的，价值最大的一条）：
+  沿路**等距**排成一条线（`every` 就是间距，默认 3m ≈ 一个路块），零件的局部 +X
+  对齐路的切线，所以栅栏能接成一条长栏杆、柱子能排成柱廊。
+  真实关卡里"速度感"主要来自这种**结构成列**（栏杆/麦块/冰块/琴槌），散点摆放给不了。
+  - ⚠️ 成列的**位置和方向必须取自"跨 ±5m 的平均"**（`ROW_SMOOTH`）：这个关每拍一个 90° 转角，
+    直接取该点的切线会让每段栅栏转 90°、整列变成锯齿状
+- 调研结论（`out/research/wiki-report.md`，14 个真实关卡 62 张实机截图）：
+  地面装饰 ≈ 路宽的 1/3~1/2，树/房屋 ≈ 1 个路宽，山体/金字塔 3~10 个路宽；
+  小道具 Y 轴 ±15° 随机散点、每 2~4m 一个；花是**贴地的面片**不是立在地上的模型
 - **颜色不进关卡**：道具只写色槽名（`foliage`/`wood`/`stone`/`bloom`/`accent`），
   实际颜色由 `PROP_COLORS[色卡名]` 决定；没写 `palette` 时自动取**该时间所在段**的色卡
   （用 `verts` 上的 `t` 把弧长映射回时间，所以道具颜色和地面颜色天然一致）

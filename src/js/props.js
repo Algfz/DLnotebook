@@ -108,20 +108,20 @@ export const PROPS = {
     return out;
   },
 
-  // 花：细杆 + 花心 + 4 片花瓣（扁球）
+  // 花：**贴地**的小花片（真实关卡的花是"趴在地上"的，不是立在地上的模型）
   flower(R) {
-    const h = 0.75 + R() * 0.5;
-    const out = [{ geo: "cyl", pos: [0, h / 2, 0], scale: [0.07, h, 0.07], color: "foliage" }];
+    const h = 0.22 + R() * 0.16;
+    const out = [{ geo: "cyl", pos: [0, h / 2, 0], scale: [0.06, h, 0.06], color: "foliage" }];
     const petal = 0.3 + R() * 0.14;
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + R() * 0.4;
       out.push({
         geo: "sphere", color: "bloom",
         pos: [Math.cos(a) * petal * 0.8, h + 0.02, Math.sin(a) * petal * 0.8],
-        scale: [petal * 1.7, petal * 0.6, petal * 1.7],
+        scale: [petal * 1.7, petal * 0.45, petal * 1.7],
       });
     }
-    out.push({ geo: "sphere", pos: [0, h + 0.08, 0], scale: [0.16, 0.16, 0.16], color: "accent" });
+    out.push({ geo: "sphere", pos: [0, h + 0.06, 0], scale: [0.15, 0.12, 0.15], color: "accent" });
     return out;
   },
 
@@ -134,9 +134,53 @@ export const PROPS = {
     ];
   },
 
-  // 栅栏：两立柱 + 两条横杆（一段 2m 宽）
+  // 高矮柱：光秃秃的柱子，靠"成列"产生速度感（真实关卡里最常见的结构件之一）
+  column(R) {
+    const h = 1.8 + R() * 3.2;
+    const w = 0.42 + R() * 0.7;
+    const out = [
+      { geo: "box", pos: [0, h / 2, 0], scale: [w, h, w], color: "stone" },
+    ];
+    if (R() < 0.45) out.push({ geo: "box", pos: [0, h + 0.18, 0], scale: [w * 1.5, 0.36, w * 1.5], color: "accent" });
+    return out;
+  },
+
+  // 贴地色块：一大片很薄的方板铺在地上（真实关卡里"田块/花海"就是这么做的，
+  // 是**最省成本**的"看起来有东西"，地面立刻不像一张纯色纸）
+  patch(R) {
+    const w = 3.5 + R() * 5.5, d = 3.5 + R() * 5.5;
+    return [{
+      geo: "box", color: R() < 0.5 ? "bloom" : "accent",
+      pos: [0, 0.07, 0], scale: [w, 0.14, d], rotY: R() * Math.PI,
+    }];
+  },
+
+  // 万能方块：一个 Box + 非等比 scale（沙块/雪块/城市块通用）
+  block(R) {
+    const w = 0.9 + R() * 1.8, h = 0.6 + R() * 2.4, d = 0.9 + R() * 1.8;
+    return [{ geo: "box", color: "stone", pos: [0, h / 2, 0], scale: [w, h, d], rotY: R() * Math.PI }];
+  },
+
+  // 草丛：3~4 片细长三角面片（真实关卡里"贴地的小东西"都是面片，不是立体模型）
+  grass(R) {
+    const out = [];
+    const n = 3 + Math.floor(R() * 2);
+    for (let i = 0; i < n; i++) {
+      const h = 0.45 + R() * 0.5;
+      const a = (i / n) * Math.PI * 2 + R() * 0.7;
+      out.push({
+        geo: "cone", color: "foliage",
+        pos: [Math.cos(a) * 0.22, h / 2, Math.sin(a) * 0.22],
+        scale: [0.16, h, 0.1],
+        rotY: a,
+      });
+    }
+    return out;
+  },
+
+  // 栅栏：两立柱 + 两条横杆（一段 2m 宽，局部 X 沿路方向，可以成列拼成长栅栏）
   fence(R) {
-    const w = 2.0, h = 1.0 + R() * 0.3;
+    const w = 1.4, h = 1.0 + R() * 0.3;
     return [
       { geo: "box", pos: [-w / 2, h / 2, 0], scale: [0.16, h, 0.16], color: "wood" },
       { geo: "box", pos: [w / 2, h / 2, 0], scale: [0.16, h, 0.16], color: "wood" },
@@ -318,6 +362,18 @@ export function buildProps(level, verts, opts = {}) {
   let seed = 20261012;
   const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
 
+  // 把一个道具零件塞进对应几何体的桶里（slot = 规则级颜色槽覆盖，用于"这一列全是草绿"这种）
+  const pack = (part, sc, wx, wy, wz, rotY, pal, slot) => {
+    const hex = slot != null ? pal[slot] : pal[part.color];
+    (bucket[part.geo] = bucket[part.geo] || []).push({
+      x: wx, y: wy, z: wz,
+      sx: part.scale[0] * sc, sy: part.scale[1] * sc, sz: part.scale[2] * sc,
+      px: part.pos[0] * sc, py: part.pos[1] * sc, pz: part.pos[2] * sc,
+      rotY: (part.rotY || 0) + rotY,
+      color: hex == null ? 0xcccccc : hex,
+    });
+  };
+
   for (const r of rules) {
     if (!PROPS[r.kind]) continue;
     const s0 = r.t ? timeToArc(pl, verts, r.t[0]) : 0;
@@ -327,8 +383,45 @@ export function buildProps(level, verts, opts = {}) {
     const off1 = Array.isArray(r.off) ? r.off[1] : (r.off || 8) + 12;
     const sc0 = Array.isArray(r.scale) ? r.scale[0] : (r.scale || 1);
     const sc1 = Array.isArray(r.scale) ? r.scale[1] : (r.scale || 1) * 1.3;
-    const minOff = roadW / 2 + 1.6;         // 别站到路上
+  const minOff0 = roadW / 2 + 1.6;         // 别站到路上
+  const ROW_SMOOTH = 5.0;                  // 「成列」用的平滑半径（米），见下面 row 分支的注释
     let i = 0;
+
+    // ── 「成列」模式：沿路等距排成一条线（真实关卡里栏杆/柱子/琴槌都是这么排的，
+    //    是速度感的主要来源；散点摆放给不了这个）。间距默认 3m ≈ 一个路块。
+    if (r.row) {
+      const step = Math.max(1.6, r.every || 3.0);
+      const roff = Math.max(roadW / 2 + 0.9, off0);
+      const sides = r.side === "left" ? [-1] : r.side === "right" ? [1] : [1, -1];
+      // 让零件的局部 +X 沿着路的切线方向（栅栏才能接成一条长栏杆）
+      for (const side of sides) {
+        for (let s = s0; s < s1; s += step) {
+          // ⚠️ 这条路是"每拍一个 90° 转角"，直接取 s 处的切线会让每一段栅栏转 90°、整列变成锯齿。
+          // 所以位置和方向都取自"跨 ±ROW_SMOOTH 米的平均"——列才是顺的。
+          const p = atArc(pl, s);
+          const pa = atArc(pl, Math.max(0, s - ROW_SMOOTH));
+          const pb = atArc(pl, Math.min(pl.total, s + ROW_SMOOTH));
+          let dx = pb.x - pa.x, dz = pb.z - pa.z;
+          const dl = Math.hypot(dx, dz) || 1;
+          dx /= dl; dz /= dl;
+          const nx = dz, nz = -dx;                       // 平滑后的右法线
+          const cx = (pa.x + pb.x) / 2, cz = (pa.z + pb.z) / 2;
+          const rot = Math.atan2(-dz, dx) + (r.rotRandom ? (rnd() - 0.5) * 0.2 : 0);
+          const x = cx + nx * side * roff;
+          const z = cz + nz * side * roff;
+          const sc = sc0 + rnd() * (sc1 - sc0);
+          let sd = (s * 7919 + (side + 1) * 9973 + i) >>> 0;
+          const R = () => ((sd = (sd * 1103515245 + 12345) >>> 0) / 4294967296);
+          const palName = r.palette || spanPal(timeAt(s)) || "default";
+          const pal = PROP_COLORS[palName] || PROP_COLORS.default;
+          const yy = (pa.y + pb.y) / 2 + (r.dy || 0);
+          for (const part of PROPS[r.kind](R)) pack(part, sc, x, yy, z, rot, pal, r.slot);
+          i++;
+        }
+      }
+      continue;
+    }
+
     for (let s = s0 + rnd() * every * 0.5; s < s1; s += every * (0.75 + rnd() * 0.5)) {
       const p = atArc(pl, s);
       const sides = r.side === "left" ? [-1] : r.side === "right" ? [1] : [1, -1];
@@ -336,7 +429,7 @@ export function buildProps(level, verts, opts = {}) {
         if (sides.length === 2 && r.both === false && side === -1) continue;
         const n = r.cluster ? 1 + Math.floor(rnd() * (r.cluster[1] - r.cluster[0] + 1)) : 1;
         for (let c = 0; c < n; c++) {
-          const off = Math.max(minOff, off0 + rnd() * (off1 - off0));
+          const off = Math.max(minOff0, off0 + rnd() * (off1 - off0));
           const jx = (rnd() - 0.5) * (r.jitter == null ? 1.5 : r.jitter);
           const jz = (rnd() - 0.5) * (r.jitter == null ? 1.5 : r.jitter);
           const x = p.x + p.nx * side * off + jx;
@@ -350,14 +443,8 @@ export function buildProps(level, verts, opts = {}) {
           const pal = PROP_COLORS[palName] || PROP_COLORS.default;
           const parts = PROPS[r.kind](R);
           for (const part of parts) {
-            const key = part.geo;
-            (bucket[key] = bucket[key] || []).push({
-              x: x + 0, y: p.y + dy, z: z + 0,
-              sx: part.scale[0] * sc, sy: part.scale[1] * sc, sz: part.scale[2] * sc,
-              px: part.pos[0] * sc, py: part.pos[1] * sc, pz: part.pos[2] * sc,
-              rotY: (part.rotY || 0) + (r.rotRandom === false ? 0 : R() * Math.PI * 2),
-              color: pal[part.color] == null ? 0xcccccc : pal[part.color],
-            });
+            pack(part, sc, x, p.y + dy, z,
+              (part.rotY || 0) + (r.rotRandom === false ? 0 : R() * Math.PI * 2), pal, r.slot);
           }
           i++;
         }
