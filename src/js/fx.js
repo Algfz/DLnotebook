@@ -94,7 +94,18 @@ export function buildAtmos(opts = {}) {
     want.setHex(hex); wantSize = size; wantOp = op;
   };
 
+  // 粒子场的锚点：**不能用线头的即时位置**——线头每 0.2 秒就 90° 拐一次，粒子会跟着
+  // 一次次横甩（发起人："线头转向的时候雪花也跟着晃动"）。改成用长时间常数追随的锚点，
+  // 粒子相对世界/地面是稳定的：下落或悬着，只随锚点做平滑平移。
+  let ax = null, ay = 0, az = 0;
+  const ANCHOR_TAU = 0.9;   // s：越大越"钉在地上"
+
   const update = (dt, t, hx, hy, hz, fx) => {
+    if (ax === null) { ax = hx; ay = hy; az = hz; }
+    const ka = 1 - Math.exp(-dt / ANCHOR_TAU);
+    ax += (hx - ax) * ka;
+    ay += (hy - ay) * ka;
+    az += (hz - az) * ka;
     if (fx) want_(fx.color, fx.size, fx.op);
     // 颜色/大小平滑逼近目标
     const k = 1 - Math.exp(-dt / 0.35);
@@ -106,8 +117,8 @@ export function buildAtmos(opts = {}) {
       const rise = fx ? fx.rise : 0.3;
       const sway = fx ? fx.sway : 0.8;
       oy[i] += rise * dt * (0.6 + 0.8 * ((i * 37) % 11) / 11);
-      ox[i] += Math.sin(t * sp[i] + ph[i]) * sway * 0.35 * dt;
-      oz[i] += Math.cos(t * sp[i] * 0.8 + ph[i] * 1.7) * sway * 0.35 * dt;
+      ox[i] += Math.sin(t * sp[i] + ph[i]) * sway * 0.22 * dt;
+      oz[i] += Math.cos(t * sp[i] * 0.8 + ph[i] * 1.7) * sway * 0.22 * dt;
       // 越界绕回（让粒子场"无限"
       const hb = box.y / 2;
       if (oy[i] > hb) oy[i] -= box.y;
@@ -115,9 +126,9 @@ export function buildAtmos(opts = {}) {
       const hx2 = box.x / 2, hz2 = box.z / 2;
       if (ox[i] > hx2) ox[i] -= box.x; else if (ox[i] < -hx2) ox[i] += box.x;
       if (oz[i] > hz2) oz[i] -= box.z; else if (oz[i] < -hz2) oz[i] += box.z;
-      pos[i * 3] = hx + ox[i];
-      pos[i * 3 + 1] = hy + oy[i];
-      pos[i * 3 + 2] = hz + oz[i];
+      pos[i * 3] = ax + ox[i];
+      pos[i * 3 + 1] = ay + oy[i];
+      pos[i * 3 + 2] = az + oz[i];
       col[i * 3] = cur.r; col[i * 3 + 1] = cur.g; col[i * 3 + 2] = cur.b;
     }
     geo.attributes.position.needsUpdate = true;

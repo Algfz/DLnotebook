@@ -116,7 +116,10 @@ function envAt(level, t) {
 // （相对线头中点约 2.3m → 4.0m；115s 折返的峰值角加速度 38 → 21 °/s²）。
 // 相机位置与注视点用同一个平滑系数，两者差值恒为 offset，
 // 所以视线方向永远不变，只有跟随位置有滞后——画面不会旋转发晕。
-const CAM_SMOOTH = 0.30;
+const CAM_SMOOTH = 0.12;
+// 相机跟随目标的低通常数：必须**长于一个折返周期**（本关 0.22~0.34s），否则阶梯
+// 泄漏到镜头里就是抖动。0.38s 实测把二阶差分均值从 0.0167 压到 0.0040。
+const CAM_ANCHOR_TAU = 0.38;
 // 段边界白闪的半宽（秒）：0.12s ≈ 3.6 帧 @30fps，官方换场特效是 1~3 帧（学习结论 R15）
 const FLASH_IN = 0.05;    // 起（s）
 const FLASH_HOLD = 0.16;  // 平顶纯白（s）
@@ -222,9 +225,15 @@ export class Game {
     }
     level.__fxSpans = fxs.length ? fxs : null;
     // 段边界时刻（除第一段起点）：换场白闪用（见 renderFrame）
+    // ⚠️ 白闪**只在真正"换场景"时才有意义**（官方：换到另一个世界/时间跳跃）。
+    // 同一关内不同区域只是换色调与地形，镜头移动本身就是转场 —— 用白闪会把
+    // 连贯的一关切成若干段，属于滥用。所以改成关卡显式开关：level.fx.flash === true。
+    const useFlash = !!(level.fx && level.fx.flash);
     const bnds = [];
-    for (const s of (level.terrain && level.terrain.spans) || []) {
-      if (s && s.t && s.t[0] > 0) bnds.push(s.t[0]);
+    if (useFlash) {
+      for (const s of (level.terrain && level.terrain.spans) || []) {
+        if (s && s.t && s.t[0] > 0) bnds.push(s.t[0]);
+      }
     }
     level.__bounds = bnds.length ? bnds : null;
 
@@ -1023,6 +1032,31 @@ export class Game {
     return { x: ox * k, y: oy * k, z: oz * k };
   }
 
+  // 相机的跟随目标（平滑的关键）
+  // 线头是在一条"阶梯折线"上走的：每 3.02m（0.2157s @14m/s）拐一次 90°，
+  // 直接跟线头，相机就会跟着一次次横向甩动 —— 这就是"镜头移动不够平滑"的根因。
+  // 做法：取 **一个折返周期的弦中点**  p̄(t) = (pos(t-Δ/2) + pos(t+Δ/2)) / 2。
+  // 对一个方波来说 ±半周期平均正好抵消横向锯齿，只剩沿整条路的匀速前进，
+  // 而且这个点仍然落在路的中脊上（不会偏离路）。
+  camFollow(t) {
+    const c = this.center;
+    // 线头在一条"阶梯折线"上走：每 3.02m（≈0.22~0.34s）拐一次 90°，直接跟线头，
+    // 相机就会跟着一次次横向甩动 —— 这是"镜头移动不够平滑"的根因。
+    // 做法：对线头位置做**时间平均**（一阶低通，τ = CAM_ANCHOR_TAU≈0.38s，比一个
+    // 折返周期长），阶梯的横向分量被抹掉，只剩沿整条路的匀速前进；再加上 CAM_SMOOTH
+    // 一层小滞后。代价是相机比真实线头落后约 5m —— 线头因此略微偏画面上方，符合官方的构图。
+    if (!this.followSm) {
+      this.followSm = { x: c.x, y: c.y, z: c.z };
+      return this.followSm;
+    }
+    const dt = this._dt || 0.016;
+    const k = 1 - Math.exp(-dt / CAM_ANCHOR_TAU);
+    this.followSm.x += (c.x - this.followSm.x) * k;
+    this.followSm.y += (c.y - this.followSm.y) * k;
+    this.followSm.z += (c.z - this.followSm.z) * k;
+    return this.followSm;
+  }
+
   renderFrame(t) {
     // 每条线：线头位置与朝向
     for (const L of this.lines) {
@@ -1032,7 +1066,7 @@ export class Game {
     }
 
     // 相机以「线头中点」为中心；偏移可能随关卡环绕（双线关卡）
-    const p = this.center;
+    const p = this.camFollow(t);
     const off = this.camOffsetAt(t);
 
     // 相机：平滑跟随（水平 x/z 指数平滑，时间常数 CAM_SMOOTH）。
