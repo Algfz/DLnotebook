@@ -368,6 +368,21 @@ function timeToArc(pl, verts, t) {
 }
 
 /**
+ * 每种道具的「占地半径」（scale = 1 时，单位米）。摆放时靠它做两件事：
+ *   ① 同一条规则内相邻实例不许互相咬进去；
+ *   ② **不同规则之间也不许**——之前 33 条规则各自独立地在互相重叠的 off 区间里撒点
+ *      （花 4.4~5.2 / 灌木 5~5.9 / 水晶 5.2~5.9 / 岩石 9.6~12.6 / 树 11.5~16.5 …），
+ *      于是石头长在树里、水晶长在灌木里，就是发起人看到的「穿模」。
+ * 数字取各道具的实际横向最大外廓（树冠 / 松枝 / 云团 / 牌楼净跨等）。
+ */
+const PROP_R = {
+  tree: 1.35, pine: 1.2, bush: 0.8, rock: 1.0, crystal: 0.55,
+  flower: 0.32, grass: 0.28, mushroom: 0.36, cloudlet: 1.3, block: 0.7,
+  fence: 0.32, column: 0.5, lamp: 0.32, note: 0.35, arch: 2.0,
+  patch: 0.2, giant: 4.0,
+};
+
+/**
  * 建道具。返回 THREE.Group（里面每种几何体一个 InstancedMesh）。
  * @param level  关卡数据（读 level.props / level.terrain 里的 palette）
  * @param verts  lines[0].verts（含末尾延伸到关卡结束的那一段）
@@ -426,6 +441,36 @@ export function buildProps(level, verts, opts = {}) {
   let seed = 20261012;
   const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
 
+  // ── 占用格：治「穿模」的全局互斥 ────────────────────────────────────
+  // 官方关卡的物件稀疏且互相让位（R12/R40：画面里东西不多但很大）。我们过去是
+  // 每条规则各自在重叠的 off 带里独立撒点，不同规则之间没有任何约束，于是互相咬进去。
+  // 这里按 2.5m 的格子登记已经放下的东西，新物件只要和任何一件「半径之和」相交就不放。
+  // 注意 occupy 是在 pack 之前调用，所以同一条规则内部也自动拉开距离。
+  const CELL = 2.5;
+  const occ = new Map();
+  const cellKey = (x, z) => Math.round(x / CELL) + "," + Math.round(z / CELL);
+  const freeAt = (x, z, rad) => {
+    const cx = Math.round(x / CELL), cz = Math.round(z / CELL);
+    for (let ix = -1; ix <= 1; ix++) {
+      for (let iz = -1; iz <= 1; iz++) {
+        const arr = occ.get(cx + ix + "," + (cz + iz));
+        if (!arr) continue;
+        for (const o of arr) {
+          const dx = o.x - x, dz = o.z - z, rr = o.r + rad;
+          if (dx * dx + dz * dz < rr * rr) return false;
+        }
+      }
+    }
+    return true;
+  };
+  const occupy = (x, z, rad) => {
+    const k = cellKey(x, z);
+    let arr = occ.get(k);
+    if (!arr) { arr = []; occ.set(k, arr); }
+    arr.push({ x, z, r: rad });
+  };
+  const radOf = (kind, sc) => (PROP_R[kind] || 0.8) * sc;
+
   // 把一个道具零件塞进对应几何体的桶里（slot = 规则级颜色槽覆盖，用于"这一列全是草绿"这种）
   const pack = (part, sc, wx, wy, wz, rotY, pal, slot) => {
     const hex = slot != null ? pal[slot] : pal[part.color];
@@ -481,9 +526,14 @@ export function buildProps(level, verts, opts = {}) {
           const nx = dz, nz = -dx;                       // 平滑后的右法线
           const cx = (pa.x + pb.x) / 2, cz = (pa.z + pb.z) / 2;
           const rot = Math.atan2(-dz, dx) + (r.rotRandom ? (rnd() - 0.5) * 0.2 : 0);
-          const x = cx + nx * side * roff;
-          const z = cz + nz * side * roff;
           const sc = sc0 + rnd() * (sc1 - sc0);
+          const rad = radOf(r.kind, sc);
+          // 大件（树/云团）的半径要算进"离路多远"，否则树冠会伸到路面上
+          const roffI = r.center ? 0 : Math.max(roff, roadW / 2 + rad + 0.4);
+          const x = cx + nx * side * roffI;
+          const z = cz + nz * side * roffI;
+          if (!r.center && !freeAt(x, z, rad)) continue;   // 和已放下的东西咬在一起 → 不放
+          occupy(x, z, rad);
           let sd = (s * 7919 + (side + 1) * 9973 + i) >>> 0;
           const R = () => ((sd = (sd * 1103515245 + 12345) >>> 0) / 4294967296);
           const palName = r.palette || spanPal(timeAt(s)) || "default";
@@ -524,11 +574,16 @@ export function buildProps(level, verts, opts = {}) {
         // 一处只挑一条车道：同处的东西成"一撮"，整体看是几条顺路的带子
         const lane = r.lane != null ? Math.min(lanes - 1, r.lane) : (n0 + (side > 0 ? 0 : 1)) % lanes;
         for (let c = 0; c < n; c++) {
-          const off = Math.max(minOff0, Math.min(flatMax, laneOff[lane] + (rnd() - 0.5) * spread));
+          const sc = sc0 + rnd() * (sc1 - sc0);
+          const rad = radOf(r.kind, sc);
+          // 每件东西自己的"离路下限"：小件贴路、大件（树/云团/岩）要按半径让开路面
+          const minOffK = Math.max(minOff0, roadW / 2 + rad + 0.4);
+          const off = Math.max(minOffK, Math.min(flatMax, laneOff[lane] + (rnd() - 0.5) * spread));
           const x = p.x + p.nx * side * off;
           const z = p.z + p.nz * side * off;
-          const sc = sc0 + rnd() * (sc1 - sc0);
           const dy = r.dy || 0;
+          if (!freeAt(x, z, rad)) continue;               // 和已放下的东西咬在一起 → 不放
+          occupy(x, z, rad);
           // 道具自己的随机数流（同一个道具内一致）
           let sd = (s * 7919 + c * 104729 + (side + 1) * 9973 + i) >>> 0;
           const R = () => ((sd = (sd * 1103515245 + 12345) >>> 0) / 4294967296);
