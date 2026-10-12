@@ -302,15 +302,24 @@ export const PROPS = {
    道具配色：跟着地形色卡走（关卡里同样只写色卡名字）
    --------------------------------------------------------------------------- */
 export const PROP_COLORS = {
-  rose:  { foliage: 0x4f8f5f, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xf3a7c6, accent: 0xf7e08a, ground: 0xd08aa8 },
-  plum:  { foliage: 0x4a7f6a, wood: 0x5c4030, stone: 0xb9b0b6, bloom: 0xd98bb4, accent: 0xf2d98a, ground: 0x8a6480 },
-  sand:  { foliage: 0x6f8c46, wood: 0x7a5a34, stone: 0xd8c9a8, bloom: 0xe8a06a, accent: 0xf6e2a8, ground: 0xe4d0a4 },
-  ice:   { foliage: 0x4d8f96, wood: 0x6b7a86, stone: 0xe6f0f4, bloom: 0x9fd6e8, accent: 0xfdfbf6, ground: 0xa9c8dc },
-  jade:  { foliage: 0x3f8f63, wood: 0x6d5334, stone: 0xcbd8cd, bloom: 0xf0c0d0, accent: 0xf6e6a0, ground: 0xa8cfae },
-  cream: { foliage: 0x8f9c7a, wood: 0x8a7a60, stone: 0xf2ece0, bloom: 0xd9c9b0, accent: 0xf7e8c0, ground: 0xefe0c4 },
+  rose:  { foliage: 0x4f8f5f, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xf3a7c6, accent: 0xf7e08a, ground: 0xd08aa8, shade: 0xa45f80 },
+  plum:  { foliage: 0x4a7f6a, wood: 0x5c4030, stone: 0xb9b0b6, bloom: 0xd98bb4, accent: 0xf2d98a, ground: 0x8a6480, shade: 0x5f3f5a },
+  sand:  { foliage: 0x6f8c46, wood: 0x7a5a34, stone: 0xd8c9a8, bloom: 0xe8a06a, accent: 0xf6e2a8, ground: 0xe4d0a4, shade: 0xa8905c },
+  ice:   { foliage: 0x4d8f96, wood: 0x6b7a86, stone: 0xe6f0f4, bloom: 0x9fd6e8, accent: 0xfdfbf6, ground: 0xa9c8dc, shade: 0x6e93ad },
+  jade:  { foliage: 0x3f8f63, wood: 0x6d5334, stone: 0xcbd8cd, bloom: 0xf0c0d0, accent: 0xf6e6a0, ground: 0xa8cfae, shade: 0x78977c },
+  cream: { foliage: 0x8f9c7a, wood: 0x8a7a60, stone: 0xf2ece0, bloom: 0xd9c9b0, accent: 0xf7e8c0, ground: 0xefe0c4, shade: 0xb9a888 },
   // 没有指定色卡时（跟着主题走的段）用这套中性色
-  default: { foliage: 0x6f9e6a, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xefa7c5, accent: 0xf7e08a, ground: 0xd89ab0 },
+  default: { foliage: 0x6f9e6a, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xefa7c5, accent: 0xf7e08a, ground: 0xd89ab0, shade: 0xa8608a },
 };
+
+// 需要"接地影"的道具 → 影子的平面半径（米）。
+// 官方做法（R18）：影是**同形偏移副本**、颜色取地面同色系压暗，不是纯黑。
+// 有了这一层，道具才"站在地上"而不是"贴在地上"，是廉价但极其有效的立体感来源。
+const SHADOW_R = {
+  tree: 1.5, pine: 1.5, appleTree: 1.5, bush: 0.95, rock: 1.1,
+  column: 0.6, lamp: 0.35, lantern: 0.55, arch: 2.9, giant: 5.6, mushroom: 0.4,
+};
+
 
 /* ---------------------------------------------------------------------------
    摆放：沿路按弧长走，规则见文件头
@@ -471,15 +480,62 @@ export function buildProps(level, verts, opts = {}) {
   };
   const radOf = (kind, sc) => (PROP_R[kind] || 0.8) * sc;
 
+  // ── 路面上"禁摆"区（最后的闸门）──────────────────────────────────────
+  // 这条路是一条**阶梯折线**：相邻两级只差 3m，而路面就有 3m 宽 —— 也就是说
+  // "离自己那段 4.6m" 完全可能正踩在**隔壁那一段的路面**上（发起人："依然有一些
+  // 物体被摆放在路面上，可能会被玩家误认为是障碍物"）。
+  // 所以是否压路，必须对**所有线段取最小距离**来判，不能用自己所在的那一段。
+  // 这里放在 pack() 这个唯一出口上做闸门：任何零件只要落到路面 (+0.25m) 以内就不生成。
+  const ROAD_CLEAR = 0.25;
+  // 返回「到整条路的最小距离」+「最近那个点的路面高度」（门洞要按高度放行，见 pack）
+  const pathDistY = (x, z) => {
+    let best = 1e9, by = 0;
+    for (const g of pl.seg) {
+      const dx = g.b.x - g.a.x, dz = g.b.z - g.a.z;
+      const L2 = dx * dx + dz * dz;
+      let u = L2 > 1e-9 ? ((x - g.a.x) * dx + (z - g.a.z) * dz) / L2 : 0;
+      u = u < 0 ? 0 : u > 1 ? 1 : u;
+      const px = g.a.x + dx * u, pz = g.a.z + dz * u;
+      const d = Math.hypot(x - px, z - pz);
+      if (d < best) { best = d; by = g.a.y + (g.b.y - g.a.y) * u; }
+    }
+    return { d: best, y: by };
+  };
+
+  // 单个零件是否"不压在路面上"（含高度例外：从路面上方净空 2.6m 以上越过去的东西放行）
+  const partOk = (part, sc, wx, wy, wz, rotY) => {
+    const hw = Math.max(Math.abs(part.scale[0]), Math.abs(part.scale[2])) * sc * 0.5;
+    const hy = Math.abs(part.scale[1]) * sc * 0.5;
+    const lpx = part.pos[0] * sc, lpy = part.pos[1] * sc, lpz = part.pos[2] * sc;
+    const cc = Math.cos(rotY), sn = Math.sin(rotY);
+    const wxp = wx + lpx * cc + lpz * sn;
+    const wzp = wz - lpx * sn + lpz * cc;
+    const near = pathDistY(wxp, wzp);
+    if (near.d - hw < roadW / 2 + ROAD_CLEAR && wy + lpy - hy < near.y + 2.6) return false;
+    return true;
+  };
+
   // 把一个道具零件塞进对应几何体的桶里（slot = 规则级颜色槽覆盖，用于"这一列全是草绿"这种）
   const pack = (part, sc, wx, wy, wz, rotY, pal, slot) => {
-    const hex = slot != null ? pal[slot] : pal[part.color];
+    const hex0 = slot != null ? pal[slot] : pal[part.color];
+    let hex = hex0 == null ? 0xcccccc : hex0;
+    // 逐实例轻微色相/明度抖动：同一棵树复制一百遍会"橡皮图章"，官方每一件都不同。
+    // 用世界坐标做确定性哈希 → 同一件东西每次渲染颜色一致。
+    if (part.color !== "shade") {
+      const hsh = ((Math.round(wx * 7.3) * 73856093) ^ (Math.round(wz * 7.3) * 19349663)) >>> 0;
+      const j = ((hsh % 1000) / 1000 - 0.5) * 0.22;      // ±11%
+      const r0 = (hex >> 16) & 255, g0 = (hex >> 8) & 255, b0 = hex & 255;
+      const f = 1 + j;
+      hex = (Math.max(0, Math.min(255, Math.round(r0 * f))) << 16)
+          | (Math.max(0, Math.min(255, Math.round(g0 * f))) << 8)
+          | Math.max(0, Math.min(255, Math.round(b0 * f)));
+    }
     (bucket[part.geo] = bucket[part.geo] || []).push({
       x: wx, y: wy, z: wz,
       sx: part.scale[0] * sc, sy: part.scale[1] * sc, sz: part.scale[2] * sc,
       px: part.pos[0] * sc, py: part.pos[1] * sc, pz: part.pos[2] * sc,
       rotY: (part.rotY || 0) + rotY,
-      color: hex == null ? 0xcccccc : hex,
+      color: hex,
     });
   };
 
@@ -515,12 +571,22 @@ export function buildProps(level, verts, opts = {}) {
           const dl = Math.hypot(dx, dz) || 1;
           dx /= dl; dz /= dl;
           // skipCorner：长构件落在转角上会斜着卡在路口，直接不放
-          if (r.skipCorner) {
-            const ca = atArc(pl, Math.max(0, s - 1.6));
-            const cb = atArc(pl, Math.min(pl.total, s + 1.6));
-            let lx = cb.x - ca.x, lz = cb.z - ca.z;
-            const ll = Math.hypot(lx, lz) || 1;
-            lx /= ll; lz /= ll;
+          const ca = atArc(pl, Math.max(0, s - 1.6));
+          const cb = atArc(pl, Math.min(pl.total, s + 1.6));
+          let lx = cb.x - ca.x, lz = cb.z - ca.z;
+          const ll = Math.hypot(lx, lz) || 1;
+          lx /= ll; lz /= ll;
+          if (r.center) {
+            // 门洞（牌楼）：必须站在**局部笔直**的一段上，且方向用这段直线。
+            // 否则它会斜卡在转角上、柱子直接压在路面里（实测 t=99 就是这样）。
+            const g1 = atArc(pl, Math.max(0, s - 2.6));
+            const g2 = atArc(pl, Math.min(pl.total, s + 2.6));
+            const g0 = atArc(pl, s);
+            if (Math.hypot((g1.x + g2.x) / 2 - g0.x, (g1.z + g2.z) / 2 - g0.z) > 0.4) continue;
+            const rl = Math.hypot(g2.x - g1.x, g2.z - g1.z) || 1;
+            lx = (g2.x - g1.x) / rl; lz = (g2.z - g1.z) / rl;
+            dx = lx; dz = lz;
+          } else if (r.skipCorner) {
             if (dx * lx + dz * lz < Math.cos(0.34)) continue;   // 与局部切线差 >20°
           }
           const nx = dz, nz = -dx;                       // 平滑后的右法线
@@ -539,7 +605,23 @@ export function buildProps(level, verts, opts = {}) {
           const palName = r.palette || spanPal(timeAt(s)) || "default";
           const pal = PROP_COLORS[palName] || PROP_COLORS.default;
           const yy = (pa.y + pb.y) / 2 + (r.dy || 0);
-          for (const part of PROPS[r.kind](R)) pack(part, sc, x, yy, z, rot, pal, r.slot);
+          const parts = PROPS[r.kind](R);
+          const rots = [];
+          for (const part of parts) rots.push(part.rotY || 0);
+          // 门洞（牌楼）用逐零件判：柱子必须让开路面，横梁可以跨过去
+          if (r.center) {
+            let ok = true;
+            for (let pi = 0; pi < parts.length; pi++) {
+              if (!partOk(parts[pi], sc, x, yy, z, rot + rots[pi])) { ok = false; break; }
+            }
+            if (!ok) continue;
+          }
+          const sr2 = SHADOW_R[r.kind];
+          if (sr2) {
+            parts.push({ geo: "cyl", pos: [0, 0.035, 0], scale: [sr2 * 2 * sc, 0.06, sr2 * 2 * sc], color: "shade" });
+            rots.push(0);
+          }
+          for (let pi = 0; pi < parts.length; pi++) pack(parts[pi], sc, x, yy, z, rot + rots[pi], pal, r.slot);
           i++;
         }
       }
@@ -582,17 +664,31 @@ export function buildProps(level, verts, opts = {}) {
           const x = p.x + p.nx * side * off;
           const z = p.z + p.nz * side * off;
           const dy = r.dy || 0;
-          if (!freeAt(x, z, rad)) continue;               // 和已放下的东西咬在一起 → 不放
-          occupy(x, z, rad);
           // 道具自己的随机数流（同一个道具内一致）
           let sd = (s * 7919 + c * 104729 + (side + 1) * 9973 + i) >>> 0;
           const R = () => ((sd = (sd * 1103515245 + 12345) >>> 0) / 4294967296);
+          const parts = PROPS[r.kind](R);
+          const rots = [];
+          for (const part of parts) rots.push((part.rotY || 0) + (r.rotRandom === false ? 0 : R() * Math.PI * 2));
+          // 整件一起判：阶梯折线上必须对**所有**线段取最小距离（见上面 pathDistY 的说明）。
+          // 逐零件判 + "有一个零件压路就整件不放"，避免出现"树干被删掉、树冠还飘着"。
+          let ok = true;
+          for (let pi = 0; pi < parts.length; pi++) {
+            if (!partOk(parts[pi], sc, x, p.y + dy, z, rots[pi])) { ok = false; break; }
+          }
+          if (!ok) continue;
+          if (!freeAt(x, z, rad)) continue;               // 和已放下的东西咬在一起 → 不放
+          occupy(x, z, rad);
+          // 接地影：放在闸门之后加，不参与"压路"判定（否则影子会把树一起拖掉）
+          const sr = SHADOW_R[r.kind];
+          if (sr) {
+            parts.push({ geo: "cyl", pos: [0, 0.035, 0], scale: [sr * 2 * sc, 0.06, sr * 2 * sc], color: "shade" });
+            rots.push(0);
+          }
           const palName = r.palette || spanPal(timeAt(ss)) || "default";
           const pal = PROP_COLORS[palName] || PROP_COLORS.default;
-          const parts = PROPS[r.kind](R);
-          for (const part of parts) {
-            pack(part, sc, x, p.y + dy, z,
-              (part.rotY || 0) + (r.rotRandom === false ? 0 : R() * Math.PI * 2), pal, r.slot);
+          for (let pi = 0; pi < parts.length; pi++) {
+            pack(parts[pi], sc, x, p.y + dy, z, rots[pi], pal, r.slot);
           }
           i++;
         }
