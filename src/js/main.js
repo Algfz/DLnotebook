@@ -4,6 +4,7 @@
    ===================================================================== */
 import { fetchLevels, loadLevelJSON, loadAudioBuffer } from "./level.js";
 import { Game, THREE } from "./game.js";
+import { buildPropSheet } from "./props.js";
 
 // 标记模块已成功执行（index.html 里有个超时检测在等这个标志）
 window.__moduleLoaded = true;
@@ -352,6 +353,8 @@ async function startGame() {
     // 在页面里改参数后立刻截图对比（正常玩不受影响，reload 即消失）
     window.__game = game;
     window.__THREE = THREE;
+    // 道具图鉴用（tools/shot.js --setup-file out/_sheet.js）：离屏把每种道具摆成网格截图
+    window.__PROPSMOD = { buildPropSheet };
 
     game.setGuide(settings.guide);
     applyKeys();                 // 玩家改过的操作按键

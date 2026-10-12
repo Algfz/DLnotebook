@@ -26,8 +26,83 @@ const GEOS = {
   cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 8),
   cone: new THREE.ConeGeometry(0.5, 1, 8),
   oct: new THREE.OctahedronGeometry(0.5, 0),
+  blade: new THREE.ConeGeometry(0.5, 1, 3),           // 三棱锥＝草叶（官方草是细长三角面片，不是圆锥）
+  ball8: new THREE.IcosahedronGeometry(0.5, 0),       // 20 面球＝官方树冠/灌木的原始件
 };
-const GEO_ROUGH = { box: 0.9, sphere: 0.95, cyl: 0.85, cone: 0.9, oct: 0.8 };
+const GEO_ROUGH = { box: 0.9, sphere: 0.95, cyl: 0.85, cone: 0.9, oct: 0.8, blade: 0.95, ball8: 0.95 };
+
+// ═══ 精细度：专用几何体 + 每型多变体 ═══════════════════════════════════════
+// 过去的道具全是"球/柱/锥裸拼"：一棵树 = 一根等粗圆柱 + 3 个一模一样的球。
+// 于是同一段里几十棵树是**同一个形状的复制品** —— 无论怎么摆都透着"粗制滥造"。
+// 官方做法（研究结论 R16/R19/R40）是"低多边形 + 明显棱面 + 零件多而大"，
+// 这里补三件事：
+//   1) **专用形状**：叶团 / 树干 / 岩石 / 松塔 / 水晶各有自己的几何体，不再公用球柱；
+//   2) **每型 4 个变体**：顶点按种子抖动，同段内每株都不同，消掉"复制粘贴感"；
+//   3) 形状本身带**结构**：树干有收分与板根、岩石底面切平、松塔边缘带锯齿。
+// 变体在打包时按几何体名分开成不同的 InstancedMesh，所以变体多也不会掉帧。
+const VN = 4;
+function mulberry(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+
+// 按**顶点位置**变形：这些几何体是非索引的（每个三角形有自己的顶点），
+// 逐顶点独立抖动会把三角形撕开 —— 同一位置必须共用同一个随机数。
+function deform(geo, seed, fn) {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  const p = g.attributes.position, seen = new Map(), rnd = mulberry(seed);
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const key = x.toFixed(4) + "|" + y.toFixed(4) + "|" + z.toFixed(4);
+    let r = seen.get(key);
+    if (r === undefined) { r = rnd(); seen.set(key, r); }
+    const q = fn(x, y, z, r);
+    p.setXYZ(i, q[0], q[1], q[2]);
+  }
+  p.needsUpdate = true;
+  g.computeVertexNormals();     // 非索引几何体 → 逐面法线，天然是"硬边低多边形"
+  return g;
+}
+
+// 叶团：**20 面**多面体球（detail=0，官方就是 IcosahedronGeometry(r,0)）+ 强抖动（±24%）
+// 上宽下略收 —— 20 面 + 硬边才是"低多边形块面"，detail=1（80 面）会读成"皱纸"。
+const mkCanopy = (seed) => deform(new THREE.IcosahedronGeometry(0.5, 0), seed,
+  (x, y, z, r) => { const m = 1 + (r * 2 - 1) * 0.24; return [x * m, y * m * 1.04, z * m]; });
+// 岩石：抖动更大 + 底面切平（官方石头是"坐"在地上的一整块，不是浮着的球）
+const mkRock = (seed) => deform(new THREE.IcosahedronGeometry(0.5, 0), seed,
+  (x, y, z, r) => { const m = 1 + (r * 2 - 1) * 0.34; return [x * m, Math.max(y * m, -0.16) * 0.94, z * m]; });
+// 树干：锥形收分 + 根部板根外扩 + 轻微弯曲（不再是根等粗圆柱）
+const mkTrunk = (seed) => {
+  const bx = (mulberry(seed + 31)() * 2 - 1) * 0.11, bz = (mulberry(seed + 57)() * 2 - 1) * 0.11;
+  return deform(new THREE.CylinderGeometry(0.17, 0.24, 1, 7, 5), seed,
+    (x, y, z, r) => {
+      const t = y + 0.5;                                   // 0 根 → 1 顶
+      const flare = t < 0.18 ? 1 + (0.18 - t) * 3.2 : 1;   // 板根
+      const m = (1 + (r * 2 - 1) * 0.07) * flare;
+      return [x * m + bx * t * t, y, z * m + bz * t * t];
+    });
+};
+// 松塔：圆锥 + 边缘锯齿（官方针叶树是一层层"手工剪出来"的锥，不是光滑喇叭）
+const mkTier = (seed) => deform(new THREE.ConeGeometry(0.5, 1, 9, 2), seed,
+  (x, y, z, r) => {
+    const t = y + 0.5;
+    const jag = 1 + (r * 2 - 1) * 0.17 * (1 - t);
+    return [x * jag, y + (r * 2 - 1) * 0.035, z * jag];
+  });
+// 水晶：八面体拉长 + 棱角抖动（细长有切割感，不是牙签）
+const mkCrystal = (seed) => deform(new THREE.OctahedronGeometry(0.5, 0), seed,
+  (x, y, z, r) => { const m = 1 + (r * 2 - 1) * 0.15; return [x * m * 0.9, y * m, z * m * 0.9]; });
+
+const VGEO = { canopy: mkCanopy, rock: mkRock, trunk: mkTrunk, tier: mkTier, crystal: mkCrystal };
+const VROUGH = { canopy: 0.95, rock: 0.92, trunk: 0.9, tier: 0.95, crystal: 0.5 };
+const VFLAT = new Set();      // 这些几何体用硬边材质（低多边形观感的关键）
+for (const name of Object.keys(VGEO)) {
+  for (let v = 0; v < VN; v++) {
+    const key = name + v;
+    GEOS[key] = VGEO[name](2200 + v * 977 + name.length * 137);
+    GEO_ROUGH[key] = VROUGH[name];
+    VFLAT.add(key);
+  }
+}
+// 道具定义里取变体：同一件道具内部稳定，不同实例/不同次调用不同
+const V = (name, R) => name + Math.floor(R() * VN);
 
 /* ---------------------------------------------------------------------------
    道具定义
@@ -36,113 +111,152 @@ const GEO_ROUGH = { box: 0.9, sphere: 0.95, cyl: 0.85, cone: 0.9, oct: 0.8 };
    · R 是 [0,1) 随机数函数（同一个道具实例内用同一个 R，所以形态稳）
    --------------------------------------------------------------------------- */
 export const PROPS = {
-  // 阔叶树：树干 + 2~3 个球拼的树冠
+  // 阔叶树：官方是"一树两件"—— 收分树干 + **1~3 块**叶团（1 块最常见，阔叶最多 5 块），
+  // 有叶的树**不加分枝**（分枝是枯树/古树才有的），所以这里只叠叶团、不做枝。
   tree(R) {
-    const h = 2.2 + R() * 1.8;
-    const r = 1.2 + R() * 0.8;
-    return [
-      { geo: "cyl", pos: [0, h / 2, 0], scale: [0.36, h, 0.36], color: "wood" },
-      { geo: "sphere", pos: [0, h + r * 0.7, 0], scale: [r * 2.1, r * 1.8, r * 2.1], color: "foliage" },
-      { geo: "sphere", pos: [r * 0.55, h + r * 0.35, r * 0.25], scale: [r * 1.25, r * 1.1, r * 1.25], color: "foliage" },
-      { geo: "sphere", pos: [-r * 0.5, h + r * 0.5, -r * 0.3], scale: [r * 1.1, r * 0.95, r * 1.1], color: "foliage" },
-    ];
-  },
-
-  // 松树：树干 + 3 层圆锥（越往上越小）
-  pine(R) {
-    const h = 1.6 + R() * 1.2;
-    const n = 3;
-    const out = [{ geo: "cyl", pos: [0, h / 2, 0], scale: [0.32, h, 0.32], color: "wood" }];
-    let y = h * 0.8, w = 2.6 + R() * 0.8;
-    for (let i = 0; i < n; i++) {
-      const ch = 2.4 + R() * 0.6, sw = w * (1 - i * 0.24);
-      out.push({ geo: "cone", pos: [0, y + ch / 2, 0], scale: [sw, ch, sw], color: "foliage" });
-      y += ch * 0.52;
+    const h = 2.3 + R() * 2.1;                 // 树干高
+    const r = 1.15 + R() * 0.72;               // 树冠尺度
+    const out = [{ geo: V("trunk", R), pos: [0, h / 2, 0], scale: [0.46, h, 0.46], color: "wood" }];
+    // 主冠：1 块大的 + 0~2 块小的贴着它（"一簇块"而不是一个球，也不是一堆碎球）
+    const nLobe = 1 + Math.floor(R() * 3);
+    const topY = h + r * 0.42;
+    for (let i = 0; i < nLobe; i++) {
+      const a = (i / Math.max(1, nLobe)) * Math.PI * 2 + R() * 1.1;
+      const d = i === 0 ? 0 : r * (0.34 + R() * 0.4);
+      const s = r * (i === 0 ? 1.0 : 0.5 + R() * 0.3);
+      const dy = i === 0 ? 0 : (R() - 0.4) * r * 0.75;
+      out.push({
+        geo: V("canopy", R), pos: [Math.cos(a) * d, topY + dy, Math.sin(a) * d],
+        scale: [s * 2.7, s * 2.15, s * 2.7], rotY: R() * 6.28,
+        color: (i === 0 || dy > -r * 0.05) ? "foliage" : "foliageLo",   // 顶亮底暗
+      });
     }
     return out;
   },
 
-  // 果树：树冠上挂几个"果子"
+  // 松树：树干 + 3~4 层带锯齿的锥（越往上越小、层间有重叠），下层压暗
+  pine(R) {
+    const h = 1.5 + R() * 1.3;
+    const out = [{ geo: V("trunk", R), pos: [0, h / 2, 0], scale: [0.40, h, 0.40], color: "wood" }];
+    const n = 3 + (R() < 0.45 ? 1 : 0);
+    let y = h * 0.62;
+    const w0 = 4.0 + R() * 1.0;
+    for (let i = 0; i < n; i++) {
+      const ch = 2.2 + R() * 0.6, sw = w0 * (1 - i * 0.19);
+      out.push({
+        geo: V("tier", R), pos: [0, y + ch / 2, 0], scale: [sw, ch, sw],
+        rotY: R() * 6.28, color: i >= n - 2 ? "foliage" : "foliageLo",
+      });
+      y += ch * 0.45;                    // 重叠 ~55%：层与层咬住才有"一整棵树"的感觉
+    }
+    return out;
+  },
+
+  // 果树：在树冠上挂几个"果子"（树冠中心按叶团实际位置算，树的结构改了这里不用跟着改）
   appleTree(R) {
     const out = PROPS.tree(R);
-    const n = 3 + Math.floor(R() * 3);
-    const h = out[0].scale[1], r = out[1].scale[0] / 2;
+    let cx = 0, cy = 0, cz = 0, m = 0, rad = 1;
+    for (const p of out) {
+      if (!p.color || !p.color.startsWith("foliage")) continue;
+      cx += p.pos[0]; cy += p.pos[1]; cz += p.pos[2]; m++;
+      rad = Math.max(rad, p.scale[0] / 2);
+    }
+    if (!m) return out;
+    cx /= m; cy /= m; cz /= m;
+    const n = 3 + Math.floor(R() * 4);
     for (let i = 0; i < n; i++) {
-      const a = R() * Math.PI * 2, d = r * (0.55 + R() * 0.5);
+      const a = R() * Math.PI * 2, b = (R() - 0.25) * 1.4, d = rad * (0.72 + R() * 0.33);
       out.push({
         geo: "sphere", color: "bloom",
-        pos: [Math.cos(a) * d, h + r * 0.7 + Math.sin(a) * d * 0.7, Math.sin(a) * d],
-        scale: [0.42, 0.42, 0.42],
+        pos: [cx + Math.cos(a) * Math.cos(b) * d, cy + Math.sin(b) * d * 0.8, cz + Math.sin(a) * Math.cos(b) * d],
+        scale: [0.44, 0.44, 0.44],
       });
     }
     return out;
   },
 
-  // 灌木：2~3 个小球挤在一起
+  // 灌木：4~6 个小叶团挤成一丛，底下压一层暗色（坐在地上的一坨，不是飘着的球）
   bush(R) {
     const out = [];
-    const n = 2 + Math.floor(R() * 2);
+    const base = 0.55 + R() * 0.3;
+    out.push({ geo: V("canopy", R), pos: [0, base * 0.5, 0], scale: [base * 2.6, base * 1.5, base * 2.6], rotY: R() * 6.28, color: "foliageLo" });
+    const n = 3 + Math.floor(R() * 3);
     for (let i = 0; i < n; i++) {
-      const s = 0.9 + R() * 0.7;
+      const a = (i / n) * Math.PI * 2 + R() * 1.1;
+      const d = base * (0.35 + R() * 0.6);
+      const s = base * (0.85 + R() * 0.65);
       out.push({
-        geo: "sphere", color: "foliage",
-        pos: [(R() - 0.5) * 1.2, s * 0.55, (R() - 0.5) * 1.2],
-        scale: [s * 1.5, s * 1.2, s * 1.5],
+        geo: V("canopy", R), color: "foliage",
+        pos: [Math.cos(a) * d, base * (0.7 + R() * 0.5), Math.sin(a) * d],
+        scale: [s * 2.1, s * 1.8, s * 2.1], rotY: R() * 6.28,
       });
     }
     return out;
   },
 
-  // 石头：1~3 块压扁的低多边形球（有棱角但不"纸片"；用八面体会变成扁平菱形，很难看）
+  // 石头：1~4 块底面切平的多面岩（顶块亮、压在下层的暗），像"坐在地上的一堆"
   rock(R) {
     const out = [];
-    const n = 1 + Math.floor(R() * 3);
+    const n = 1 + Math.floor(R() * 4);
+    // 先放最大的一块当主岩，再在旁边挤小的
     for (let i = 0; i < n; i++) {
-      const s = 0.62 + R() * 0.95;
+      const s = (i === 0 ? 0.95 + R() * 0.7 : 0.5 + R() * 0.7);
       out.push({
-        geo: "sphere", color: "stone",
-        pos: [(R() - 0.5) * 2.2, s * 0.3, (R() - 0.5) * 2.2],
-        scale: [s * 1.5, s * 0.95, s * 1.4],
-        rotY: R() * Math.PI,
+        geo: V("rock", R), color: i === 0 ? "stone" : (R() < 0.5 ? "stoneLo" : "stone"),
+        pos: [(R() - 0.5) * 2.0, s * 0.42, (R() - 0.5) * 2.0],
+        scale: [s * 1.85, s * 1.5, s * 1.65],
+        rotY: R() * Math.PI * 1.6, rotZ: (R() - 0.5) * 0.3,
       });
     }
     return out;
   },
 
-  // 花：**贴地**的小花片（真实关卡的花是"趴在地上"的，不是立在地上的模型）
+  // 花：**贴地**的小花片 + 一对叶子（真实关卡的花是"趴在地上"的，不是立着的模型）
   flower(R) {
     const h = 0.22 + R() * 0.16;
     const out = [{ geo: "cyl", pos: [0, h / 2, 0], scale: [0.06, h, 0.06], color: "foliage" }];
-    const petal = 0.3 + R() * 0.14;
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + R() * 0.4;
+    for (let i = 0; i < 2; i++) {
+      const a = R() * 6.28;
       out.push({
-        geo: "sphere", color: "bloom",
-        pos: [Math.cos(a) * petal * 0.8, h + 0.02, Math.sin(a) * petal * 0.8],
-        scale: [petal * 1.7, petal * 0.45, petal * 1.7],
+        geo: V("canopy", R), color: "foliage", rotY: R() * 6.28,
+        pos: [Math.cos(a) * 0.16, h * 0.45, Math.sin(a) * 0.16],
+        scale: [0.42, 0.12, 0.3],
       });
     }
-    out.push({ geo: "sphere", pos: [0, h + 0.06, 0], scale: [0.15, 0.12, 0.15], color: "accent" });
+    const petal = 0.3 + R() * 0.14;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + R() * 0.4;
+      out.push({
+        geo: V("canopy", R), color: "bloom", rotY: a,
+        pos: [Math.cos(a) * petal * 0.8, h + 0.02, Math.sin(a) * petal * 0.8],
+        scale: [petal * 1.7, petal * 0.5, petal * 1.7],
+      });
+    }
+    out.push({ geo: "sphere", pos: [0, h + 0.06, 0], scale: [0.16, 0.13, 0.16], color: "accent" });
     return out;
   },
 
-  // 蘑菇：杆 + 半球伞盖
+  // 蘑菇：带收分的杆 + 伞盖 + 伞下的菌褶（一层压暗的薄片）
   mushroom(R) {
-    const h = 0.5 + R() * 0.5;
+    const h = 0.55 + R() * 0.55;
+    const cw = 0.75 + R() * 0.4;
     return [
-      { geo: "cyl", pos: [0, h / 2, 0], scale: [0.22, h, 0.22], color: "wood" },
-      { geo: "sphere", pos: [0, h, 0], scale: [0.8, 0.5, 0.8], color: "bloom" },
+      { geo: V("trunk", R), pos: [0, h / 2, 0], scale: [0.26, h, 0.26], rotY: R() * 6.28, color: "wood" },
+      { geo: "cyl", pos: [0, h - 0.03, 0], scale: [cw * 0.92, 0.07, cw * 0.92], color: "woodLo" },
+      { geo: V("canopy", R), pos: [0, h + 0.06, 0], scale: [cw * 1.25, cw * 0.8, cw * 1.25], rotY: R() * 6.28, color: "bloom" },
     ];
   },
 
-  // 高矮柱：光秃秃的柱子，靠"成列"产生速度感（真实关卡里最常见的结构件之一）
+  // 高矮柱：柱础 + 柱身（微收分）+ 柱头 —— 三段式才像"建筑构件"，不是插了根方棍
   column(R) {
-    const h = 1.8 + R() * 3.2;
-    const w = 0.42 + R() * 0.7;
+    const h = 1.8 + R() * 3.4;
+    const w = 0.42 + R() * 0.68;
     const out = [
-      { geo: "box", pos: [0, h / 2, 0], scale: [w, h, w], color: "stone" },
+      { geo: "box", pos: [0, 0.09, 0], scale: [w * 1.5, 0.18, w * 1.5], color: "stoneLo" },      // 柱础
+      { geo: "box", pos: [0, 0.18 + (h - 0.18) / 2, 0], scale: [w, h - 0.18, w], color: "stone" },
     ];
-    if (R() < 0.45) out.push({ geo: "box", pos: [0, h + 0.18, 0], scale: [w * 1.5, 0.36, w * 1.5], color: "accent" });
+    if (R() < 0.6) out.push({ geo: "box", pos: [0, h + 0.12, 0], scale: [w * 1.42, 0.24, w * 1.42], color: "stone" });   // 柱头
+    if (R() < 0.4) out.push({ geo: "box", pos: [0, h + 0.34, 0], scale: [w * 1.1, 0.2, w * 1.1], color: "accent" });
     return out;
   },
 
@@ -162,41 +276,48 @@ export const PROPS = {
     return [{ geo: "box", color: "stone", pos: [0, h / 2, 0], scale: [w, h, d], rotY: R() * Math.PI }];
   },
 
-  // 草丛：3~4 片细长三角面片（真实关卡里"贴地的小东西"都是面片，不是立体模型）
+  // 草丛：**3~9 片细长三角面片**从一点向外发散（官方草簇就是面片，不是圆锥尖刺）
   grass(R) {
     const out = [];
-    const n = 3 + Math.floor(R() * 2);
+    const n = 4 + Math.floor(R() * 5);
     for (let i = 0; i < n; i++) {
-      const h = 0.45 + R() * 0.5;
-      const a = (i / n) * Math.PI * 2 + R() * 0.7;
+      const h = 0.38 + R() * 0.42;
+      const a = (i / n) * Math.PI * 2 + R() * 0.9;
       out.push({
-        geo: "cone", color: "foliage",
-        pos: [Math.cos(a) * 0.22, h / 2, Math.sin(a) * 0.22],
-        scale: [0.16, h, 0.1],
-        rotY: a,
+        geo: "blade", color: R() < 0.34 ? "foliageLo" : "foliage",
+        pos: [Math.cos(a) * 0.06, h * 0.45, Math.sin(a) * 0.06],
+        scale: [0.34, h, 0.10],
+        rotY: a, rotX: 0.16 + R() * 0.3,        // 向外倒 → 一簇散开
       });
     }
     return out;
   },
 
-  // 栅栏：两立柱 + 两条横杆（一段 2m 宽，局部 X 沿路方向，可以成列拼成长栅栏）
+  // 栅栏：立柱（带尖顶）+ 上下两道横杆 + 柱上钉头。一段 1.4m 宽，可成列拼成长栏
   fence(R) {
     const w = 1.4, h = 1.0 + R() * 0.3;
-    return [
-      { geo: "box", pos: [-w / 2, h / 2, 0], scale: [0.16, h, 0.16], color: "wood" },
-      { geo: "box", pos: [w / 2, h / 2, 0], scale: [0.16, h, 0.16], color: "wood" },
-      { geo: "box", pos: [0, h * 0.78, 0], scale: [w, 0.14, 0.1], color: "wood" },
-      { geo: "box", pos: [0, h * 0.45, 0], scale: [w, 0.14, 0.1], color: "wood" },
-    ];
+    const out = [];
+    for (const sx of [-w / 2, w / 2]) {
+      out.push({ geo: "box", pos: [sx, h / 2, 0], scale: [0.16, h, 0.16], color: "wood" });
+      out.push({ geo: "cone", pos: [sx, h + 0.09, 0], scale: [0.22, 0.2, 0.22], color: "woodLo" });   // 尖顶
+    }
+    out.push({ geo: "box", pos: [0, h * 0.78, 0], scale: [w, 0.13, 0.09], color: "wood" });
+    out.push({ geo: "box", pos: [0, h * 0.44, 0], scale: [w, 0.13, 0.09], color: "wood" });
+    if (R() < 0.5) out.push({ geo: "box", pos: [0, h * 0.61, 0.03], scale: [0.1, 0.5, 0.1], color: "woodLo" });  // 竖条
+    return out;
   },
 
-  // 路灯：杆 + 灯头
+  // 路灯：基座 + 杆 + 挑臂 + 灯笼（灯身 + 灯帽 + 顶珠）
   lamp(R) {
-    const h = 3.2 + R() * 0.8;
+    const h = 3.2 + R() * 0.9;
+    const arm = 0.34 + R() * 0.12;
     return [
-      { geo: "cyl", pos: [0, h / 2, 0], scale: [0.16, h, 0.16], color: "wood" },
-      { geo: "box", pos: [0, h + 0.28, 0], scale: [0.5, 0.55, 0.5], color: "accent" },
-      { geo: "cone", pos: [0, h + 0.66, 0], scale: [0.8, 0.35, 0.8], color: "wood" },
+      { geo: "box", pos: [0, 0.11, 0], scale: [0.42, 0.22, 0.42], color: "stoneLo" },          // 基座
+      { geo: V("trunk", R), pos: [0, h / 2 + 0.2, 0], scale: [0.19, h, 0.19], rotY: R() * 6.28, color: "wood" },
+      { geo: "box", pos: [arm / 2, h + 0.2, 0], scale: [arm, 0.07, 0.07], color: "wood" },     // 挑臂
+      { geo: "box", pos: [arm, h + 0.02, 0], scale: [0.42, 0.42, 0.42], color: "accent" },     // 灯身
+      { geo: "cone", pos: [arm, h + 0.33, 0], scale: [0.72, 0.3, 0.72], color: "wood" },       // 灯帽
+      { geo: "sphere", pos: [arm, h + 0.52, 0], scale: [0.14, 0.14, 0.14], color: "accent" },  // 顶珠
     ];
   },
 
@@ -210,19 +331,27 @@ export const PROPS = {
     ];
   },
 
-  // 水晶：几根棱锥（八面体拉长）——要"粗"一点，太细会像牙签
+  // 水晶：1 根主晶 + 0~2 根斜插的付晶 + 底部一块岩托（成簇才有"晶簇"的样子）
   crystal(R) {
     const out = [];
     const n = 1 + Math.floor(R() * 3);
-    for (let i = 0; i < n; i++) {
-      const h = 2.0 + R() * 2.4;
+    const h0 = 2.0 + R() * 2.4;
+    out.push({
+      geo: V("crystal", R), color: "accent",
+      pos: [(R() - 0.5) * 0.5, h0 * 0.5, (R() - 0.5) * 0.5],
+      scale: [1.2 + R() * 0.7, h0, 1.2 + R() * 0.7], rotY: R() * 6.28,
+    });
+    for (let i = 1; i < n + 1; i++) {
+      const h = 1.1 + R() * 1.6;
+      const a = R() * 6.28, d = 0.55 + R() * 0.8;
       out.push({
-        geo: "oct", color: "accent",
-        pos: [(R() - 0.5) * 1.8, h * 0.45, (R() - 0.5) * 1.8],
-        scale: [1.0 + R() * 0.7, h, 1.0 + R() * 0.7],
-        rotY: R() * 3,
+        geo: V("crystal", R), color: i % 2 ? "accent" : "bloom",
+        pos: [Math.cos(a) * d, h * 0.45, Math.sin(a) * d],
+        scale: [0.8 + R() * 0.5, h, 0.8 + R() * 0.5],
+        rotY: R() * 6.28, rotZ: (R() - 0.5) * 0.7, rotX: (R() - 0.5) * 0.5,
       });
     }
+    out.push({ geo: V("rock", R), pos: [0, 0.18, 0], scale: [2.4, 0.5, 2.2], rotY: R() * 6.28, color: "stoneLo" });
     return out;
   },
 
@@ -241,16 +370,17 @@ export const PROPS = {
     ];
   },
 
-  // 云团（浮在空中的一簇球，"云海"段用）
+  // 云团（浮在空中的一簇球，"云海"段用）：上亮下暗，团块大小差别拉大
   cloudlet(R) {
     const out = [];
-    const n = 3 + Math.floor(R() * 3);
+    const n = 4 + Math.floor(R() * 4);
     for (let i = 0; i < n; i++) {
-      const s = 1.8 + R() * 2.2;
+      const s = (i === 0 ? 3.4 + R() * 2.2 : 1.6 + R() * 2.4);
+      const yy = (R() - 0.5) * 1.4;
       out.push({
-        geo: "sphere", color: "stone",
-        pos: [(R() - 0.5) * 3.6, (R() - 0.5) * 1.2, (R() - 0.5) * 3.6],
-        scale: [s * 1.35, s, s * 1.35],
+        geo: V("canopy", R), color: yy > 0 ? "stone" : "stoneLo",
+        pos: [(R() - 0.5) * 3.8, yy, (R() - 0.5) * 3.8],
+        scale: [s * 1.4, s, s * 1.4], rotY: R() * 6.28,
       });
     }
     return out;
@@ -319,6 +449,25 @@ const SHADOW_R = {
   tree: 1.5, pine: 1.5, appleTree: 1.5, bush: 0.95, rock: 1.1,
   column: 0.6, lamp: 0.35, lantern: 0.55, arch: 2.9, giant: 5.6, mushroom: 0.4,
 };
+
+// 「底座色块」的边长（米）：官方秋天做法 —— 树/石脚下垫一块**比地面略亮**的薄方块
+// （1.5~2.0 倍路宽见方、厚 0.12~0.2 倍路宽），衬出"这块地是它的"。
+// 和接地影配合：影是同色系压暗（体积感），底座是提亮（层次感）。
+const BASE_W = {
+  tree: 4.6, appleTree: 4.6, pine: 3.8, rock: 2.8, bush: 1.9, crystal: 1.6,
+};
+
+// 「暗色变体」色槽：道具定义里写 foliageLo / stoneLo / woodLo / bloomLo 就自动
+// 从同名基础色压暗得到 —— 顶亮底暗是**最廉价也最有效**的体积感来源（官方每件都有），
+// 但没必要给 7 套色卡 × 4 个色槽手写 28 个数字，直接从基础色算。
+const SLOT_DERIVE = {
+  foliageLo: ["foliage", 0.66], stoneLo: ["stone", 0.74], woodLo: ["wood", 0.7], bloomLo: ["bloom", 0.72],
+  base: ["ground", 1.16], baseLo: ["ground", 1.06],
+};
+function darken(hex, f) {
+  const c = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
+  return (c((hex >> 16) & 255) << 16) | (c((hex >> 8) & 255) << 8) | c(hex & 255);
+}
 
 
 /* ---------------------------------------------------------------------------
@@ -516,9 +665,16 @@ export function buildProps(level, verts, opts = {}) {
   };
 
   // 把一个道具零件塞进对应几何体的桶里（slot = 规则级颜色槽覆盖，用于"这一列全是草绿"这种）
-  const pack = (part, sc, wx, wy, wz, rotY, pal, slot) => {
-    const hex0 = slot != null ? pal[slot] : pal[part.color];
-    let hex = hex0 == null ? 0xcccccc : hex0;
+  // propRot = 整件的 Y 旋转；lean = [绕X, 绕Z] 的轻微歪斜（每株都不同，消掉"一切都是直的"）
+  const _qe = new THREE.Euler(), _qp = new THREE.Quaternion();
+  const _qv = new THREE.Quaternion(), _qf = new THREE.Quaternion(), _vv = new THREE.Vector3();
+  const pack = (part, sc, wx, wy, wz, propRot, pal, slot, lean) => {
+    let hex0 = slot != null ? pal[slot] : pal[part.color];
+    if (hex0 == null) {                       // foliageLo / stoneLo … 从基础色压暗得到
+      const dv = SLOT_DERIVE[part.color];
+      hex0 = dv && pal[dv[0]] != null ? darken(pal[dv[0]], dv[1]) : 0xcccccc;
+    }
+    let hex = hex0;
     // 逐实例轻微色相/明度抖动：同一棵树复制一百遍会"橡皮图章"，官方每一件都不同。
     // 用世界坐标做确定性哈希 → 同一件东西每次渲染颜色一致。
     if (part.color !== "shade") {
@@ -530,11 +686,20 @@ export function buildProps(level, verts, opts = {}) {
           | (Math.max(0, Math.min(255, Math.round(g0 * f))) << 8)
           | Math.max(0, Math.min(255, Math.round(b0 * f)));
     }
+    // 零件最终姿态 = 整件姿态（propRot + 轻微歪斜 lean）× 零件自身姿态。
+    // ⚠️ 局部偏移只能被**整件**姿态旋转。过去把它连同 part.rotY 一起转 →
+    //    树冠绕着树干乱窜、牌楼的柱子被转到路面正中（t=99 那个 bug 的真正根因）。
+    _qe.set(part.rotX || 0, part.rotY || 0, part.rotZ || 0);
+    _qv.setFromEuler(_qe);
+    _qe.set(lean ? lean[0] : 0, propRot, lean ? lean[1] : 0);
+    _qp.setFromEuler(_qe);
+    _qf.copy(_qp).multiply(_qv);
+    _vv.set(part.pos[0] * sc, part.pos[1] * sc, part.pos[2] * sc).applyQuaternion(_qp);
     (bucket[part.geo] = bucket[part.geo] || []).push({
       x: wx, y: wy, z: wz,
       sx: part.scale[0] * sc, sy: part.scale[1] * sc, sz: part.scale[2] * sc,
-      px: part.pos[0] * sc, py: part.pos[1] * sc, pz: part.pos[2] * sc,
-      rotY: (part.rotY || 0) + rotY,
+      lx: _vv.x, ly: _vv.y, lz: _vv.z,
+      qx: _qf.x, qy: _qf.y, qz: _qf.z, qw: _qf.w,
       color: hex,
     });
   };
@@ -606,22 +771,20 @@ export function buildProps(level, verts, opts = {}) {
           const pal = PROP_COLORS[palName] || PROP_COLORS.default;
           const yy = (pa.y + pb.y) / 2 + (r.dy || 0);
           const parts = PROPS[r.kind](R);
-          const rots = [];
-          for (const part of parts) rots.push(part.rotY || 0);
-          // 门洞（牌楼）用逐零件判：柱子必须让开路面，横梁可以跨过去
+          // 门洞（牌楼）用逐零件判：柱子必须让开路面，横梁可以跨过去。
+          // 零件自身姿态在 pack 里叠加，这里只传"整件"的朝向 rot。
           if (r.center) {
             let ok = true;
-            for (let pi = 0; pi < parts.length; pi++) {
-              if (!partOk(parts[pi], sc, x, yy, z, rot + rots[pi])) { ok = false; break; }
+            for (const part of parts) {
+              if (!partOk(part, sc, x, yy, z, rot)) { ok = false; break; }
             }
             if (!ok) continue;
           }
           const sr2 = SHADOW_R[r.kind];
-          if (sr2) {
-            parts.push({ geo: "cyl", pos: [0, 0.035, 0], scale: [sr2 * 2 * sc, 0.06, sr2 * 2 * sc], color: "shade" });
-            rots.push(0);
-          }
-          for (let pi = 0; pi < parts.length; pi++) pack(parts[pi], sc, x, yy, z, rot + rots[pi], pal, r.slot);
+          const bw2 = BASE_W[r.kind];
+          if (bw2) parts.push({ geo: "box", pos: [0, 0.02, 0], scale: [bw2 * sc, 0.10, bw2 * sc], color: "baseLo", rotY: rot });
+          if (sr2) parts.push({ geo: "cyl", pos: [0, 0.10, 0], scale: [sr2 * 2 * sc, 0.06, sr2 * 2 * sc], color: "shade" });
+          for (const part of parts) pack(part, sc, x, yy, z, rot, pal, r.slot);
           i++;
         }
       }
@@ -656,7 +819,11 @@ export function buildProps(level, verts, opts = {}) {
         // 一处只挑一条车道：同处的东西成"一撮"，整体看是几条顺路的带子
         const lane = r.lane != null ? Math.min(lanes - 1, r.lane) : (n0 + (side > 0 ? 0 : 1)) % lanes;
         for (let c = 0; c < n; c++) {
-          const sc = sc0 + rnd() * (sc1 - sc0);
+          // 每件再乘一个 0.78~1.22 的随机缩放（官方"装饰随机、结构对齐"里的核心手法：
+          // 同一 mesh 随机 rot.y + scale 0.7~1.3，是"低成本高丰富度"的关键）。
+          // 成列件（栅栏/路灯）不需要，规则里写 scaleJitter:false 关掉。
+          const jit = r.scaleJitter === false ? 1 : 0.78 + rnd() * 0.44;
+          const sc = (sc0 + rnd() * (sc1 - sc0)) * jit;
           const rad = radOf(r.kind, sc);
           // 每件东西自己的"离路下限"：小件贴路、大件（树/云团/岩）要按半径让开路面
           const minOffK = Math.max(minOff0, roadW / 2 + rad + 0.4);
@@ -668,27 +835,27 @@ export function buildProps(level, verts, opts = {}) {
           let sd = (s * 7919 + c * 104729 + (side + 1) * 9973 + i) >>> 0;
           const R = () => ((sd = (sd * 1103515245 + 12345) >>> 0) / 4294967296);
           const parts = PROPS[r.kind](R);
-          const rots = [];
-          for (const part of parts) rots.push((part.rotY || 0) + (r.rotRandom === false ? 0 : R() * Math.PI * 2));
+          // 整件一个随机朝向 + 一点歪斜（每株不同）；零件自身姿态在 pack 里再叠
+          const propRot = r.rotRandom === false ? 0 : R() * Math.PI * 2;
+          const lean = [(R() - 0.5) * 0.10, (R() - 0.5) * 0.10];
           // 整件一起判：阶梯折线上必须对**所有**线段取最小距离（见上面 pathDistY 的说明）。
           // 逐零件判 + "有一个零件压路就整件不放"，避免出现"树干被删掉、树冠还飘着"。
           let ok = true;
-          for (let pi = 0; pi < parts.length; pi++) {
-            if (!partOk(parts[pi], sc, x, p.y + dy, z, rots[pi])) { ok = false; break; }
-          }
+          for (const part of parts) { if (!partOk(part, sc, x, p.y + dy, z, propRot)) { ok = false; break; } }
           if (!ok) continue;
           if (!freeAt(x, z, rad)) continue;               // 和已放下的东西咬在一起 → 不放
           occupy(x, z, rad);
-          // 接地影：放在闸门之后加，不参与"压路"判定（否则影子会把树一起拖掉）
+          // 接地影：放在闸门之后加，不参与"压路"判定（否则影子会把树一起拖掉）；
+          // 影子不跟着歪 —— 它得平躺在地上
           const sr = SHADOW_R[r.kind];
-          if (sr) {
-            parts.push({ geo: "cyl", pos: [0, 0.035, 0], scale: [sr * 2 * sc, 0.06, sr * 2 * sc], color: "shade" });
-            rots.push(0);
-          }
+          // 底座色块：比地面略亮的薄方块（官方秋天的树底座），影子和它都趴在地上
+          const bw = BASE_W[r.kind];
+          if (bw) parts.push({ geo: "box", pos: [0, 0.02, 0], scale: [bw * sc, 0.10, bw * sc], color: "baseLo", rotY: propRot });
+          if (sr) parts.push({ geo: "cyl", pos: [0, 0.10, 0], scale: [sr * 2 * sc, 0.06, sr * 2 * sc], color: "shade" });
           const palName = r.palette || spanPal(timeAt(ss)) || "default";
           const pal = PROP_COLORS[palName] || PROP_COLORS.default;
-          for (let pi = 0; pi < parts.length; pi++) {
-            pack(parts[pi], sc, x, p.y + dy, z, rots[pi], pal, r.slot);
+          for (const part of parts) {
+            pack(part, sc, x, p.y + dy, z, propRot, pal, r.slot, part.color === "shade" ? null : lean);
           }
           i++;
         }
@@ -707,12 +874,9 @@ export function buildProps(level, verts, opts = {}) {
     im.frustumCulled = false;
     for (let k = 0; k < list.length; k++) {
       const o = list[k];
-      e.set(0, o.rotY, 0);
-      q.setFromEuler(e);
-      // 局部偏移要跟着 rotY 转（否则树冠会歪）
-      const lx = o.px * Math.cos(o.rotY) + o.pz * Math.sin(o.rotY);
-      const lz = -o.px * Math.sin(o.rotY) + o.pz * Math.cos(o.rotY);
-      vp.set(o.x + lx, o.y + o.py, o.z + lz);
+      e.set(0, 0, 0);
+      q.set(o.qx, o.qy, o.qz, o.qw);
+      vp.set(o.x + o.lx, o.y + o.ly, o.z + o.lz);
       vs.set(o.sx, o.sy, o.sz);
       m4.compose(vp, q, vs);
       im.setMatrixAt(k, m4);
@@ -723,5 +887,49 @@ export function buildProps(level, verts, opts = {}) {
     group.add(im);
   }
   group.userData.count = Object.values(bucket).reduce((a, b) => a + b.length, 0);
+  return group;
+}
+
+/* ---------------------------------------------------------------------------
+   道具图鉴（离屏预览）
+   ---------------------------------------------------------------------------
+   把每种道具按不同随机种子生成若干个"实物"，摆成一张网格，供 tools/shot.js 截图。
+   只用于**看模型本身**（建模精细度、比例、配色是否到位），不进游戏。
+   每个零件是一个独立 Mesh（不做实例化），并且按新姿态语义摆放：
+   零件位置 = 位置，零件旋转绕**自己**的中心 —— 和 buildProps 里 pack() 的语义一致。
+   @param kinds    道具名数组（按行排）
+   @param perKind  每种生成几个（列数）
+   @param opts     { palette, gap, rowGap, seed0 }
+   --------------------------------------------------------------------------- */
+export function buildPropSheet(kinds, perKind = 4, opts = {}) {
+  const group = new THREE.Group();
+  group.name = "propsheet";
+  const pal = PROP_COLORS[opts.palette || "default"] || PROP_COLORS.default;
+  const gap = opts.gap || 6.5, rowGap = opts.rowGap || 9.5;
+  kinds.forEach((kind, ri) => {
+    if (!PROPS[kind]) return;
+    for (let v = 0; v < perKind; v++) {
+      let sd = ((opts.seed0 || 20261013) + ri * 7717 + v * 104729) >>> 0;
+      const R = () => ((sd = (sd * 1103515245 + 12345) >>> 0) / 4294967296);
+      const holder = new THREE.Group();
+      holder.position.set((v - (perKind - 1) / 2) * gap, 0, -ri * rowGap);
+      for (const part of PROPS[kind](R)) {
+        const geo = GEOS[part.geo] || GEOS.box;
+        let hex = pal[part.color];
+        if (hex == null) {
+          const dv = SLOT_DERIVE[part.color];
+          hex = dv && pal[dv[0]] != null ? darken(pal[dv[0]], dv[1]) : 0xcccccc;
+        }
+        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+          color: hex, roughness: GEO_ROUGH[part.geo] == null ? 0.9 : GEO_ROUGH[part.geo], metalness: 0,
+        }));
+        m.scale.set(part.scale[0], part.scale[1], part.scale[2]);
+        m.position.set(part.pos[0], part.pos[1], part.pos[2]);
+        m.rotation.set(part.rotX || 0, part.rotY || 0, part.rotZ || 0);
+        holder.add(m);
+      }
+      group.add(holder);
+    }
+  });
   return group;
 }
