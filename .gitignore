@@ -19,3 +19,6 @@ desktop.ini
 # 编辑器
 .vscode/
 .idea/
+
+# AI 会话的本机配置（每个会话/每台机器都不一样，不进版本库）
+.dsh/

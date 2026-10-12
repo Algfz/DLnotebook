@@ -10,6 +10,7 @@ import {
   DIRS, rot, buildVerts, posAt, vertAt, speedAt, themeAt, linesOf,
 } from "./level.js";
 import { AudioClock } from "./audio.js";
+import { buildTerrain } from "./terrain.js";
 
 // 各主题的视觉参数：
 //   sky / fog / road   —— 天空、雾、路面
@@ -279,6 +280,26 @@ export class Game {
     });
     // 兼容旧引用（tools/shot.js、渲染脚本里可能拿 sceneryMesh 做实验）
     this.sceneryMesh = this.sceneryMeshes[0] || null;
+  }
+
+  /* ------------------------------------------------------------------
+     地形（关卡的地面）
+     · 形状来自 level.terrain：base 一个母题打底，spans 里按时间局部换母题。
+     · 颜色来自主题表的 scenNear/scenMid/scenFar —— 关卡只说形状，不说颜色，
+       所以同一份地形能跟着主题换色（和天空、路面一起过渡，见 renderFrame）。
+     · 一关只建一次，建完就不动（地形是静态几何，只有材质颜色会变）。
+     ------------------------------------------------------------------ */
+  buildGround() {
+    const L0 = this.lines && this.lines[0];
+    const g = buildTerrain(this.level, {
+      near: this.sceneryColor.scenNear,
+      mid: this.sceneryColor.scenMid,
+      far: this.sceneryColor.scenFar,
+    }, L0 ? L0.verts : null);
+    if (!g) return;
+    this.terrainGroup = g;
+    this.terrainMats = g.userData.materials || null;
+    this.scene.add(g);
   }
 
   /* ---------------------- 轨迹（玩家实际画出来的） ---------------------- */
@@ -559,7 +580,8 @@ export class Game {
     this.road = this.roads[0];                            // 兼容旧字段
 
     this.buildBridge();          // 悬崖：桥下的光海（贴地关卡不会触发）
-    this.buildScenery();         // 布景：路线两侧的纯几何块
+    this.buildScenery();         // 布景：路线两侧的纯几何块（旧随机散布，已被地形层取代）
+    this.buildGround();          // 地形：关卡的地面（整块有厚度的地形，路嵌在里面）
 
     // 3) 每条线一套「轨迹 + 线头」，用各自的材质
     // 轨迹 = 玩家线头实际画出来的线（不是官方路线！）。
@@ -900,6 +922,13 @@ export class Game {
     if (SC) this._tmp.setHex(th.scenNear); SC && SC.scenNear.lerp(this._tmp, k);
     if (SC) this._tmp.setHex(th.scenMid);  SC && SC.scenMid.lerp(this._tmp, k);
     if (SC) this._tmp.setHex(th.scenFar);  SC && SC.scenFar.lerp(this._tmp, k);
+    // 地形和布景共用同一套三档色，所以地形材质直接吃上面刚更新过的三个颜色
+    const TM = this.terrainMats;
+    if (TM && SC) {
+      TM.near.color.lerp(SC.scenNear, k);
+      TM.mid.color.lerp(SC.scenMid, k);
+      TM.far.color.lerp(SC.scenFar, k);
+    }
 
     this.renderer.render(this.scene, this.camera);
   }
