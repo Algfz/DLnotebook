@@ -66,7 +66,7 @@
 ```
 DLnotebook/
 ├─ AGENT.md                  ← 本文件（AI 交接，每次改动必须更新）
-├─ README.md                 ← 给人看的项目入口（只讲怎么玩）
+├─ README.md                 ← 给人看的项目入口（怎么玩）+ 给 AI 的入口提示（「先读 AGENT.md」）
 ├─ 启动客户端.bat              ← 玩的人的唯一入口：起本地服务器 + 自动开浏览器
 ├─ .gitignore
 │
