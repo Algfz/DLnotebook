@@ -4,8 +4,6 @@
 // ----------------
 // 真实《跳舞的线》关卡的地面是**一整块有厚度的地形**（草皮在上、断面在下），
 // 路就嵌在这块地形里；而不是「一堆离散方块浮在空中」。
-// 之前那种「沿路随机撒长方体」的布景在这一点上就是错的：
-// 块与块之间没有地面，看起来像漂浮的碎屑（诊断见 AGENT.md §8 的纠偏记录）。
 //
 // 数据格式（level.terrain）
 // ------------------------
@@ -14,28 +12,33 @@
 //     "base": { "motif": "deck", "params": { ... } },          // 整关的底子
 //     "spans": [                                               // 局部换母题
 //       { "t": [60, 90], "motif": "canyon", "params": { ... } }
-//     ]
+//     ],
+//     "endcap": { ... }                                        // 结尾的截开金字塔（可省略 / 传 false）
 //   }
-// 母题（motif）只有四种，全部只用基本几何体拼：
-//   deck    厚板台地：一整块地面 + 一圈更低的台阶，边缘能看到切面
-//   canyon  峡谷：路在切开的窄槽里，两侧是抬高的台地
-//   islands 浮岛：路架在一串大圆台上，台间是空隙
-//   cloud   云海：路走在厚板上，板两侧是大团云
+// 母题（motif）四种，全部只用基本几何体拼：
+//   deck     厚板台地：一整块地面 + 一圈更低的台阶，边缘能看到切面
+//   canyon   裂谷：路在切开的槽里，两侧是高台，台面一直铺到很远（不是"桥两边鼓包"）
+//   terraces 梯台/浮岛：路架在一串大台面上，台间留空，两侧散布更低的卫星台
+//   cloud    云海：路走在宽板上，板的两侧堆着云团
 //
 // 颜色不进关卡
 // ------------
 // 地面用什么颜色由**客户端的主题表**（THEME 的 scenNear/scenMid/scenFar）决定，
 // 和场景一起过渡。关卡只描述"形状"，这样同一份形状可以换主题复用。
 //
-// 已知局限（都写在 AGENT.md §13）
-// ------------------------------
-// - 只用线的 A 条路径做地形（双线关卡的第二条线没有自己的地形）。
-// - 一段地形的高度取这一段路径的最高点；路径高度在段内起伏很大的关卡会穿帮。
-// - 母题切换处是硬切（断面直接相邻），远看像地貌变化，近看有缝。
+// ⚠️ 为什么地面的"形状"不能再用「闭合轮廓 + 中间挖洞」那种做法
+// ----------------------------------------------------------
+// 这个关的路是「每拍一个 90° 转角」的楼梯形（段长中位数 3m，最小 1.17m）。
+// 把这样一条折线向外偏移若干米得到闭合轮廓、再靠挖洞做出中间的槽，
+// 偏移线在密集转角处**一定自交**，三角化时"洞"会被填死 →
+// 表现就是**一整块地面盖住整条路**（视频 1min8s 那一帧就是这个）。
+// 所以现在只在**远离路**的外轮廓上用闭合轮廓（台地那种大块形状，平滑之后没问题），
+// 靠近路的形状一律改成**沿路生成的条带（ribbon）和分段盒子**：
+// 条带和盒子不会因为转角密而"整片糊住"，最多在转角处折一下。
 
 import * as THREE from "../vendor/three.module.min.js";
 
-/* ------------------------------ 小工具 ------------------------------ */
+/* ------------------------------ 折线工具 ------------------------------ */
 
 function dseg(x, z, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
@@ -53,8 +56,119 @@ function distPath(x, z, pts) {
   return m;
 }
 
-// 沿折线左侧偏移 d 的轮廓线（用斜接点求交）。
-// cosHalf 下限 0.55：小转角的斜接点不能拉太远，否则边缘会被磨成锯齿状。
+// 逐点的右法线（用前后两点连线的方向，**不做斜接除法**）。
+// 为什么不像 offsetSide 那样求交：转角处斜接点会跑到 1.8d 以外，
+// 对离路只有两三米的形状来说就是"一根刺扎到路面上"。条带宁可在这里折一下。
+function pathNormals(pts) {
+  const n = pts.length, out = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+    let dx = b.x - a.x, dz = b.z - a.z;
+    const L = Math.hypot(dx, dz) || 1;
+    out.push({ nx: -dz / L, nz: dx / L });
+  }
+  return out;
+}
+
+// 坐标移动平均（点数不变，**首尾两点固定**）。
+// 为什么首尾必须固定：轮廓的两端就是地形的"横切口"，早先用闭合环平滑
+// （首尾也一起平均）把切口拽进去 7.6m，开头那一截路面就悬空了。
+// 为什么需要它：直接用楼梯形路径做 30m 宽的外轮廓，边缘会是一串密集小锯齿。
+function smoothCoords(pts, iters) {
+  let cur = pts;
+  for (let it = 0; it < iters; it++) {
+    const n = cur.length;
+    if (n < 4) break;
+    const nx = cur.slice();
+    for (let i = 1; i < n - 1; i++) {
+      const a = cur[i - 1], b = cur[i], c = cur[i + 1];
+      nx[i] = { x: (a.x + 2 * b.x + c.x) / 4, z: (a.z + 2 * b.z + c.z) / 4, y: b.y, t: b.t };
+    }
+    cur = nx;
+  }
+  return cur;
+}
+
+/* --------------------------- 几何原语（稳） --------------------------- */
+
+function meshFromPositions(pos, matl, name) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, matl);
+  if (name) m.name = name;
+  return m;
+}
+
+// 水平条带：两条边可以各自来自不同的折线 / 不同偏移量。
+//   ptsA + offA  → 一条边
+//   ptsB + offB  → 另一条边
+// 这样就能"内沿贴着精确路径、外沿用平滑路径"，既不留缝也不出锯齿。
+function flatBand(ptsA, offA, ptsB, offB, y, matl, name) {
+  const NA = pathNormals(ptsA), NB = ptsB === ptsA ? NA : pathNormals(ptsB);
+  const pos = [];
+  const pt = (P, N, i, off) => [P[i].x + N[i].nx * off, y, P[i].z + N[i].nz * off];
+  for (let i = 1; i < ptsA.length; i++) {
+    const a0 = pt(ptsA, NA, i - 1, offA), b0 = pt(ptsB, NB, i - 1, offB);
+    const a1 = pt(ptsA, NA, i, offA), b1 = pt(ptsB, NB, i, offB);
+    pos.push(...a0, ...b0, ...b1, ...a0, ...b1, ...a1);
+  }
+  return meshFromPositions(pos, matl, name);
+}
+
+// 竖直条带：在离路 off 的位置竖一堵墙（y0→y1）
+function vertBand(pts, off, y0, y1, matl, name) {
+  const N = pathNormals(pts), pos = [];
+  const px = (i) => pts[i].x + N[i].nx * off, pz = (i) => pts[i].z + N[i].nz * off;
+  for (let i = 1; i < pts.length; i++) {
+    const x0 = px(i - 1), z0 = pz(i - 1), x1 = px(i), z1 = pz(i);
+    pos.push(x0, y0, z0, x0, y1, z0, x1, y1, z1);
+    pos.push(x0, y0, z0, x1, y1, z1, x1, y0, z1);
+  }
+  return meshFromPositions(pos, matl, name);
+}
+
+// 用分段盒子拼一堵沿路的墙（盒子的长度多吃 extend 米，转角处的缺口就被盖住了）。
+// 盒子是实体，重叠部分不会 z-fighting —— 但**墙顶会和它上面的台面共面**，
+// 所以调用方要把墙顶压低几厘米（见 motifCanyon）。
+function wallBoxes(pts, off, width, yBase, yTop, matl, extend, name) {
+  const N = pathNormals(pts), items = [];
+  const h = yTop - yBase, cy = (yBase + yTop) / 2;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz);
+    if (L < 1e-6) continue;
+    items.push({
+      x: (a.x + b.x) / 2 + N[i].nx * off,
+      y: cy,
+      z: (a.z + b.z) / 2 + N[i].nz * off,
+      ang: Math.atan2(dx, dz),
+      w: width,
+      h,
+      len: L + extend,
+    });
+  }
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const inst = new THREE.InstancedMesh(geo, matl, items.length);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  const v = new THREE.Vector3(), s = new THREE.Vector3();
+  items.forEach((it, i) => {
+    e.set(0, it.ang, 0);
+    q.setFromEuler(e);
+    v.set(it.x, it.y, it.z);
+    s.set(it.w, it.h, it.len);
+    m4.compose(v, q, s);
+    inst.setMatrixAt(i, m4);
+  });
+  inst.instanceMatrix.needsUpdate = true;
+  inst.frustumCulled = false;
+  if (name) inst.name = name;
+  return inst;
+}
+
+/* --------------------- 闭合轮廓那套（只给大块形状用） --------------------- */
+
+// 沿折线左侧偏移 d 的轮廓线（斜接）。**只给台地这种远离路的宽形状用**。
 function offsetSide(pts, d) {
   const n = pts.length, out = [];
   for (let i = 0; i < n; i++) {
@@ -71,20 +185,6 @@ function offsetSide(pts, d) {
   return out;
 }
 
-// 把两条轮廓线拼成一个闭合环（左轮廓 + 反向的右轮廓）
-// smooth 传 { a, i } 时对两条侧边分别做移动平均（首尾固定）。
-function band(pts, d, smooth) {
-  const L = offsetSide(pts, d);
-  const R = offsetSide(pts, -d);
-  if (!smooth) return L.concat(R.reverse());
-  return smoothChain(L, smooth.a, smooth.i).concat(smoothChain(R, smooth.a, smooth.i).reverse());
-}
-
-// 沿一条**开口**折线做移动平均平滑，**首尾两点固定不动**。
-// 为什么要平滑：这个关的路是「每拍一个 90° 转角」的楼梯形，直接用它的轮廓偏移，
-// 地面的边缘就会跟着变成一串密集的小锯齿，看起来像被啃过。
-// 为什么首尾必须固定：轮廓的两端就是地形的"横切口"。之前用闭合环平滑（把首尾也一起拉），
-// 切口被拽进去 7.6m（实测 bbox 从 x=0 缩到 x=7.64），开头那一截路面就悬空了。
 function smoothChain(pts, alpha, iters) {
   let cur = pts;
   for (let it = 0; it < iters; it++) {
@@ -103,32 +203,27 @@ function smoothChain(pts, alpha, iters) {
   return cur;
 }
 
-// 台地/峡谷外沿用同一套平滑参数
+function band(pts, d, smooth) {
+  const L = offsetSide(pts, d);
+  const R = offsetSide(pts, -d);
+  if (!smooth) return L.concat(R.reverse());
+  return smoothChain(L, smooth.a, smooth.i).concat(smoothChain(R, smooth.a, smooth.i).reverse());
+}
+
 const SM = { a: 0.6, i: 2 };
 
-// 2D 轮廓 → 有厚度的实心板：**顶面在 surfaceY**，向下延伸 th。
-// （ExtrudeGeometry 是沿 +y 挤出的，所以网格原点要落到 surfaceY - th。）
-function slab(outline, surfaceY, th, matl) {
+// 2D 轮廓 → 有厚度的实心板：顶面在 surfaceY，向下延伸 th
+function slab(outline, surfaceY, th, matl, name) {
   const shape = new THREE.Shape(outline.map((p) => new THREE.Vector2(p.x, -p.z)));
   const g = new THREE.ExtrudeGeometry(shape, { depth: th, bevelEnabled: false });
   g.rotateX(-Math.PI / 2);
   const m = new THREE.Mesh(g, matl);
   m.position.y = surfaceY - th;
+  if (name) m.name = name;
   return m;
 }
 
-// 环形板：外轮廓里挖掉内轮廓（做「峡谷」那种中间开一条槽的效果）
-function ringSlab(inner, outer, surfaceY, th, matl) {
-  const shape = new THREE.Shape(outer.map((p) => new THREE.Vector2(p.x, -p.z)));
-  shape.holes.push(new THREE.Path(inner.map((p) => new THREE.Vector2(p.x, -p.z))));
-  const g = new THREE.ExtrudeGeometry(shape, { depth: th, bevelEnabled: false });
-  g.rotateX(-Math.PI / 2);
-  const m = new THREE.Mesh(g, matl);
-  m.position.y = surfaceY - th;
-  return m;
-}
-
-// 不规则圆盘（浮岛的台面）
+// 不规则圆盘（梯台的台面）
 function disc(cx, cz, rx, rz, surfaceY, th, sides, matl, seed) {
   const o = [];
   for (let i = 0; i < sides; i++) {
@@ -141,57 +236,46 @@ function disc(cx, cz, rx, rz, surfaceY, th, sides, matl, seed) {
 
 /* ------------------------------ 四种母题 ------------------------------ */
 
-// A 厚板台地
+// A 厚板台地：一整块 + 一圈更低的台 + 外沿切面
 function motifDeck(pts, W, M, surf) {
   const w = W.walk / 2, out = [];
-  out.push(slab(band(pts, w + W.shelf, SM), surf, W.th, M.mid));
-  out.push(slab(band(pts, w + W.shelf * 2.2, SM), surf - W.step, W.th * 0.8, M.near));
+  out.push(slab(band(pts, w + W.shelf, SM), surf, W.th, M.mid, "deck-top"));
+  out.push(slab(band(pts, w + W.shelf * 2.2, SM), surf - W.step, W.th * 0.8, M.near, "deck-shelf"));
   return out;
 }
 
-// B 峡谷：路在槽底，两侧一圈一圈往外抬（用环板，中间是挖空的）
+// B 裂谷：槽底 + 两侧高台（台面一直铺到 plateauW，不是"桥两边鼓包"）+ 两侧槽壁
 function motifCanyon(pts, W, M, surf) {
   const w = W.walk / 2, out = [];
-  const floorY = surf - W.floor;                 // 槽底比路面低 floor 米
-  // 槽底和「环的内沿」不能平滑：它们离路只有 2.8m，比路面折线的锯齿幅度还小，
-  // 平滑会让多边形自交、把中间挖空的洞填死（表现为"整个画面被地面糊住"）。
-  out.push(slab(band(pts, w + 0.6), floorY, 5, M.far));
-  for (let t = 0; t < W.hiCount; t++) {
-    const inner = band(pts, w + 0.6 + t * W.hiDepth);
-    const outer = band(pts, w + 0.6 + (t + 1) * W.hiDepth, SM);
-    const top = floorY + ((t + 1) * W.hi) / W.hiCount;
-    out.push(ringSlab(inner, outer, top, 6, t === 0 ? M.mid : M.near));
-  }
+  // 两条平滑路径各司其职：
+  //   sm1（轻平滑）给"槽口/槽壁"——离路只有几米，平滑太狠会切到路面上；
+  //   sm2（重平滑）给"槽底/高台外沿"——离路很远，可以放心抹平锯齿。
+  const sm1 = smoothCoords(pts, 1), sm2 = smoothCoords(pts, 3);
+  const rim = w + W.slot;                // 槽口内沿（也是高台的内边）
+  const top = surf + W.hi;
+
+  // 槽底：一个宽条带（外侧被高台盖住，看不见边）
+  out.push(flatBand(sm2, -W.floorW, sm2, W.floorW, surf, M.far, "canyon-floor"));
+
+  // 两侧高台：**内沿和槽壁共用 sm1 + rim 这一批点**（接缝绝对不漏），
+  // **外沿用 sm2**（不然 30m 宽的高台边缘会是一串密集锯齿）
+  out.push(flatBand(sm1, +rim, sm2, +W.plateauW, top, M.mid, "canyon-plateau-r"));
+  out.push(flatBand(sm1, -rim, sm2, -W.plateauW, top, M.mid, "canyon-plateau-l"));
+
+  // 槽壁：薄薄一层竖直面就够了 —— 顶边和台面内沿是同一批点，水密。
+  // （早先用"分段盒子"拼墙，6m 厚的盒子在 90° 转角互相穿插，糊成一团方块。）
+  out.push(vertBand(sm1, +rim, surf - W.th, top, M.near, "canyon-wall-r"));
+  out.push(vertBand(sm1, -rim, surf - W.th, top, M.near, "canyon-wall-l"));
+
+  // 高台外沿的立面（给厚度感）
+  out.push(vertBand(sm2, +W.plateauW, top - W.th, top, M.mid));
+  out.push(vertBand(sm2, -W.plateauW, top - W.th, top, M.mid));
   return out;
 }
 
-// C 浮岛：隔一段丢一块大圆台，台间留空（路从空处过去）
-function motifIslands(pts, W, M, surf) {
+// C 梯台/浮岛：路架在一串大台面上（台心就在路上，所以永远盖不住路），两侧散布更低的卫星台
+function motifTerraces(pts, W, M, surf) {
   const out = [];
-  let acc = W.gap, i = 0;                        // 起手先摆一块
-  for (let j = 1; j < pts.length; j++) {
-    const a = pts[j - 1], b = pts[j];
-    const L = Math.hypot(b.x - a.x, b.z - a.z);
-    if (L < 1e-6) continue;
-    acc += L;
-    if (acc < W.gap) continue;
-    acc = 0;
-    const y = surf + (((i % 3) - 1) * W.hStep);
-    out.push(disc(
-      b.x, b.z,
-      W.rx * (0.82 + ((i * 29) % 9) / 9 * 0.36),
-      W.ry * (0.82 + ((i * 13) % 7) / 7 * 0.36),
-      y, W.th, 9, i % 2 ? M.near : M.mid, i
-    ));
-    i++;
-  }
-  return out;
-}
-
-// D 云海：一条厚板贴着路，板下面和两侧堆云团
-function motifCloud(pts, W, M, surf) {
-  const w = W.walk / 2, out = [];
-  out.push(slab(band(pts, w + 1.2), surf, 2.6, M.mid));
   let acc = W.gap, i = 0;
   for (let j = 1; j < pts.length; j++) {
     const a = pts[j - 1], b = pts[j];
@@ -200,38 +284,119 @@ function motifCloud(pts, W, M, surf) {
     acc += L;
     if (acc < W.gap) continue;
     acc = 0;
-    const ux = (b.x - a.x) / L, uz = (b.z - a.z) / L, nx = -uz, nz = ux;
-    const side = i % 2 === 0 ? 1 : -1;
-    const off = w + W.off0 + (((i * 53) % 13) / 13) * W.offSpan;
-    const cx = b.x + nx * side * off, cz = b.z + nz * side * off;
+    // 主台：**圆心落在路上**、顶面与地面齐平 —— 这样它只会托着路，不可能盖住路。
+    // 每块台面压低几厘米且互不相同，避免相邻台面共面闪烁。
+    out.push(disc(
+      b.x, b.z,
+      W.rx * (0.82 + (((i * 29) % 9) / 9) * 0.36),
+      W.ry * (0.82 + (((i * 13) % 7) / 7) * 0.36),
+      surf - 0.02 - (i % 4) * 0.03,
+      W.th, 9, i % 2 ? M.mid : M.far, i
+    ));
     i++;
-    // 云团是一簇球，会从中心往四周散开 ±2r 左右，所以净空要按"中心离路 ≥ w + 2 + 2r"来判，
-    // 否则大云团会有一半个球压到路面上（第一版就是这样）。
-    if (distPath(cx, cz, pts) < w + 2.0 + W.r * 2.2) continue;
+  }
+  // 卫星台：离路至少 w+10 米、并且比地面低 4~11 米，所以同样挡不住视线
+  const N = pathNormals(pts);
+  let acc2 = W.gap2, k = 0;
+  for (let j = 1; j < pts.length; j++) {
+    const a = pts[j - 1], b = pts[j];
+    const L = Math.hypot(b.x - a.x, b.z - a.z);
+    if (L < 1e-6) continue;
+    acc2 += L;
+    if (acc2 < W.gap2) continue;
+    acc2 = 0;
+    const side = k % 2 === 0 ? 1 : -1;
+    const off = W.off0 + (((k * 53) % 11) / 11) * W.offSpan;
+    const cx = b.x + N[j].nx * side * off, cz = b.z + N[j].nz * side * off;
+    if (distPath(cx, cz, pts) < W.off0 * 0.8) continue;
+    const low = W.low0 + (((k * 17) % 5) / 5) * W.lowSpan;
+    out.push(disc(
+      cx, cz,
+      W.rx2 * (0.8 + (((k * 31) % 7) / 7) * 0.4),
+      W.ry2 * (0.8 + (((k * 19) % 7) / 7) * 0.4),
+      surf - low, W.th, 8, k % 2 ? M.near : M.mid, k + 77
+    ));
+    k++;
+  }
+  return out;
+}
+
+// D 云海：一条宽板，板的两侧下方堆云团
+function motifCloud(pts, W, M, surf) {
+  const sm = smoothCoords(pts, 2), out = [];
+  out.push(flatBand(sm, -W.plateW, sm, W.plateW, surf, M.mid, "cloud-plate"));
+  out.push(vertBand(sm, +W.plateW, surf - W.th, surf, M.mid));
+  out.push(vertBand(sm, -W.plateW, surf - W.th, surf, M.mid));
+
+  const N = pathNormals(pts);
+  let acc = W.gap, i = 0;
+  for (let j = 1; j < pts.length; j++) {
+    const a = pts[j - 1], b = pts[j];
+    const L = Math.hypot(b.x - a.x, b.z - a.z);
+    if (L < 1e-6) continue;
+    acc += L;
+    if (acc < W.gap) continue;
+    acc = 0;
+    const side = i % 2 === 0 ? 1 : -1;
+    const off = W.plateW + W.off0 + (((i * 53) % 13) / 13) * W.offSpan;
+    const cx = b.x + N[j].nx * side * off, cz = b.z + N[j].nz * side * off;
     const cy = surf + W.low + (((i * 17) % 5) / 5) * W.hSpan;
+    i++;
+    // 云团是一簇球，会从中心往四周散开 ±2r 左右，所以净空要按"中心离路 ≥ r*2.5"来判，
+    // 否则大云团会有一半个球压到路面上（第一版就是这样）。
+    if (distPath(cx, cz, pts) < W.r * 2.5) continue;
     for (let k = 0; k < 4 + (i % 3); k++) {
-      const r = W.r * (0.6 + ((i * 31 + k * 17) % 9) / 12);
+      const r = W.r * (0.6 + (((i * 31 + k * 17) % 9) / 12));
       const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), M.far);
       m.position.set(
         cx + (((i + k * 3) % 5) - 2) * r * 0.75,
         cy + (((i * 2 + k) % 4) - 1.5) * r * 0.45,
         cz + (((i * 3 + k) % 5) - 2) * r * 0.75
       );
-      m.scale.set(1, 0.6, 1);
+      m.scale.set(1, 0.62, 1);
       out.push(m);
     }
   }
   return out;
 }
 
-const MOTIFS = { deck: motifDeck, canyon: motifCanyon, islands: motifIslands, cloud: motifCloud };
+// E 结尾：**中间截开的金字塔**，线从缺口里进去（真实关卡收尾的常见做法）
+function endPyramid(pts, W, M, surf) {
+  const n = pts.length;
+  const last = pts[n - 1], prev = pts[n - 2] || pts[0];
+  let dx = last.x - prev.x, dz = last.z - prev.z;
+  const L = Math.hypot(dx, dz) || 1;
+  dx /= L; dz /= L;
+
+  const hw = W.halfW, sw = W.slotW / 2, hs = W.slotH, H = W.h, dep = W.depth;
+  const shape = new THREE.Shape();
+  shape.moveTo(-hw, 0);
+  shape.lineTo(-sw, 0);
+  shape.lineTo(-sw, hs);
+  shape.lineTo(sw, hs);
+  shape.lineTo(sw, 0);
+  shape.lineTo(hw, 0);
+  shape.lineTo(0, H);
+  shape.closePath();
+
+  const g = new THREE.ExtrudeGeometry(shape, { depth: dep, bevelEnabled: false });
+  g.translate(0, 0, -dep / 2);                    // 以"路的终点"为中心
+  const m = new THREE.Mesh(g, M.mid);
+  m.position.set(last.x, surf, last.z);
+  m.rotation.y = Math.atan2(dx, dz);              // 让挤出的 +z 指向行进方向
+  return [m];
+}
+
+const MOTIFS = { deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, islands: motifTerraces, cloud: motifCloud };
 
 // 每种母题缺省的尺寸参数（关卡里可以逐个覆盖）
 export const DEFAULT_PARAMS = {
   deck: { walk: 7.0, shelf: 2.4, th: 3.2, step: 1.6 },
-  canyon: { walk: 4.4, hi: 9.0, hiCount: 2, hiDepth: 7.0, floor: 3.0 },
-  islands: { walk: 5.0, gap: 11, rx: 8.5, ry: 6.5, th: 1.8, hStep: 1.6 },
-  cloud: { walk: 5.4, gap: 9, off0: 5, offSpan: 16, low: -7, hSpan: 5, r: 3.6 },
+  canyon: { walk: 4.4, slot: 2.2, hi: 4.0, floorW: 12, plateauW: 30, th: 3.0 },
+  terraces: { walk: 5.0, gap: 18, rx: 8.5, ry: 6.5, th: 2.0, gap2: 13, off0: 11, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
+  islands: { walk: 5.0, gap: 18, rx: 8.5, ry: 6.5, th: 2.0, gap2: 13, off0: 11, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
+  cloud: { walk: 5.4, plateW: 14, th: 3.0, gap: 9, off0: 12, offSpan: 14, low: -4.5, hSpan: 3, r: 3.4 },
+  endcap: { halfW: 13, slotW: 5.2, slotH: 6.5, depth: 9, h: 22 },
 };
 
 /* --------------------------- 组装整条地形 --------------------------- */
@@ -241,15 +406,13 @@ export const DEFAULT_PARAMS = {
 function collectPath(level) {
   const sp = level.motion && level.motion.spawn ? level.motion.spawn : { x: 0, y: 0, z: 0 };
   const pts = [{ x: sp.x, y: sp.y, z: sp.z, t: 0 }];
-  const path = level.path || [];
-  for (const p of path) {
+  for (const p of level.path || []) {
     pts.push({ x: p.pos[0], y: p.pos[1], z: p.pos[2], t: p.t || 0 });
   }
   return pts;
 }
 
-// 去掉过密的短段：这个关的 path 是「每拍一点」，最短 1.17m，
-// 直接把 682 个点当轮廓会把地形边缘磨出密密麻麻的小锯齿。
+// 去掉过密的短段（这个关最短 1.17m）
 function simplify(pts, minSeg) {
   if (pts.length <= 2) return pts.slice();
   const out = [pts[0]];
@@ -273,7 +436,7 @@ function splitRuns(pts, spec) {
   for (const p of pts) {
     const s = motifAt(p.t);
     const name = s ? s.motif : spec.base.motif;
-    const params = (s && s.params) || (s ? spec.base.params : spec.base.params) || {};
+    const params = (s && s.params) || (spec.base && spec.base.params) || {};
     if (!cur || cur.motif !== name) {
       cur = { motif: name, params, pts: [] };
       runs.push(cur);
@@ -294,18 +457,18 @@ function splitRuns(pts, spec) {
  * @param {Array<{x:number,y:number,z:number,t:number}>} [verts]
  *        客户端已经算好的路线顶点（`buildVerts` 的结果，含末尾延伸到关卡结束的那一段）。
  *        **必须传**：不传的话地形会止于 level.path 的最后一个点，
- *        而路面还要继续延伸到关卡结束（这关就多出 108m），那一段路就会悬空。
+ *        而路面还要继续延伸到关卡结束（这关多出 108m），那一段路就会悬空。
  * @returns {THREE.Group|null} 地形组；group.userData.materials 是 3 份材质，供换主题时改色
  */
 export function buildTerrain(level, colors, verts) {
   const spec = level && level.terrain;
   if (!spec || !spec.base || !spec.base.motif || !MOTIFS[spec.base.motif]) return null;
 
-  const mats = {
-    near: new THREE.MeshStandardMaterial({ color: colors.near, roughness: 0.92, metalness: 0, flatShading: true }),
-    mid: new THREE.MeshStandardMaterial({ color: colors.mid, roughness: 0.88, metalness: 0, flatShading: true }),
-    far: new THREE.MeshStandardMaterial({ color: colors.far, roughness: 0.95, metalness: 0, flatShading: true }),
-  };
+  // 双面：条带/盒子的朝向不必抠得很准，双面省掉一整类"整片发黑"的坑
+  const mk = (c, rough) => new THREE.MeshStandardMaterial({
+    color: c, roughness: rough, metalness: 0, flatShading: true, side: THREE.DoubleSide,
+  });
+  const mats = { near: mk(colors.near, 0.92), mid: mk(colors.mid, 0.88), far: mk(colors.far, 0.95) };
 
   const group = new THREE.Group();
   group.name = "terrain";
@@ -320,12 +483,21 @@ export function buildTerrain(level, colors, verts) {
     if (!fn) continue;
     const P = Object.assign({}, DEFAULT_PARAMS[run.motif] || {}, run.params || {});
     // 这一段的地面高度 = 这段路径的最高点，再压低 6cm：
-    // 路面色带本身就铺在这个高度上，完全齐平会共面闪烁，压 6cm 的台阶肉眼看不见。
+    // 路面色带本身就铺在这个高度上，完全齐平会共面闪烁，压 6cm 的台阶肉眼看不出。
     let top = -Infinity;
     for (const p of run.pts) if (p.y > top) top = p.y;
     const surf = top - 0.06;
     const pts = simplify(run.pts, 2.0);
     for (const m of fn(pts, P, mats, surf)) group.add(m);
+  }
+
+  // 结尾：中间截开的金字塔
+  if (spec.endcap !== false && src.length > 2) {
+    const P = Object.assign({}, DEFAULT_PARAMS.endcap, spec.endcap || {});
+    let top = -Infinity;
+    for (const p of src) if (p.y > top) top = p.y;
+    const flat = simplify(src, 1.0);
+    for (const m of endPyramid(flat, P, mats, top - 0.06)) group.add(m);
   }
   return group;
 }
