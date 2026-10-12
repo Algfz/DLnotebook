@@ -11,6 +11,7 @@ import {
 } from "./level.js";
 import { AudioClock } from "./audio.js";
 import { buildTerrain } from "./terrain.js";
+import { buildProps } from "./props.js";
 
 // 各主题的视觉参数：
 //   sky / fog / road   —— 天空、雾、路面
@@ -300,6 +301,13 @@ export class Game {
     this.terrainGroup = g;
     this.terrainMats = g.userData.materials || null;
     this.scene.add(g);
+
+    // 道具（景物）：树/石头/花/栅栏…，形状是规则、颜色跟地形色卡走
+    const pg = buildProps(this.level, L0 ? L0.verts : null, {
+      roadWidth: this.level.roadWidth || 3,
+    });
+    this.propsGroup = pg;
+    this.scene.add(pg);
   }
 
   /* ---------------------- 轨迹（玩家实际画出来的） ---------------------- */

@@ -33,6 +33,7 @@
   "cameraOrbit": { ... },      // 可选：镜头绕线头中点环绕
   "terrain": { ... },          // 可选：地形层（地面）。见「terrain — 地形层」
   "scenery": { ... },          // 可选：布景块（⚠️ 已被 terrain 取代，仅历史数据）
+  "props": [ ... ],             // 可选：景物（树/石/花…）。见「props — 景物」
   "scenes":  [ ... ],
   "guide":   { "default": false }
 }
@@ -55,6 +56,7 @@
 | `cameraOrbit` | object | ❌ | 镜头绕线头中点的环绕运镜。见「cameraOrbit — 环绕运镜」 |
 | `terrain` | object | ❌ | **地形层**（地面）。见「terrain — 地形层」 |
 | `scenery` | object | ❌ | **布景块**（已烘好坐标的纯几何块）⚠️ 已被 `terrain` 取代 |
+| `props` | array | ❌ | **景物**（树/石/花/栅栏…）。见「props — 景物」 |
 | `scenes` | array | ✅ | 分幕场景 |
 | `guide` | object | ❌ | 引导线（预判提示）设置 |
 
@@ -314,6 +316,54 @@
   平滑太狠会把槽壁切到路面上
 - 平滑**必须固定首尾两点**（否则地形的"横切口"会被拽进去几个米，开头那一截路悬空）
 - 母题切换处是**硬切**（两段断面相邻），目前不做过渡；需要转场时由分幕 `enter` 负责
+
+---
+
+## props — 景物（顶层可选字段）
+
+地面之上的**装饰物**：树、石头、花、栅栏、路灯、音符、水晶、云团……形状由客户端
+`src/js/props.js` 里的道具库提供，关卡只描述**在哪儿、什么时候、多密**。
+
+```jsonc
+"props": [
+  { "t": [0, 40],    "kind": "tree",  "every": 26, "off": [8, 12],
+    "scale": [0.9, 1.4], "cluster": [1, 3] },
+  { "t": [40, 75],   "kind": "pine",  "every": 25, "off": [9, 26],
+    "scale": [0.9, 1.5], "dy": 4.0 },
+  { "t": [120, 150], "kind": "cloudlet", "every": 26, "off": [16, 30], "dy": 2.5 }
+]
+```
+
+| 字段 | 类型 | 缺省 | 说明 |
+| --- | --- | --- | --- |
+| `t` | `[number,number]` | 必填 | 生效的时间区间（秒） |
+| `kind` | string | 必填 | 道具种类，见下表 |
+| `every` | number | `20` | 沿路每多少米尝试放一个（弧长，不是时间） |
+| `off` | `[number,number]` | `[6,14]` | 离路中心多少米；两边各随机取一侧 |
+| `side` | `"left"\|"right"` | 两侧都放 | 强制只放在某一侧 |
+| `scale` | `[number,number]` | `[1,1]` | 尺寸随机区间（倍率） |
+| `cluster` | `[number,number]` | `[1,1]` | 一簇放几个（在 `off` 附近散开） |
+| `jitter` | number | `0` | 位置额外随机抖动的米数 |
+| `dy` | number | `0` | 抬高多少米（用于把道具放到高台顶面上） |
+| `palette` | string | 跟随该时间所在段 | 覆盖色卡 |
+| `rotRandom` | boolean | `false` | 额外随机朝向 |
+
+**道具种类**（`src/js/props.js` 的 `PROPS`）：
+`tree` `pine` `appleTree` `bush` `rock` `flower` `mushroom` `fence` `lamp` `note`
+`crystal` `cloudlet` `snowman`
+
+**颜色不进关卡**：道具只写色槽名（`foliage`/`wood`/`stone`/`bloom`/`accent`），
+实际颜色由色卡决定（`PROP_COLORS[palette]`）；没写 `palette` 的规则自动取**该时间
+所在段**的色卡，所以道具和地面天然同色系。
+
+**客户端约定**（`src/js/props.js` 的 `buildProps` + `Game.buildGround()`）：
+- 必须传 `lines[0].verts`：位置按**弧长**沿路走，并靠顶点上的 `t` 把弧长映射回时间
+- `minOff = roadWidth/2 + 1.6` 由代码硬保证，规则写小了也不会站到路面上
+- ⚠️ **`off` 必须落在这一段地面的平地宽度之内**，否则道具会飘在空中：
+  台地（`walk:13`）别超过 12；裂谷的高台顶面在"路面 + `hi`"，那一段要写 `dy` 且
+  `off` 在 `[5, 29]`；层叠平台的主圆台半径 8.5、圆心压在路径上 → 别超过 7.5；
+  云海的板宽 14 → 别超过 12
+- 渲染：按几何体种类合并成若干个 `InstancedMesh`（`frustumCulled=false`）+ 逐实例 `setColorAt`
 
 ---
 

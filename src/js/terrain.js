@@ -406,7 +406,7 @@ const MOTIFS = { deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, 
 
 // 每种母题缺省的尺寸参数（关卡里可以逐个覆盖）
 export const DEFAULT_PARAMS = {
-  deck: { walk: 7.0, shelf: 2.4, th: 3.2, step: 1.6 },
+  deck: { walk: 13.0, shelf: 2.4, th: 3.2, step: 1.6 },
   canyon: { walk: 4.4, slot: 2.2, hi: 4.0, floorW: 12, plateauW: 30, th: 3.0 },
   terraces: { walk: 5.0, gap: 18, rx: 8.5, ry: 6.5, th: 2.0, gap2: 13, off0: 11, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
   islands: { walk: 5.0, gap: 18, rx: 8.5, ry: 6.5, th: 2.0, gap2: 13, off0: 11, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
