@@ -72,22 +72,27 @@ function offsetSide(pts, d) {
 }
 
 // 把两条轮廓线拼成一个闭合环（左轮廓 + 反向的右轮廓）
-function band(pts, d) {
-  return offsetSide(pts, d).concat(offsetSide(pts, -d).reverse());
+// smooth 传 { a, i } 时对两条侧边分别做移动平均（首尾固定）。
+function band(pts, d, smooth) {
+  const L = offsetSide(pts, d);
+  const R = offsetSide(pts, -d);
+  if (!smooth) return L.concat(R.reverse());
+  return smoothChain(L, smooth.a, smooth.i).concat(smoothChain(R, smooth.a, smooth.i).reverse());
 }
 
-// 闭合多边形的移动平均平滑。
+// 沿一条**开口**折线做移动平均平滑，**首尾两点固定不动**。
 // 为什么要平滑：这个关的路是「每拍一个 90° 转角」的楼梯形，直接用它的轮廓偏移，
 // 地面的边缘就会跟着变成一串密集的小锯齿，看起来像被啃过。
-// 平滑之后边缘变成"人工铺出来的"大台阶 —— 路本身不动，只有地面的外沿被抹平。
-function smoothLoop(pts, alpha, iters) {
+// 为什么首尾必须固定：轮廓的两端就是地形的"横切口"。之前用闭合环平滑（把首尾也一起拉），
+// 切口被拽进去 7.6m（实测 bbox 从 x=0 缩到 x=7.64），开头那一截路面就悬空了。
+function smoothChain(pts, alpha, iters) {
   let cur = pts;
   for (let it = 0; it < iters; it++) {
     const n = cur.length;
-    if (n < 5) break;
-    const nx = new Array(n);
-    for (let i = 0; i < n; i++) {
-      const a = cur[(i - 1 + n) % n], b = cur[i], c = cur[(i + 1) % n];
+    if (n < 4) break;
+    const nx = cur.slice();
+    for (let i = 1; i < n - 1; i++) {
+      const a = cur[i - 1], b = cur[i], c = cur[i + 1];
       nx[i] = {
         x: b.x + alpha * ((a.x + c.x) / 2 - b.x),
         z: b.z + alpha * ((a.z + c.z) / 2 - b.z),
@@ -97,6 +102,9 @@ function smoothLoop(pts, alpha, iters) {
   }
   return cur;
 }
+
+// 台地/峡谷外沿用同一套平滑参数
+const SM = { a: 0.6, i: 2 };
 
 // 2D 轮廓 → 有厚度的实心板：**顶面在 surfaceY**，向下延伸 th。
 // （ExtrudeGeometry 是沿 +y 挤出的，所以网格原点要落到 surfaceY - th。）
@@ -136,8 +144,8 @@ function disc(cx, cz, rx, rz, surfaceY, th, sides, matl, seed) {
 // A 厚板台地
 function motifDeck(pts, W, M, surf) {
   const w = W.walk / 2, out = [];
-  out.push(slab(smoothLoop(band(pts, w + W.shelf), 0.6, 2), surf, W.th, M.mid));
-  out.push(slab(smoothLoop(band(pts, w + W.shelf * 2.2), 0.6, 2), surf - W.step, W.th * 0.8, M.near));
+  out.push(slab(band(pts, w + W.shelf, SM), surf, W.th, M.mid));
+  out.push(slab(band(pts, w + W.shelf * 2.2, SM), surf - W.step, W.th * 0.8, M.near));
   return out;
 }
 
@@ -150,7 +158,7 @@ function motifCanyon(pts, W, M, surf) {
   out.push(slab(band(pts, w + 0.6), floorY, 5, M.far));
   for (let t = 0; t < W.hiCount; t++) {
     const inner = band(pts, w + 0.6 + t * W.hiDepth);
-    const outer = smoothLoop(band(pts, w + 0.6 + (t + 1) * W.hiDepth), 0.6, 2);
+    const outer = band(pts, w + 0.6 + (t + 1) * W.hiDepth, SM);
     const top = floorY + ((t + 1) * W.hi) / W.hiCount;
     out.push(ringSlab(inner, outer, top, 6, t === 0 ? M.mid : M.near));
   }
