@@ -6179,7 +6179,7 @@
                                     { "t":  [ 75, 120 ], "motif":  "terraces", "palette":  "sand", "params":  { "gap":  18, "rx":  8.5, "ry":  6.5, "th":  2.0 } },
                                     { "t":  [ 120, 150 ], "motif":  "cloud", "palette":  "ice", "params":  { "plateW":  14, "gap":  9, "off0":  12, "offSpan":  14, "low":  -4.5, "hSpan":  3, "r":  3.4 } }
                                 ],
-                     "endcap":  { "halfW":  90, "slotW":  8.0, "slotH":  30, "depth":  200, "h":  110, "enter":  16, "palette":  "cream" }
+                     "endcap":  { "halfW":  90, "slotW":  24, "h":  110, "enter":  -66, "sink":  3, "palette":  "cream" }
                  },
     "scenes":  [
                    {

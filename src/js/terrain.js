@@ -360,7 +360,10 @@ function motifCloud(pts, W, M, surf) {
   return out;
 }
 
-// E 结尾：**中间截开的金字塔**，线从缺口里进去（真实关卡收尾的常见做法）
+// E 结尾：**中间截开的金字塔**——一座四棱锥被"过顶点与底面一条对角线"的竖直面切成两半，
+//    两半各自向左右让开 slotW/2，中间留出一条缝，线从缝里进去（真实关卡收尾的常见做法）。
+//    底面做成菱形（两条对角线分别沿行进方向与左右方向），于是那条缝正好顺着路走。
+//    ⚠️ 别做成"三角形截面挤出"——挤出来是一道长长的屋脊，从正面看就是两块竖墙（踩过）。
 function endPyramid(pts, W, M, surf) {
   const n = pts.length;
   const last = pts[n - 1], prev = pts[n - 2] || pts[0];
@@ -368,26 +371,35 @@ function endPyramid(pts, W, M, surf) {
   const L = Math.hypot(dx, dz) || 1;
   dx /= L; dz /= L;
 
-  const hw = W.halfW, sw = W.slotW / 2, hs = W.slotH, H = W.h, dep = W.depth;
-  const shape = new THREE.Shape();
-  shape.moveTo(-hw, 0);
-  shape.lineTo(-sw, 0);
-  shape.lineTo(-sw, hs);
-  shape.lineTo(sw, hs);
-  shape.lineTo(sw, 0);
-  shape.lineTo(hw, 0);
-  shape.lineTo(0, H);
-  shape.closePath();
+  const s = W.halfW;                    // 底面菱形半对角线（沿路 / 沿左右各 s）
+  const H = W.h;                        // 塔高
+  const gap = (W.slotW == null ? 6 : W.slotW) / 2;   // 两半各向两侧让开多少
+  const sink = W.sink == null ? 3 : W.sink;          // 底座埋进地面，免得看到"浮空的塔底"
+  const apex = [0, H, 0];
+  // 两半的底面三角形：共用"前后两个角"，第三个角分别在 +x / -x 一侧
+  const tri = (sign) => [[0, 0, s], [sign * s, 0, 0], [0, 0, -s]];
 
-  const g = new THREE.ExtrudeGeometry(shape, { depth: dep, bevelEnabled: false });
-  // ⚠️ 塔的**正面**要退到路的终点之前 `enter` 米：路面最后那一段钻进槽里，
-  //    而相机在线的后上方（离线约 24m），塔要是以终点为中心，相机会被关在塔里面。
-  g.translate(0, 0, -W.enter);                    // 挤出的 +z 指向行进方向
-  const m = new THREE.Mesh(g, M.mid);
-  m.name = "endcap";
-  m.position.set(last.x, surf, last.z);
-  m.rotation.y = Math.atan2(dx, dz);              // 让挤出的 +z 指向行进方向
-  return [m];
+  const out = [];
+  for (const sign of [1, -1]) {
+    const base = tri(sign);
+    const pos = [];
+    const put = (p) => pos.push(p[0] + sign * gap, p[1] - sink, p[2]);
+    put(base[0]); put(base[2]); put(base[1]);                 // 底面
+    for (const [a, b] of [[base[0], base[1]], [base[1], base[2]], [base[2], base[0]]]) {
+      put(a); put(b); put(apex);                              // 三个侧面（含被切开的那一面）
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, M.mid);
+    m.name = "endcap";
+    // ⚠️ 塔的**正面**要退到路的终点之前 `enter` 米：相机在线的后上方（离线约 24m），
+    //    塔要是以终点为中心，相机会被关在塔体里面（只剩两块巨大的内表面）。
+    m.position.set(last.x - dx * W.enter, surf, last.z - dz * W.enter);
+    m.rotation.y = Math.atan2(dx, dz);              // 让局部 +z 指向行进方向
+    out.push(m);
+  }
+  return out;
 }
 
 const MOTIFS = { deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, islands: motifTerraces, cloud: motifCloud };
@@ -400,8 +412,15 @@ export const DEFAULT_PARAMS = {
   islands: { walk: 5.0, gap: 18, rx: 8.5, ry: 6.5, th: 2.0, gap2: 13, off0: 11, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
   cloud: { walk: 5.4, plateW: 14, th: 3.0, gap: 9, off0: 12, offSpan: 14, low: -4.5, hSpan: 3, r: 3.4 },
   // 结尾的金字塔：真实关卡里它是一座"吃掉整屏"的巨物，所以尺寸给得很大
-  // （路宽 3m，相机离线 24m / 高 21m → 88m 高、104m 宽的塔会把画面填满）
-  endcap: { halfW: 90, slotW: 8.0, slotH: 30, depth: 200, h: 110, enter: 16, palette: "cream" },
+  // （路宽 3m，相机离线 24m / 高 21m → 90m 高、180m 宽的塔会把画面填满）
+  // ⚠️ `slotW` 是两半之间的缝有多宽：缝太窄，相机钻进去以后画面就只剩两侧的切面
+  //    （看不到缝的尽头），所以给到 24m。
+  // ⚠️ `enter` 是"塔心在路终点之前多少米"，负值表示塔心在终点**之后**。
+  //    它跟"相机在缝里待多久"直接挂钩：相机永远在线的后 24m，所以
+  //    正面角点（塔心再往前 halfW）落在 -24m 时，整关结束的瞬间相机刚好到缝口，
+  //    整个结尾是"看着金字塔的正面角点迎面压过来、路钻进缝里"。
+  //    → enter = -(halfW + 24) = -66（再往里就会变成一路上只看两侧切面）
+  endcap: { halfW: 90, slotW: 24, h: 110, enter: -66, sink: 3, palette: "cream" },
 };
 
 /* 地形色卡：关卡里只写**名字**，颜色仍然不进关卡文件（和主题色一个道理） */
