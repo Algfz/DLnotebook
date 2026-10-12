@@ -12,6 +12,7 @@ import {
 import { AudioClock } from "./audio.js";
 import { buildTerrain } from "./terrain.js";
 import { buildProps } from "./props.js";
+import { buildAtmos, MOTIF_FX } from "./fx.js";
 
 // 各主题的视觉参数：
 //   sky / fog / road   —— 天空、雾、路面
@@ -25,27 +26,90 @@ import { buildProps } from "./props.js";
 // 这个「暗 → 亮」的梯度就是廉价但有效的空气透视（大气散射）。
 // 追加新主题时**必须保持这个梯度**，否则远近视差会消失。
 const THEME = {
-  garden:   { sky: 0x9fe0c0, fog: 0xc2ead6, road: 0x63b189,
+  garden:   { sky: 0x9fe0c0, fog: 0xc2ead6, road: 0x63b189, trim: 0xe9f8f0,
               scenNear: 0x2f6b48, scenMid: 0x74ad91, scenFar: 0xc4e8d5 },
-  collapse: { sky: 0x241c2a, fog: 0x35242f, road: 0x7a4a58,
+  collapse: { sky: 0x241c2a, fog: 0x35242f, road: 0x7a4a58, trim: 0xb9a6b5,
               scenNear: 0x120d16, scenMid: 0x38273a, scenFar: 0x5d4050 },
-  truth:    { sky: 0x111827, fog: 0x17223c, road: 0x44557e,
+  truth:    { sky: 0x111827, fog: 0x17223c, road: 0x44557e, trim: 0xaebfe0,
               scenNear: 0x060a12, scenMid: 0x1e2a46, scenFar: 0x3b4c74 },
-  dawn:     { sky: 0xf2d3a0, fog: 0xf8e4bd, road: 0xd0a468,
+  dawn:     { sky: 0xf2d3a0, fog: 0xf8e4bd, road: 0xd0a468, trim: 0xfdf2dd,
               scenNear: 0x7d5a33, scenMid: 0xc2a074, scenFar: 0xefdcb8 },
-  void:     { sky: 0x14161c, fog: 0x1c2028, road: 0x5a6270,
+  void:     { sky: 0x14161c, fog: 0x1c2028, road: 0x5a6270, trim: 0xb9c2d0,
               scenNear: 0x080a0e, scenMid: 0x242a34, scenFar: 0x424a58 },
-  // 全粉色（单场景关卡用）：天空/雾是浅粉，路面是饱和的桃粉
-  pink:     { sky: 0xffd4e6, fog: 0xffe4f0, road: 0xf2579b,
+  // 全粉色（单场景关卡用）：天空/雾是浅粉。
+  // 路面是**比地面亮一大截**的淡粉（0xf7a8cb L≈196 vs 地面 0xc06a95 L≈127，差 69），
+  // 描边反而比两者都**深**（0xc4709e）——这是官方「田野」的做法：
+  // 「淡色带 + 深描边」比「饱和带 + 白描边」更像地形，也不会散成一堆白元素。
+  pink:     { sky: 0xffd4e6, fog: 0xffe4f0, road: 0xf7a8cb, trim: 0xc4709e,
               scenNear: 0x8e2a57, scenMid: 0xc06a95, scenFar: 0xf0d2e0 },
   // 全灰色（双线实验关用）：天空/雾是浅灰，路面是中灰——
   // 白线（0xffffff）与黑线（0x000000）在同一条中灰路面上都能看清。
-  gray:     { sky: 0xb9bec6, fog: 0xd2d6db, road: 0x70767d,
+  gray:     { sky: 0xb9bec6, fog: 0xd2d6db, road: 0x70767d, trim: 0xf0f2f5,
               scenNear: 0x3f454c, scenMid: 0x848b93, scenFar: 0xc9ced4 },
 };
 
 // 相机相对「线头中点」的固定偏移（等距斜后方视角，DL 的典型机位）
 const CAM_OFF = { x: -17, y: 21, z: -17 };
+// 上面那条固定偏移换算成"俯角 + 距离"，作为没有关键帧时的缺省值：
+//   dist = |(-17,21,-17)| ≈ 31.9m，tilt = atan2(21, hypot(17,17)) ≈ 41.1°
+const CAM_DIST0 = Math.hypot(CAM_OFF.x, CAM_OFF.y, CAM_OFF.z);
+const CAM_TILT0 = Math.atan2(CAM_OFF.y, Math.hypot(CAM_OFF.x, CAM_OFF.z));
+
+/* ------------------------------------------------------------------
+   相机关键帧（level.scenes[].camera）：运镜是官方关卡最常用的手法
+   —— 12 个官方关卡里每关都有 4~10 处运镜：俯角在 30°~65° 之间来回、
+   偏航（整片地看着转）、压低到树冠高度做前景遮挡、停顿、变焦。
+   我们原来是一条固定偏移跟到底，画面因此"平"。
+
+   level.scenes[].camera = [ { t, tilt, dist, yaw }, ... ]
+     t    —— 时刻（秒）
+     tilt —— 俯角（度）：90 = 正上方俯视，0 = 与地面平齐
+     dist —— 相机到线头的距离（米）
+     yaw  —— 相对"正后方"的水平偏航（度），正数 = 绕向行进方向的右侧
+   关键帧之间按**平滑插值**（smoothstep）过渡：运镜要"缓入缓出"才像人推的，
+   直接线性会在每个关键帧处出现折角。
+   越界时取首/末帧的值（不再外推）。
+   ------------------------------------------------------------------ */
+function camKeysAt(level, t) {
+  const list = level.__camKeys;
+  if (!list) return null;
+  const A = list;
+  // ⚠️ 关卡里写的是**度**，返回值必须是**弧度**——三段出口（含首尾两端的直接返回）
+  //    都要走同一个换算，否则首尾会按"度当成弧度"算：sin(30rad) = -0.99，
+  //    相机会掉到地面以下（曾经把整关最后 5 秒变成一片地形背面）。
+  const norm = (k) => ({
+    tilt: (k.tilt || 0) * Math.PI / 180,
+    dist: k.dist,
+    yaw: (k.yaw || 0) * Math.PI / 180,
+  });
+  if (t <= A[0].t) return norm(A[0]);
+  const last = A[A.length - 1];
+  if (t >= last.t) return norm(last);
+  let i = 0;
+  while (i < A.length - 2 && A[i + 1].t <= t) i++;
+  const a = A[i], b = A[i + 1];
+  const k0 = (t - a.t) / Math.max(1e-6, b.t - a.t);
+  const k = k0 * k0 * (3 - 2 * k0);                    // smoothstep
+  const mix = (u, v) => u + (v - u) * k;
+  return {
+    tilt: mix(a.tilt, b.tilt) * Math.PI / 180,
+    dist: mix(a.dist, b.dist),
+    yaw: mix(a.yaw || 0, b.yaw || 0) * Math.PI / 180,
+  };
+}
+
+/* ------------------------------------------------------------------
+   分段的"整屏环境色"覆盖（level.terrain.spans[].env）
+   官方关卡换段时是**整屏换色**（天空/雾/路面/地面一起翻），不是只换地面。
+   我们原来只有地面跟着色卡走，天空和路面从头到尾是同一个粉 → 像一直在原地。
+   在这里给某一段覆盖 sky/fog/road/trim，让整屏一起变。
+   ------------------------------------------------------------------ */
+function envAt(level, t) {
+  const spans = level.__envSpans;
+  if (!spans) return null;
+  for (const s of spans) if (t >= s.t0 && t <= s.t1) return s.env;
+  return null;
+}
 
 // 相机跟随的时间常数（秒）：越大越"飘"（越平滑），0 = 完全刚性。
 // 2026-10-11 发起人要求"更平滑"，0.16 → 0.30：跟随滞后随之翻倍
@@ -53,6 +117,8 @@ const CAM_OFF = { x: -17, y: 21, z: -17 };
 // 相机位置与注视点用同一个平滑系数，两者差值恒为 offset，
 // 所以视线方向永远不变，只有跟随位置有滞后——画面不会旋转发晕。
 const CAM_SMOOTH = 0.30;
+// 段边界白闪的半宽（秒）：0.12s ≈ 3.6 帧 @30fps，官方换场特效是 1~3 帧（学习结论 R15）
+const FLASH_W = 0.12;
 
 // 跑出路面后不是立刻判死，而是继续下坠；掉够这么深（或摔到地面）才算死亡。
 // 贴地关卡下方是虚空，用这个深度判定；高架关卡则摔到地面即死。
@@ -132,6 +198,33 @@ export class Game {
     // 线列表（单线关卡也会合成一条线 A）
     this.lineDefs = linesOf(level);
     this.multi = this.lineDefs.length > 1;
+
+    // 运镜与分段环境色：预编译成好查的表（见文件开头 camKeysAt / envAt 的说明）
+    const cam = [];
+    for (const sc of level.scenes || []) {
+      for (const k of sc.camera || []) {
+        if (k && k.t != null) cam.push({ t: +k.t, tilt: +k.tilt, dist: +k.dist, yaw: k.yaw || 0 });
+      }
+    }
+    cam.sort((a, b) => a.t - b.t);
+    level.__camKeys = cam.length ? cam : null;
+    const envs = [];
+    for (const s of (level.terrain && level.terrain.spans) || []) {
+      if (s && s.env && s.t) envs.push({ t0: s.t[0], t1: s.t[1], env: s.env });
+    }
+    level.__envSpans = envs.length ? envs : null;
+    // 分段氛围粒子（见 fx.js）：每段的母题 → 一套粒子配方
+    const fxs = [];
+    for (const s of (level.terrain && level.terrain.spans) || []) {
+      if (s && s.t) fxs.push({ t0: s.t[0], t1: s.t[1], fx: MOTIF_FX[s.motif] || MOTIF_FX.default });
+    }
+    level.__fxSpans = fxs.length ? fxs : null;
+    // 段边界时刻（除第一段起点）：换场白闪用（见 renderFrame）
+    const bnds = [];
+    for (const s of (level.terrain && level.terrain.spans) || []) {
+      if (s && s.t && s.t[0] > 0) bnds.push(s.t[0]);
+    }
+    level.__bounds = bnds.length ? bnds : null;
 
     // 兼容旧字段：顶层 path / verts 仍指线 A（verts 在 buildScene 里建好后回填）
     this.path = this.lineDefs[0].path || level.path;
@@ -543,6 +636,9 @@ export class Game {
 
   // 每条线的「同一高度下沉量」：第 0 条为 0，之后每条再低一点点。
   static get Y_STEP() { return 0.004; }
+  // 路缘描边的宽度与下沉量（米）：左右各多 0.5m、顶面比路面低 6cm。
+  static get TRIM_W() { return 0.7; }
+  static get TRIM_DROP() { return 0.06; }
 
   buildScene() {
     const th = THEME[themeAt(this.level, 0)] || THEME.void;
@@ -550,6 +646,19 @@ export class Game {
     this.roadMat = new THREE.MeshStandardMaterial({
       color: th.road, roughness: 0.88, metalness: 0.04,
     });
+    // 路缘描边（trim）：比路面宽一点、比路面顶面低 6cm 的一圈薄板，露出来的边就是「路的描边」。
+    // 为什么需要它（拆解 12 个官方关卡得到的最硬的一条规律）：
+    //   路必须一眼能读出来，官方靠"亮主带 + 两侧描边"或"路与地至少 15% 明度差"。
+    //   我们原来的粉路(0xf2579b, 明度125) 压在粉地面上(0xc06a95, 明度127)——
+    //   **明度差只有 3**，等于没有分离。加一圈比两者都亮的描边，是成本最低的修法。
+    //   参考 out/research/official/山脉.md（山脉的路就是"亮黄主带 + 两侧黄绿描边"）。
+    this.trimMat = new THREE.MeshStandardMaterial({
+      color: th.trim, roughness: 0.8, metalness: 0.0,
+    });
+    // 注：曾照"镶边"规律（学习结论 R14：Simply Trace 的 ST17 线 213 vs 地 186 只差 +11%，
+    // 靠两侧 0.1~0.3 路宽黑描边补到 +58%）给线加过一圈静态黑描边，但我们的轨迹是
+    // 玩家边走边画、线头之前没有线，静态描边会变成路中间一条黑色幽灵带，已回退。
+    // 我们的白线(#fff, L100) 对淡粉路带(#f7a8cb, L196) 明度差 59，本来就读得清。
 
     // 1) 逐线建几何与状态
     this.lines = this.lineDefs.map((def, i) => {
@@ -587,9 +696,37 @@ export class Game {
     });
     this.road = this.roads[0];                            // 兼容旧字段
 
+    // 2b) 路缘描边：同样的路线，但**更宽**（左右各多 TRIM_W）且**顶面低 TRIM_DROP**，
+    //     于是路面四周露出一圈比路面更亮的边——这是"读得出路在哪"的关键（见 buildScene 里的注释）。
+    this.trims = this.lines.map(L => {
+      const blocks = this.roadBlocks(L.verts, this.roadW + Game.TRIM_W, this.thick,
+                                     L.yOff - Game.TRIM_DROP);
+      const mesh = this.makeBlockMesh(blocks, this.trimMat);
+      mesh.renderOrder = -1;                              // 先画描边，路面再盖上去
+      this.scene.add(mesh);
+      return mesh;
+    });
+
     this.buildBridge();          // 悬崖：桥下的光海（贴地关卡不会触发）
     this.buildScenery();         // 布景：路线两侧的纯几何块（旧随机散布，已被地形层取代）
     this.buildGround();          // 地形：关卡的地面（整块有厚度的地形，路嵌在里面）
+
+    // 氛围粒子：一个跟着线头走的固定池子（官方关卡里几乎每关都有"空气里的东西"）
+    this.atmos = buildAtmos({ count: 900, box: { x: 52, y: 26, z: 52 } });
+    this.scene.add(this.atmos.points);
+
+    // 换场白闪用的全屏面片（默认不可见，段边界前后 0.12s 内浮到 0.9 不透明度）
+    this.flash = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0,
+        depthTest: false, depthWrite: false, fog: false,
+      })
+    );
+    this.flash.frustumCulled = false;
+    this.flash.renderOrder = 9999;
+    this.flash.visible = false;
+    this.scene.add(this.flash);
 
     // 3) 每条线一套「轨迹 + 线头」，用各自的材质
     // 轨迹 = 玩家线头实际画出来的线（不是官方路线！）。
@@ -861,20 +998,21 @@ export class Game {
   }
 
   // 当前时刻相机相对线头中点的偏移
-  // （cameraOrbit 管方位角环绕，cameraOrbit.zoom 管距离整体放大）
+  // 三层叠加：① 关卡关键帧（俯角/距离/偏航）② cameraOrbit 环绕 ③ zoom 拉远
   camOffsetAt(t) {
-    const o = this.level.cameraOrbit;
-    let ox = CAM_OFF.x, oy = CAM_OFF.y, oz = CAM_OFF.z;
-    if (o && o.angleDeg) {
-      const yaw = orbitYaw(this.level, t);
-      const c = Math.cos(yaw), s = Math.sin(yaw);
-      const R = Math.hypot(CAM_OFF.x, CAM_OFF.z);
-      const b = this.camBase;               // 基准「正后方」单位向量
-      // 绕 +Y 转 yaw：x' = x cos + z sin；z' = -x sin + z cos
-      ox = (b.x * c + b.z * s) * R;
-      oz = (-b.x * s + b.z * c) * R;
-    }
-    const k = zoomScale(this.level, t);     // 拉远倍数（乘在整条向量上 → 距离等比放大）
+    const K = camKeysAt(this.level, t);          // {tilt, dist, yaw} 或 null
+    const dist = K ? K.dist : CAM_DIST0;
+    const tilt = K ? K.tilt : CAM_TILT0;
+    const beh = dist * Math.cos(tilt);           // 水平后退距离
+    const up = dist * Math.sin(tilt);            // 抬高
+    const yaw = (K ? K.yaw : 0) + orbitYaw(this.level, t);
+    const b = this.camBase;                      // 基准「正后方」单位向量
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    // 绕 +Y 转 yaw：x' = x cos + z sin；z' = -x sin + z cos
+    let ox = (b.x * c + b.z * s) * beh;
+    let oz = (-b.x * s + b.z * c) * beh;
+    let oy = up;
+    const k = zoomScale(this.level, t);          // 拉远倍数（乘在整条向量上 → 距离等比放大）
     return { x: ox * k, y: oy * k, z: oz * k };
   }
 
@@ -914,12 +1052,51 @@ export class Game {
     );
     this.camera.lookAt(this.camLook);
 
+    // 段边界白闪（学习结论 R15：官方换场只有 1~3 帧的特效，最常见是白闪）。
+    // 一个贴在相机前的全屏白面片，透明度按"离最近段边界的时间距离"起落。
+    if (this.flash) {
+      const bs = this.level.__bounds;
+      let f = 0;
+      if (bs) {
+        for (const b of bs) {
+          const d = Math.abs(t - b);
+          if (d < FLASH_W) f = Math.max(f, 1 - d / FLASH_W);
+        }
+      }
+      this.flash.material.opacity = f * 0.9;
+      this.flash.visible = f > 0.002;
+      if (this.flash.visible) {
+        // ⚠️ 相机 near = 2，面片必须放在 near 之外，否则整片被裁掉（踩过一次）
+        const dist = 3.0;
+        const dir = this._flashDir || (this._flashDir = new THREE.Vector3());
+        dir.copy(this.camLook).sub(this.camPos).normalize();
+        if (dir.lengthSq() < 0.5) dir.set(0, 0, 1);
+        this.flash.position.copy(this.camPos).addScaledVector(dir, dist);
+        this.flash.quaternion.copy(this.camera.quaternion);
+        const hh = dist * Math.tan((this.camera.fov * Math.PI / 180) / 2) * 1.15;
+        const hw = hh * (this.camera.aspect || 1.6);
+        this.flash.scale.set(hw, hh, 1);
+      }
+    }
+
+    // 氛围粒子：跟着线头走，配方取当前地形段（换段时颜色平滑过渡，见 fx.js）
+    if (this.atmos) {
+      let fx = null;
+      const fs = this.level.__fxSpans;
+      if (fs) { for (const s of fs) if (t >= s.t0 && t <= s.t1) { fx = s.fx; break; } }
+      this.atmos.update(this._dt || 0.016, t, p.x, p.y, p.z, fx);
+    }
+
     // 主题色平滑过渡（分幕切换时不会突变）
-    const th = THEME[themeAt(this.level, t)] || THEME.void;
+    // 目标色 = 主题表 ⊕ 当前地形段的 env 覆盖（整屏换色，见 envAt）
+    const th0 = THEME[themeAt(this.level, t)] || THEME.void;
+    const env = envAt(this.level, t);
+    const th = env ? Object.assign({}, th0, env) : th0;
     const k = 0.035;
     this._tmp.setHex(th.sky); this.skyColor.lerp(this._tmp, k);
     this._tmp.setHex(th.fog); this.fogColor.lerp(this._tmp, k);
     this._tmp.setHex(th.road); this.roadMat.color.lerp(this._tmp, k);
+    if (th.trim != null) { this._tmp.setHex(th.trim); this.trimMat.color.lerp(this._tmp, k); }
     this.scene.background.copy(this.skyColor);
     this.scene.fog.color.copy(this.fogColor);
     // 布景三层也跟着主题走：新关卡里有别的一幕（比如由粉转灰）时，

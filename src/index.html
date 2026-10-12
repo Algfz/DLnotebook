@@ -361,6 +361,21 @@
 <!-- 检测 ES 模块是否真正执行了（importmap/模块静默失败时 main.js 不会跑） -->
 <script>
   window.__moduleLoaded = false;
+  // 启动期错误留痕：tools/shot.js 与 render-demo.js 在模块没跑起来时会把这条打出来，
+  // 否则只能看到"客户端没有启动起来"这句话（模块解析/执行期报错是静默的）。
+  window.__startError = null;
+  window.addEventListener("error", function (e) {
+    if (!window.__startError) {
+      window.__startError = (e.message || "error") + " @ " +
+        String(e.filename || "").split("/").pop() + ":" + (e.lineno || 0) + ":" + (e.colno || 0);
+    }
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    if (!window.__startError) {
+      var r = e.reason || {};
+      window.__startError = "rejection: " + (r.stack || r.message || String(r));
+    }
+  });
   setTimeout(function () {
     if (!window.__moduleLoaded && window.__fatal) {
       window.__fatal(

@@ -218,7 +218,11 @@ async function main() {
     await sleep(300);
     try { ok = await cdp.eval("window.__moduleLoaded === true"); } catch (e) {}
   }
-  if (!ok) throw new Error("客户端没有启动起来");
+  if (!ok) {
+    let why = "";
+    try { why = await cdp.eval("String(window.__startError || '')"); } catch (e) {}
+    throw new Error("客户端没有启动起来" + (why ? "：" + why : ""));
+  }
 
   const title = (lv.json.meta && lv.json.meta.title) || lv.name;
   const started = await cdp.eval(`(async () => {

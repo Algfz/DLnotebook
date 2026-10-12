@@ -17,6 +17,7 @@
 // ============================================================================
 
 import * as THREE from "../vendor/three.module.min.js";
+import { DEFAULT_PARAMS } from "./terrain.js";
 
 // --- 单位几何体（直径/边长/高都是 1，位置在几何中心） ----------------------
 const GEOS = {
@@ -225,6 +226,21 @@ export const PROPS = {
     return out;
   },
 
+  // 巨型剪影：官方每关几乎都有一两件 15~30 倍路宽的大结构（学习结论 R17），
+  // 用来当"一段一个地标"。三段收分：方碑基座 + 棱锥中段 + 尖顶，颜色跟段落色卡走，
+  // 所以放在哪一段就自动是哪一段的材质。总高 54~60m ≈ 路宽的 18~20 倍。
+  giant(R) {
+    const w = 7.5 + R() * 2.5;        // 基座宽 ≈ 2.5~3.4 路宽
+    const h1 = 26 + R() * 8;
+    const h2 = 16 + R() * 6;
+    const h3 = 12 + R() * 6;
+    return [
+      { geo: "box", pos: [0, h1 / 2, 0], scale: [w, h1, w * 0.86], color: "stone", rotY: R() * 0.6 },
+      { geo: "oct", pos: [0, h1 + h2 / 2, 0], scale: [w * 0.66, h2, w * 0.6], color: "stone" },
+      { geo: "cone", pos: [0, h1 + h2 + h3 / 2, 0], scale: [w * 0.5, h3, w * 0.5], color: "accent" },
+    ];
+  },
+
   // 云团（浮在空中的一簇球，"云海"段用）
   cloudlet(R) {
     const out = [];
@@ -238,6 +254,36 @@ export const PROPS = {
       });
     }
     return out;
+  },
+
+  // 跨路牌楼/门洞：两根柱子立在路两侧 + 横梁压在头顶（真实关卡里"换段"的地方
+  // 常放这种跨路建筑——它同时是地标、是分段的标点、也是"这关有设计"的证据）。
+  // ⚠️ 摆放时必须给规则写 "center": true（否则 row 分支会把 off 抬到 roadW/2+0.9）
+  //    和 "skipCorner": true（横梁是长构件，落在 90° 转角上会斜着卡在路口）。
+  arch(R) {
+    const clear = 4.6;                       // 两柱中心距，柱内侧净宽 ≈ 3.9m（路宽 3m）
+    const h = 4.2 + R() * 1.0;
+    const cw = 0.62 + R() * 0.2;
+    const out = [
+      { geo: "box", pos: [0, h / 2, -clear / 2], scale: [cw, h, cw], color: "stone" },
+      { geo: "box", pos: [0, h / 2, clear / 2], scale: [cw, h, cw], color: "stone" },
+      { geo: "box", pos: [0, h + 0.42, 0], scale: [cw * 1.7, 0.84, clear + 1.5], color: "stone" },
+      { geo: "box", pos: [0, h + 1.02, 0], scale: [cw * 2.4, 0.36, clear + 2.3], color: "accent" },
+    ];
+    if (R() < 0.5) out.push({ geo: "box", pos: [0, h + 1.42, 0], scale: [cw * 1.2, 0.42, clear + 0.9], color: "stone" });
+    return out;
+  },
+
+  // 石灯笼：方基础 + 柱 + 灯室 + 攒尖顶（中国园林那套模具，用来当路边的"小型地标"）
+  lantern(R) {
+    const b = 0.8;
+    return [
+      { geo: "box", pos: [0, 0.1, 0], scale: [b * 1.5, 0.2, b * 1.5], color: "stone" },
+      { geo: "box", pos: [0, 0.42, 0], scale: [b * 0.9, 0.5, b * 0.9], color: "stone" },
+      { geo: "box", pos: [0, 1.06, 0], scale: [b * 1.35, 0.62, b * 1.35], color: "accent" },
+      { geo: "cone", pos: [0, 1.62, 0], scale: [b * 1.9, 0.5, b * 1.9], color: "stone" },
+      { geo: "sphere", pos: [0, 1.92, 0], scale: [b * 0.34, b * 0.34, b * 0.34], color: "stone" },
+    ];
   },
 
   // 雪人（冬季主题）：两个球 + 圆锥帽 + 胡萝卜鼻子
@@ -256,14 +302,14 @@ export const PROPS = {
    道具配色：跟着地形色卡走（关卡里同样只写色卡名字）
    --------------------------------------------------------------------------- */
 export const PROP_COLORS = {
-  rose:  { foliage: 0x4f8f5f, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xf3a7c6, accent: 0xf7e08a },
-  plum:  { foliage: 0x4a7f6a, wood: 0x5c4030, stone: 0xb9b0b6, bloom: 0xd98bb4, accent: 0xf2d98a },
-  sand:  { foliage: 0x6f8c46, wood: 0x7a5a34, stone: 0xd8c9a8, bloom: 0xe8a06a, accent: 0xf6e2a8 },
-  ice:   { foliage: 0x4d8f96, wood: 0x6b7a86, stone: 0xe6f0f4, bloom: 0x9fd6e8, accent: 0xfdfbf6 },
-  jade:  { foliage: 0x3f8f63, wood: 0x6d5334, stone: 0xcbd8cd, bloom: 0xf0c0d0, accent: 0xf6e6a0 },
-  cream: { foliage: 0x8f9c7a, wood: 0x8a7a60, stone: 0xf2ece0, bloom: 0xd9c9b0, accent: 0xf7e8c0 },
+  rose:  { foliage: 0x4f8f5f, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xf3a7c6, accent: 0xf7e08a, ground: 0xd08aa8 },
+  plum:  { foliage: 0x4a7f6a, wood: 0x5c4030, stone: 0xb9b0b6, bloom: 0xd98bb4, accent: 0xf2d98a, ground: 0x8a6480 },
+  sand:  { foliage: 0x6f8c46, wood: 0x7a5a34, stone: 0xd8c9a8, bloom: 0xe8a06a, accent: 0xf6e2a8, ground: 0xe4d0a4 },
+  ice:   { foliage: 0x4d8f96, wood: 0x6b7a86, stone: 0xe6f0f4, bloom: 0x9fd6e8, accent: 0xfdfbf6, ground: 0xa9c8dc },
+  jade:  { foliage: 0x3f8f63, wood: 0x6d5334, stone: 0xcbd8cd, bloom: 0xf0c0d0, accent: 0xf6e6a0, ground: 0xa8cfae },
+  cream: { foliage: 0x8f9c7a, wood: 0x8a7a60, stone: 0xf2ece0, bloom: 0xd9c9b0, accent: 0xf7e8c0, ground: 0xefe0c4 },
   // 没有指定色卡时（跟着主题走的段）用这套中性色
-  default: { foliage: 0x6f9e6a, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xefa7c5, accent: 0xf7e08a },
+  default: { foliage: 0x6f9e6a, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xefa7c5, accent: 0xf7e08a, ground: 0xd89ab0 },
 };
 
 /* ---------------------------------------------------------------------------
@@ -356,6 +402,24 @@ export function buildProps(level, verts, opts = {}) {
     }
     return (spec.base && spec.base.palette) || null;
   };
+  // 每种母题"离路多远的地面还是平的"（米）。道具的 off 必须落在这个半径内，
+  // 否则会飘在空中（地面早就在这一侧退台/掉下去了）——这是最早踩过的坑，
+  // 现在改成**由地形参数自己算出来**，不再靠人工在关卡里试数字。
+  const FLAT_OF = {
+    deck:     (P) => P.walk / 2 + P.shelf,      // 台面 + 一圈矮台
+    canyon:   (P) => P.plateauW - 1.2,          // 两侧高台顶面（配 dy = hi）
+    terraces: () => 6.0,                        // ⚠️ 主台是"一串圆盘"，gap 必须 < 2*最小半径
+    islands:  () => 6.0,                        //    （gap 10 / 最小半径 8.2）台面才连成一片
+    cloud:    (P) => P.plateW - 1.2,            // 云海宽板
+  };
+  const spanFlat = (t) => {
+    let sp = null;
+    for (const s of spec.spans || []) if (s.t && t >= s.t[0] && t <= s.t[1]) { sp = s; break; }
+    const motif = sp ? sp.motif : (spec.base && spec.base.motif);
+    const P = Object.assign({}, DEFAULT_PARAMS[motif] || {}, (spec.base && spec.base.params) || {}, (sp && sp.params) || {});
+    const f = (FLAT_OF[motif] || (() => 10))(P);
+    return sp && sp.flat != null ? sp.flat : f;
+  };
 
   // 收集所有实例：按几何体种类分组
   const bucket = {};
@@ -391,7 +455,8 @@ export function buildProps(level, verts, opts = {}) {
     //    是速度感的主要来源；散点摆放给不了这个）。间距默认 3m ≈ 一个路块。
     if (r.row) {
       const step = Math.max(1.6, r.every || 3.0);
-      const roff = Math.max(roadW / 2 + 0.9, off0);
+      // center：长构件（跨路牌楼）要骑在路中线上，不能被抬到路肩外
+      const roff = r.center ? 0 : Math.max(roadW / 2 + 0.9, off0);
       const sides = r.side === "left" ? [-1] : r.side === "right" ? [1] : [1, -1];
       // 让零件的局部 +X 沿着路的切线方向（栅栏才能接成一条长栏杆）
       for (const side of sides) {
@@ -404,6 +469,15 @@ export function buildProps(level, verts, opts = {}) {
           let dx = pb.x - pa.x, dz = pb.z - pa.z;
           const dl = Math.hypot(dx, dz) || 1;
           dx /= dl; dz /= dl;
+          // skipCorner：长构件落在转角上会斜着卡在路口，直接不放
+          if (r.skipCorner) {
+            const ca = atArc(pl, Math.max(0, s - 1.6));
+            const cb = atArc(pl, Math.min(pl.total, s + 1.6));
+            let lx = cb.x - ca.x, lz = cb.z - ca.z;
+            const ll = Math.hypot(lx, lz) || 1;
+            lx /= ll; lz /= ll;
+            if (dx * lx + dz * lz < Math.cos(0.34)) continue;   // 与局部切线差 >20°
+          }
           const nx = dz, nz = -dx;                       // 平滑后的右法线
           const cx = (pa.x + pb.x) / 2, cz = (pa.z + pb.z) / 2;
           const rot = Math.atan2(-dz, dx) + (r.rotRandom ? (rnd() - 0.5) * 0.2 : 0);
@@ -422,24 +496,43 @@ export function buildProps(level, verts, opts = {}) {
       continue;
     }
 
-    for (let s = s0 + rnd() * every * 0.5; s < s1; s += every * (0.75 + rnd() * 0.5)) {
-      const p = atArc(pl, s);
+    // ── 散点/条带模式 ──────────────────────────────────────────────────
+    // 真实关卡里一侧的景物是**沿路的两三条固定车道**（"树在 7m 和 11m 两条线上"），
+    // 不是在一个区间里乱撒——乱撒就是"摆放杂乱"的来源。所以这里：
+    //   · off 被量化成 lanes 条固定车道（等分 off 区间、再吸附到 grid 的整数倍）；
+    //   · 沿路以 every 为步长 + 少量沿路抖动 jitterS；
+    //   · 每处可成簇 cluster，簇内横向散布只有 spread（默认 0.7m）；
+    //   · off 一律被 spawnFlat 夹住（见 spanFlat：超出平地半径一定会飘）。
+    const grid = r.grid || 0.5;
+    const lanes = Math.max(1, Math.round(r.lanes || (off1 > off0 + 0.6 ? 3 : 1)));
+    const laneOff = [];
+    for (let k = 0; k < lanes; k++) {
+      const f = lanes === 1 ? 0 : k / (lanes - 1);
+      laneOff.push(Math.round((off0 + (off1 - off0) * f) / grid) * grid);
+    }
+    const jS = r.jitterS == null ? every * 0.3 : r.jitterS;
+    const spread = r.spread == null ? 0.7 : r.spread;
+    let n0 = 0;
+    for (let s = s0 + (r.phase == null ? every * 0.5 : r.phase); s < s1; s += every) {
       const sides = r.side === "left" ? [-1] : r.side === "right" ? [1] : [1, -1];
       for (const side of sides) {
         if (sides.length === 2 && r.both === false && side === -1) continue;
-        const n = r.cluster ? 1 + Math.floor(rnd() * (r.cluster[1] - r.cluster[0] + 1)) : 1;
+        const ss = Math.min(pl.total, Math.max(0, s + (rnd() - 0.5) * 2 * jS));
+        const p = atArc(pl, ss);
+        const flatMax = Math.max(minOff0, spanFlat(timeAt(ss)) - 0.7);
+        const n = r.cluster ? r.cluster[0] + Math.floor(rnd() * (r.cluster[1] - r.cluster[0] + 1)) : 1;
+        // 一处只挑一条车道：同处的东西成"一撮"，整体看是几条顺路的带子
+        const lane = r.lane != null ? Math.min(lanes - 1, r.lane) : (n0 + (side > 0 ? 0 : 1)) % lanes;
         for (let c = 0; c < n; c++) {
-          const off = Math.max(minOff0, off0 + rnd() * (off1 - off0));
-          const jx = (rnd() - 0.5) * (r.jitter == null ? 1.5 : r.jitter);
-          const jz = (rnd() - 0.5) * (r.jitter == null ? 1.5 : r.jitter);
-          const x = p.x + p.nx * side * off + jx;
-          const z = p.z + p.nz * side * off + jz;
+          const off = Math.max(minOff0, Math.min(flatMax, laneOff[lane] + (rnd() - 0.5) * spread));
+          const x = p.x + p.nx * side * off;
+          const z = p.z + p.nz * side * off;
           const sc = sc0 + rnd() * (sc1 - sc0);
           const dy = r.dy || 0;
           // 道具自己的随机数流（同一个道具内一致）
           let sd = (s * 7919 + c * 104729 + (side + 1) * 9973 + i) >>> 0;
           const R = () => ((sd = (sd * 1103515245 + 12345) >>> 0) / 4294967296);
-          const palName = r.palette || spanPal(timeAt(s)) || "default";
+          const palName = r.palette || spanPal(timeAt(ss)) || "default";
           const pal = PROP_COLORS[palName] || PROP_COLORS.default;
           const parts = PROPS[r.kind](R);
           for (const part of parts) {
@@ -449,6 +542,7 @@ export function buildProps(level, verts, opts = {}) {
           i++;
         }
       }
+      n0++;
     }
   }
 

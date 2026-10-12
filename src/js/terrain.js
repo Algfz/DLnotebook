@@ -408,19 +408,22 @@ const MOTIFS = { deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, 
 export const DEFAULT_PARAMS = {
   deck: { walk: 13.0, shelf: 2.4, th: 3.2, step: 1.6 },
   canyon: { walk: 4.4, slot: 2.2, hi: 4.0, floorW: 12, plateauW: 30, th: 3.0 },
-  terraces: { walk: 5.0, gap: 18, rx: 8.5, ry: 6.5, th: 2.0, gap2: 13, off0: 11, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
-  islands: { walk: 5.0, gap: 18, rx: 8.5, ry: 6.5, th: 2.0, gap2: 13, off0: 11, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
+  // ⚠️ 主台是"一串圆盘"：gap 必须 < 2*rx*0.82（最小半径），否则两块台子之间会有洞，
+  //    道具会飘在洞上。gap 10 / 最小半径 8.2 → 连着。
+  //    卫星台因此要推到 off0 16 以外（不然会被主台盖住）。
+  terraces: { walk: 5.0, gap: 10, rx: 12, ry: 10, th: 2.0, gap2: 13, off0: 16, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
+  islands: { walk: 5.0, gap: 10, rx: 12, ry: 10, th: 2.0, gap2: 13, off0: 16, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
   cloud: { walk: 5.4, plateW: 14, th: 3.0, gap: 9, off0: 12, offSpan: 14, low: -4.5, hSpan: 3, r: 3.4 },
   // 结尾的金字塔：真实关卡里它是一座"吃掉整屏"的巨物，所以尺寸给得很大
   // （路宽 3m，相机离线 24m / 高 21m → 90m 高、180m 宽的塔会把画面填满）
-  // ⚠️ `slotW` 是两半之间的缝有多宽：缝太窄，相机钻进去以后画面就只剩两侧的切面
-  //    （看不到缝的尽头），所以给到 24m。
+  // ⚠️ `slotW` 是两半之间的缝有多宽。发起人的标准是"线的三倍宽就够"，
+  //    所以路宽 3m → 缝 9m。缝再宽就变成"两堵立在两边的墙"，不像金字塔了。
   // ⚠️ `enter` 是"塔心在路终点之前多少米"，负值表示塔心在终点**之后**。
   //    它跟"相机在缝里待多久"直接挂钩：相机永远在线的后 24m，所以
   //    正面角点（塔心再往前 halfW）落在 -24m 时，整关结束的瞬间相机刚好到缝口，
   //    整个结尾是"看着金字塔的正面角点迎面压过来、路钻进缝里"。
   //    → enter = -(halfW + 24) = -66（再往里就会变成一路上只看两侧切面）
-  endcap: { halfW: 90, slotW: 24, h: 110, enter: -66, sink: 3, palette: "cream" },
+  endcap: { halfW: 90, slotW: 9, h: 110, enter: -66, sink: 3, palette: "cream" },
 };
 
 /* 地形色卡：关卡里只写**名字**，颜色仍然不进关卡文件（和主题色一个道理） */
