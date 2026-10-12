@@ -118,7 +118,9 @@ function envAt(level, t) {
 // 所以视线方向永远不变，只有跟随位置有滞后——画面不会旋转发晕。
 const CAM_SMOOTH = 0.30;
 // 段边界白闪的半宽（秒）：0.12s ≈ 3.6 帧 @30fps，官方换场特效是 1~3 帧（学习结论 R15）
-const FLASH_W = 0.12;
+const FLASH_IN = 0.05;    // 起（s）
+const FLASH_HOLD = 0.16;  // 平顶纯白（s）
+const FLASH_OUT = 0.10;   // 收（s）
 
 // 跑出路面后不是立刻判死，而是继续下坠；掉够这么深（或摔到地面）才算死亡。
 // 贴地关卡下方是虚空，用这个深度判定；高架关卡则摔到地面即死。
@@ -1052,7 +1054,8 @@ export class Game {
     );
     this.camera.lookAt(this.camLook);
 
-    // 段边界白闪（学习结论 R15：官方换场只有 1~3 帧的特效，最常见是白闪）。
+    // 段边界白闪（学习结论 R15/R46：官方换场最常见是白闪，且是"硬切 + 一段静止纯白"，
+    // 不是一闪而过的三角波——所以这里做成"极短起 + 平顶 + 收"）。
     // 一个贴在相机前的全屏白面片，透明度按"离最近段边界的时间距离"起落。
     if (this.flash) {
       const bs = this.level.__bounds;
@@ -1060,7 +1063,11 @@ export class Game {
       if (bs) {
         for (const b of bs) {
           const d = Math.abs(t - b);
-          if (d < FLASH_W) f = Math.max(f, 1 - d / FLASH_W);
+          let g = 0;
+          if (d <= FLASH_IN + FLASH_HOLD) g = 1;
+          else if (d < FLASH_IN + FLASH_HOLD + FLASH_OUT)
+            g = 1 - (d - FLASH_IN - FLASH_HOLD) / FLASH_OUT;
+          if (g > f) f = g;
         }
       }
       this.flash.material.opacity = f * 0.9;
