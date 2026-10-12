@@ -380,8 +380,11 @@ function endPyramid(pts, W, M, surf) {
   shape.closePath();
 
   const g = new THREE.ExtrudeGeometry(shape, { depth: dep, bevelEnabled: false });
-  g.translate(0, 0, -dep / 2);                    // 以"路的终点"为中心
+  // ⚠️ 塔的**正面**要退到路的终点之前 `enter` 米：路面最后那一段钻进槽里，
+  //    而相机在线的后上方（离线约 24m），塔要是以终点为中心，相机会被关在塔里面。
+  g.translate(0, 0, -W.enter);                    // 挤出的 +z 指向行进方向
   const m = new THREE.Mesh(g, M.mid);
+  m.name = "endcap";
   m.position.set(last.x, surf, last.z);
   m.rotation.y = Math.atan2(dx, dz);              // 让挤出的 +z 指向行进方向
   return [m];
@@ -396,7 +399,19 @@ export const DEFAULT_PARAMS = {
   terraces: { walk: 5.0, gap: 18, rx: 8.5, ry: 6.5, th: 2.0, gap2: 13, off0: 11, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
   islands: { walk: 5.0, gap: 18, rx: 8.5, ry: 6.5, th: 2.0, gap2: 13, off0: 11, offSpan: 16, rx2: 5.5, ry2: 4.2, low0: 4, lowSpan: 7 },
   cloud: { walk: 5.4, plateW: 14, th: 3.0, gap: 9, off0: 12, offSpan: 14, low: -4.5, hSpan: 3, r: 3.4 },
-  endcap: { halfW: 13, slotW: 5.2, slotH: 6.5, depth: 9, h: 22 },
+  // 结尾的金字塔：真实关卡里它是一座"吃掉整屏"的巨物，所以尺寸给得很大
+  // （路宽 3m，相机离线 24m / 高 21m → 88m 高、104m 宽的塔会把画面填满）
+  endcap: { halfW: 90, slotW: 8.0, slotH: 30, depth: 200, h: 110, enter: 16, palette: "cream" },
+};
+
+/* 地形色卡：关卡里只写**名字**，颜色仍然不进关卡文件（和主题色一个道理） */
+export const PALETTES = {
+  rose:  { near: 0x8e2a57, mid: 0xc06a95, far: 0xf0d2e0 },   // 和 pink 主题同色
+  plum:  { near: 0x2f1730, mid: 0x6b3f63, far: 0xbe9cba },   // 深紫：裂谷
+  sand:  { near: 0x8a5a2b, mid: 0xc9a86f, far: 0xf2e4c4 },   // 暖沙：层叠平台
+  ice:   { near: 0x27506e, mid: 0x5f89a6, far: 0xcfe2ec },   // 冰蓝：云海
+  jade:  { near: 0x2f6b48, mid: 0x74ad91, far: 0xc4e8d5 },   // 草绿
+  cream: { near: 0xa89f8e, mid: 0xe9e3d7, far: 0xfdfbf6 },   // 发白的米色：结尾金字塔
 };
 
 /* --------------------------- 组装整条地形 --------------------------- */
@@ -437,8 +452,9 @@ function splitRuns(pts, spec) {
     const s = motifAt(p.t);
     const name = s ? s.motif : spec.base.motif;
     const params = (s && s.params) || (spec.base && spec.base.params) || {};
-    if (!cur || cur.motif !== name) {
-      cur = { motif: name, params, pts: [] };
+    const palette = (s && s.palette) || (spec.base && spec.base.palette) || null;
+    if (!cur || cur.motif !== name || cur.palette !== palette) {
+      cur = { motif: name, params, palette, pts: [] };
       runs.push(cur);
     }
     cur.pts.push(p);
@@ -468,11 +484,23 @@ export function buildTerrain(level, colors, verts) {
   const mk = (c, rough) => new THREE.MeshStandardMaterial({
     color: c, roughness: rough, metalness: 0, flatShading: true, side: THREE.DoubleSide,
   });
-  const mats = { near: mk(colors.near, 0.92), mid: mk(colors.mid, 0.88), far: mk(colors.far, 0.95) };
+  const mkMats = (c) => ({ near: mk(c.near, 0.92), mid: mk(c.mid, 0.88), far: mk(c.far, 0.95) });
+  const mats = mkMats(colors);
+
+  // 色卡材质按名字缓存（同一色卡的多段共用一套材质）。
+  // 它们**不进** group.userData.materials：那份是"跟着主题逐帧过渡"的材质，
+  // 指定了色卡的地段颜色是固定的，不参与主题过渡。
+  const palCache = new Map();
+  const palMats = (name) => {
+    if (!name || !PALETTES[name]) return null;
+    if (!palCache.has(name)) palCache.set(name, mkMats(PALETTES[name]));
+    return palCache.get(name);
+  };
 
   const group = new THREE.Group();
   group.name = "terrain";
   group.userData.materials = mats;
+  group.userData.paletteMaterials = palCache;
 
   const src = verts && verts.length > 1
     ? verts.map((v) => ({ x: v.x, y: v.y, z: v.z, t: v.t }))
@@ -488,7 +516,8 @@ export function buildTerrain(level, colors, verts) {
     for (const p of run.pts) if (p.y > top) top = p.y;
     const surf = top - 0.06;
     const pts = simplify(run.pts, 2.0);
-    for (const m of fn(pts, P, mats, surf)) group.add(m);
+    const rm = palMats(run.palette) || mats;      // 这一段用哪套材质
+    for (const m of fn(pts, P, rm, surf)) group.add(m);
   }
 
   // 结尾：中间截开的金字塔
@@ -497,7 +526,8 @@ export function buildTerrain(level, colors, verts) {
     let top = -Infinity;
     for (const p of src) if (p.y > top) top = p.y;
     const flat = simplify(src, 1.0);
-    for (const m of endPyramid(flat, P, mats, top - 0.06)) group.add(m);
+    const em = palMats(P.palette) || mats;
+    for (const m of endPyramid(flat, P, em, top - 0.06)) group.add(m);
   }
   return group;
 }

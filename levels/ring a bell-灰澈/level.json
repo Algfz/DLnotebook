@@ -6175,11 +6175,11 @@
                      "v":  1,
                      "base":  { "motif":  "deck", "params":  { "walk":  7.0, "shelf":  2.4, "th":  3.2, "step":  1.6 } },
                      "spans":  [
-                                    { "t":  [ 40, 75 ], "motif":  "canyon", "params":  { "walk":  4.4, "slot":  2.2, "hi":  4.0, "floorW":  12, "plateauW":  30, "th":  3.0 } },
-                                    { "t":  [ 75, 120 ], "motif":  "terraces", "params":  { "gap":  18, "rx":  8.5, "ry":  6.5, "th":  2.0 } },
-                                    { "t":  [ 120, 150 ], "motif":  "cloud", "params":  { "plateW":  14, "gap":  9, "off0":  12, "offSpan":  14, "low":  -4.5, "hSpan":  3, "r":  3.4 } }
+                                    { "t":  [ 40, 75 ], "motif":  "canyon", "palette":  "plum", "params":  { "walk":  4.4, "slot":  2.2, "hi":  4.0, "floorW":  12, "plateauW":  30, "th":  3.0 } },
+                                    { "t":  [ 75, 120 ], "motif":  "terraces", "palette":  "sand", "params":  { "gap":  18, "rx":  8.5, "ry":  6.5, "th":  2.0 } },
+                                    { "t":  [ 120, 150 ], "motif":  "cloud", "palette":  "ice", "params":  { "plateW":  14, "gap":  9, "off0":  12, "offSpan":  14, "low":  -4.5, "hSpan":  3, "r":  3.4 } }
                                 ],
-                     "endcap":  { "halfW":  13, "slotW":  5.2, "slotH":  6.5, "depth":  9, "h":  22 }
+                     "endcap":  { "halfW":  90, "slotW":  8.0, "slotH":  30, "depth":  200, "h":  110, "enter":  16, "palette":  "cream" }
                  },
     "scenes":  [
                    {

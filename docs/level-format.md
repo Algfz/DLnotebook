@@ -248,9 +248,13 @@
   "v": 1,
   "base":  { "motif": "deck", "params": { "walk": 7.0, "shelf": 2.4, "th": 3.2, "step": 1.6 } },
   "spans": [
-    { "t": [40, 75], "motif": "canyon", "params": { "slot": 2.2, "hi": 4.0, "plateauW": 30 } }
+    { "t": [40, 75],   "motif": "canyon",   "palette": "plum",
+      "params": { "slot": 2.2, "hi": 4.0, "plateauW": 30 } },
+    { "t": [75, 120],  "motif": "terraces", "palette": "sand", "params": { "gap": 18 } },
+    { "t": [120, 150], "motif": "cloud",    "palette": "ice",  "params": { "plateW": 14 } }
   ],
-  "endcap": { "halfW": 13, "slotW": 5.2, "slotH": 6.5, "depth": 9, "h": 22 }
+  "endcap": { "halfW": 90, "slotW": 8.0, "slotH": 30, "depth": 200,
+              "h": 110, "enter": 16, "palette": "cream" }
 }
 ```
 
@@ -259,9 +263,12 @@
 | `v` | 格式版本，当前为 `1` |
 | `base.motif` | **整关的底子**用哪种母题（必须有，缺了整层不渲染） |
 | `base.params` | 该母题的尺寸参数（可省，缺省值见 `src/js/terrain.js` 的 `DEFAULT_PARAMS`） |
+| `base.palette` / `spans[].palette` | 可选：**色卡名**，让这一段地面换一套颜色（见下） |
 | `spans[].t` | `[起, 止]` 秒。落在这一段里的路改用它自己的母题；两段之间用 `base` |
-| `spans[].motif` / `.params` | 该段的母题与参数 |
+| `spans[].motif` / `.params` | 该段的母题与参数。**motif 或 palette 任一变化都会切段** |
 | `endcap` | 可选：在**路的终点**放一个"中间截开的金字塔"，让线钻进去（替代断头路）。`false` = 显式关闭 |
+| `endcap.enter` | 塔的**正脸放在"路终点之前"多少米**（朝相机一侧）。⚠️ 相机离线只有约 **24m**，`enter` 写大了相机会被关进塔里（画面只剩两块巨大内表面）。当前用 `16` |
+| `endcap.halfW/h/depth` | 塔的半宽 / 高 / 进深。当前 `90/110/200` 是按"吃掉整个画面"倒推的（路宽 3m、相机离线 24m、仰高 21m） |
 
 **四种母题**（全部只用基本几何体拼，零依赖）：
 
@@ -272,8 +279,21 @@
 | `terraces` | 层叠平台：主平台圆心压在路上（路面就铺在台顶），周围散落更低的卫星台 | `gap` 主台间距 / `rx`·`ry` 主台半径 / `th` 台厚 / `gap2` 卫星台间距 / `off0`·`offSpan` 卫星台离路距离 / `low0`·`lowSpan` 卫星台比路面低多少 |
 | `cloud` | 云海：一条厚板贴着路，板两侧堆云团 | `gap` 云团间距 / `off0`·`offSpan` 离路距离 / `low`·`hSpan` 高度范围 / `r` 云球半径 |
 
-**颜色同样不进关卡**：地面吃的是主题表的 `scenNear/scenMid/scenFar`
-（和 `scenery` 共用一套三档色，换主题时一起过渡）。
+**颜色**：地面默认吃主题表的 `scenNear/scenMid/scenFar`（和 `scenery` 共用一套三档色，
+换主题时一起逐帧过渡）。**想按段换颜色就写 `palette`（只写名字，颜色值仍然不进关卡）**，
+可用的色卡在 `src/js/terrain.js` 的 `PALETTES` 里：
+
+| 色卡名 | 观感 | near / mid / far |
+|---|---|---|
+| `rose` | 玫红（与 pink 主题同色） | `8e2a57` / `c06a95` / `f0d2e0` |
+| `plum` | 深紫 | `2f1730` / `6b3f63` / `be9cba` |
+| `sand` | 沙黄 | `8a5a2b` / `c9a86f` / `f2e4c4` |
+| `ice` | 冰蓝 | `27506e` / `5f89a6` / `cfe2ec` |
+| `jade` | 青绿 | `2f6b48` / `74ad91` / `c4e8d5` |
+| `cream` | 米白（结尾塔在用） | `a89f8e` / `e9e3d7` / `fdfbf6` |
+
+写了 `palette` 的段拿到的是**固定材质**，不再跟着分幕主题过渡（这是有意的：
+这一段的地就应该是这个颜色）。
 
 **客户端约定**（`src/js/terrain.js` 的 `buildTerrain` + `Game.buildGround()`）：
 - 用**路线的真实顶点**（`lines[0].verts`，已含"末尾延伸到关卡结束"那一段）按时段切段，

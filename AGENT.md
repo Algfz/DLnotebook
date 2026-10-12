@@ -194,8 +194,14 @@ DLnotebook/
 **地形格式（`terrain`，v1）—— 关卡的"地面"**
 ```jsonc
 { "v":1,
-  "base":  { "motif":"deck", "params":{...} },              // 整关的底子，必须有
-  "spans": [ { "t":[40,75], "motif":"canyon", "params":{...} } ]   // 局部换母题
+  "base":  { "motif":"deck", "type":"deck", "params":{...} },   // 整关的底子，必须有
+  "spans": [
+    { "t":[40,75],   "motif":"canyon",   "palette":"plum",  "params":{...} },
+    { "t":[75,120],  "motif":"terraces", "palette":"sand",  "params":{...} },
+    { "t":[120,150], "motif":"cloud",    "palette":"ice",   "params":{...} }
+  ],
+  "endcap": { "halfW":90, "slotW":8, "slotH":30, "depth":200, "h":110,
+              "enter":16, "palette":"cream" }                // 结尾"截开的金字塔"
 }
 ```
 - 四种 `motif`，全部只用基本几何体：`deck` 厚板台地 / `canyon` 裂谷 / `terraces` 层叠平台 / `cloud` 云海
@@ -205,12 +211,23 @@ DLnotebook/
   左右两条侧边可以来自**不同的折线**（内沿用精确路径、外沿用平滑路径），永远不会有洞。
   （旧实现 `ringSlab` 保留但已无人用，`islands` 改名 `terraces` 并改为"主平台圆心压在路径上"）
 - `params` 逐项可省，缺省值在 `src/js/terrain.js` 的 `DEFAULT_PARAMS`
-- **没有颜色字段**：颜色同样来自主题表的 `scenNear/scenMid/scenFar`（与布景共用一套色）
+- **颜色可以用 `palette` 按段换**（2026-10-12 新增，发起人要求"每一段换不同颜色"）：
+  写**色卡名字**，颜色值不写进关卡（和主题色一个道理）。可选：
+  `rose` / `plum` / `sand` / `ice` / `jade` / `cream`（表在 `src/js/terrain.js` 的 `PALETTES`）。
+  `base` 或任一 `span` 都能写；**motif 或 palette 任一变化都会切段**。
+  没写 palette 的段照样跟着主题表逐帧过渡（`scenNear/scenMid/scenFar`）；
+  写了 palette 的段拿到的是**固定材质**，不再随主题变（也因此不受分幕过渡影响）
 - 客户端在 `Game.buildGround()` 里建一次（`src/js/terrain.js` 的 `buildTerrain`），
   **必须把 `lines[0].verts` 传进去**——地形要跟着"延伸到关卡结束"的那段路一起铺完
 - `endcap`（可选）：在**路的终点**放一个"中间截开的金字塔"（楔形，中间留一条
   宽 `slotW`、深 `slotH` 的槽让线钻进去）。不写就没有；`endcap:false` 显式关闭。
   这是替代"断头路"的常规做法（发起人 m01544 提的）
+  - **`enter` 是"塔的正脸放在路终点之前多少米"**（朝相机那一侧）。相机跟着线头，
+    **离线只有约 24m**，所以 `enter` 必须 **< 24**，写大了相机会被关进塔里
+    （画面只剩两块巨大内表面，踩过）；当前 `enter:16`，即路面最后 16m 钻进槽里
+  - 塔的尺寸是按"要吃掉整个画面"倒推的：路宽 3m、相机离线 24m、仰高 21m（俯角约 41°）
+    → `halfW:90`（180m 宽）、`h:110`、`depth:200`。代价是**塔只在最后约 2 秒才进画幅**
+    （90m 外的塔身大半在画幅上方），要更早看到塔得动相机，是另一件事
 - 母题切换是硬切（两段地形断面相邻），目前不做过渡
 
 ---
@@ -439,6 +456,17 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
       必然盖路；现在**主平台圆心压在路径上**（顶面与路面齐平、往下 2m 厚），
       卫星台挪到 ≥11m 外并压低 4~11m；云海的高台也加宽到 `plateW=14`
     - 「结尾断头路」：新增 `endcap`——终点放一个中间截开的金字塔（楔形 + 让线钻进去的槽）
+  - [x] **按段换色 + 放大结尾金字塔**（2026-10-12，发起人 m01715 提的两条）：
+    - **色卡**：`src/js/terrain.js` 新增 `PALETTES`（`rose/plum/sand/ice/jade/cream`，
+      每套三档 near/mid/far）；关卡的 `spans[].palette` / `base.palette` / `endcap.palette`
+      只写**名字**。`splitRuns` 里 **motif 或 palette 任一变化都切段**；
+      带色卡的段拿**固定材质**，**不注册进 `group.userData.materials`**（那份是跟着主题
+      逐帧 lerp 的），所以 `game.js` 一个字都没改
+    - `ring a bell` 现在：裂谷=plum（深紫）/ 层叠平台=sand（沙黄）/ 云海=ice（冰蓝）/ 结尾塔=cream
+    - **金字塔放大**（发起人给的参考图 `Pyramid_Piano.png`：吃掉整个画面的巨塔、两个受光面
+      以一条竖直棱相接、路面钻进底部缺口）：`halfW 13→90`、`h 22→110`、`depth 9→200`、
+      `slotW 5.2→8`、`slotH 6.5→30`，并新增 `enter:16`（见 §6 对 `enter` 的警告：
+      它 < 相机离线距离 24m 这个硬约束）
   - [ ] 待做：**道具库**（树/石/长椅/音符…基本几何体组合）＋ 逐段铺道具 ＋ 场景转场
         ＋ `scenes[].decor` 语义装饰
 
