@@ -3,7 +3,7 @@
    选关界面 → 游戏界面，设置持久化到 localStorage。
    ===================================================================== */
 import { fetchLevels, loadLevelJSON, loadAudioBuffer } from "./level.js";
-import { Game } from "./game.js";
+import { Game, THREE } from "./game.js";
 
 // 标记模块已成功执行（index.html 里有个超时检测在等这个标志）
 window.__moduleLoaded = true;
@@ -347,6 +347,11 @@ async function startGame() {
       roadWidth: 3.0,
       lineWidth: 1.0,
     });
+
+    // 调试钩子：把 Game 实例挂到 window，供 tools/shot.js 之类的离线工具
+    // 在页面里改参数后立刻截图对比（正常玩不受影响，reload 即消失）
+    window.__game = game;
+    window.__THREE = THREE;
 
     game.setGuide(settings.guide);
     applyKeys();                 // 玩家改过的操作按键

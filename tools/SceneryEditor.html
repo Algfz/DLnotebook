@@ -177,10 +177,17 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.75));
 
 let camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 6000);
 
-const matScenery = new THREE.MeshStandardMaterial({ color: 0xf8b0cc, roughness: .75 });
+/* 布景按**三层**渲染，颜色用客户端 `pink` 主题的三档色（game.js 的 THEME）——
+   这样编辑器里看到的深浅关系和实机一致。如果你在调别的主题的关卡，
+   把这三个颜色换成该主题的 scenNear/scenMid/scenFar 即可。 */
+const LAYER_COLORS = [0x8e2a57, 0xc06a95, 0xf0d2e0];   // 近 / 中 / 远
+const LAYER_ROUGH  = [0.80, 0.92, 0.92];
+const matScenery = LAYER_COLORS.map((c, i) => new THREE.MeshStandardMaterial({
+  color: 0xffffff, roughness: LAYER_ROUGH[i], metalness: 0,
+}));
 const matSel = new THREE.MeshStandardMaterial({ color: 0x6ea8fe, roughness: .5,
   emissive: 0x223a66 });
-let sceneryMesh = null, selMesh = null, ghost = null, refLine = null, turnDots = null;
+let sceneryMeshes = [], selMesh = null, ghost = null, refLine = null, turnDots = null;
 
 function ensureSize() {
   const w = cv.clientWidth || 1, h = cv.clientHeight || 1;
@@ -194,22 +201,38 @@ function ensureSize() {
 
 /* ---------------------- 渲染景物 ---------------------- */
 function rebuild() {
-  if (sceneryMesh) { scene.remove(sceneryMesh); sceneryMesh.dispose(); }
-  const n = S.items.length;
-  sceneryMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), matScenery, Math.max(1, n));
-  const m = new THREE.Matrix4(), p = new THREE.Vector3(),
-        q = new THREE.Quaternion(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-  for (let i = 0; i < n; i++) {
-    const it = S.items[i];
-    p.set(it.pos[0], it.pos[1], it.pos[2]);
-    q.setFromAxisAngle(up, it.angY || 0);
-    s.set(it.scale[0], it.scale[1], it.scale[2]);
-    m.compose(p, q, s);
-    sceneryMesh.setMatrixAt(i, m);
+  // 三层各一个 InstancedMesh（和客户端一致），逐块按 fade 在相邻两档色之间插值
+  for (const m of sceneryMeshes) { scene.remove(m); m.dispose(); }
+  sceneryMeshes = [];
+  const buckets = [[], [], []];
+  for (const it of S.items) {
+    const k = it.layer === 2 ? 2 : it.layer === 1 ? 1 : 0;
+    buckets[k].push(it);
   }
-  sceneryMesh.count = n;
-  sceneryMesh.instanceMatrix.needsUpdate = true;
-  scene.add(sceneryMesh);
+  const m4 = new THREE.Matrix4(), p = new THREE.Vector3(),
+        q = new THREE.Quaternion(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  const cFrom = new THREE.Color(), cTo = new THREE.Color(), cTmp = new THREE.Color();
+  buckets.forEach((items, k) => {
+    if (!items.length) return;
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), matScenery[k], items.length);
+    cFrom.setHex(LAYER_COLORS[k]);
+    cTo.setHex(LAYER_COLORS[Math.min(2, k + 1)]);
+    items.forEach((it, i) => {
+      p.set(it.pos[0], it.pos[1], it.pos[2]);
+      q.setFromAxisAngle(up, it.angY || 0);
+      s.set(it.scale[0], it.scale[1], it.scale[2]);
+      m4.compose(p, q, s);
+      mesh.setMatrixAt(i, m4);
+      // fade 缺失（手工新增的块）就按这一层的本色画
+      cTmp.copy(cFrom).lerp(cTo, it.fade == null ? 0 : it.fade);
+      mesh.setColorAt(i, cTmp);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.__items = items;                 // pickItem 靠它把 instanceId 换算回 S.items 下标
+    scene.add(mesh);
+    sceneryMeshes.push(mesh);
+  });
   updateStat();
 }
 
@@ -314,9 +337,17 @@ function pickItem(ev) {
   ndc.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
   ndc.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
   ray.setFromCamera(ndc, camera);
-  if (!sceneryMesh) return -1;
-  const hits = ray.intersectObject(sceneryMesh, false);
-  return hits.length ? hits[0].instanceId : -1;
+  // 三层各一个 InstancedMesh，所以 instanceId 是"层内下标"，
+  // 得用 mesh.__items 换算回 S.items 的全局下标；三层一起按远近排序。
+  const hits = [];
+  for (const mesh of sceneryMeshes) {
+    for (const h of ray.intersectObject(mesh, false)) {
+      const it = mesh.__items[h.instanceId];
+      if (it) hits.push({ d: h.distance, i: S.items.indexOf(it) });
+    }
+  }
+  hits.sort((a, b) => a.d - b.d);
+  return hits.length ? hits[0].i : -1;
 }
 
 /* ---------------------- 吸附 ---------------------- */
@@ -349,8 +380,11 @@ function placeAt(wx, wz) {
     const s = snapToRef(x, z, h);
     if (s) { x = s.x; z = s.z; y = s.y - h / 2; }
   }
+  // 手工放的块默认进**近景**层、fade=0（用近景本色）。
+  // layer/fade 是客户端的两条渲染线索：layer 决定用哪一层的材质，
+  // fade（0=出生点 … 1=最远）决定在那层本色与"下一层色"之间插到什么程度。
   S.items.push({ pos: [+x.toFixed(2), +y.toFixed(2), +z.toFixed(2)],
-                 scale: [w, h, d], angY: 0 });
+                 scale: [w, h, d], angY: 0, layer: 0, fade: 0 });
   S.sel.clear(); S.sel.add(S.items.length - 1);
   rebuild(); rebuildSel();
 }
@@ -466,7 +500,8 @@ function paste() {
   pushHist();
   for (const c of clipboard) {
     S.items.push({ pos: [c.pos[0] + 4, c.pos[1], c.pos[2] + 4],
-                   scale: [...c.scale], angY: c.angY || 0 });
+                   scale: [...c.scale], angY: c.angY || 0,
+                   layer: c.layer ?? 0, fade: c.fade });
   }
   S.sel.clear();
   for (let i = S.items.length - clipboard.length; i < S.items.length; i++) S.sel.add(i);
@@ -624,7 +659,16 @@ function loadJsons(fs) {
 
 /* ---------------------- 保存 ---------------------- */
 $('#btnSave').onclick = () => {
-  S.level.scenery = { seed: S.level.scenery?.seed ?? 1, count: S.items.length, items: S.items };
+  // ⚠️ 导出时必须把 v / density / seed 一起写回去：
+  // 客户端只认 items，但生成器下次跑的时候要靠 v 判断格式版本，
+  // 手工存一次就把它抹掉的话，格式版本就悄悄丢了。
+  S.level.scenery = {
+    v: S.level.scenery?.v ?? 2,
+    seed: S.level.scenery?.seed ?? 1,
+    density: S.level.scenery?.density ?? 1,
+    count: S.items.length,
+    items: S.items,
+  };
   const blob = new Blob([JSON.stringify(S.level, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

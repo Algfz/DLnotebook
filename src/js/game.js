@@ -11,18 +11,35 @@ import {
 } from "./level.js";
 import { AudioClock } from "./audio.js";
 
-// 各主题的视觉参数（路面/天空/雾/线的颜色）
+// 各主题的视觉参数：
+//   sky / fog / road   —— 天空、雾、路面
+//   scenNear/scenMid/scenFar —— 布景三层的颜色（近景 / 中景 / 远景）
+//
+// 为什么每套主题要单独给布景定三种颜色？
+// 布景是「纯几何块」，它自己没有任何细节，全靠**明暗层次**读出来。
+// 如果三层同色（旧版的 0xf8b0cc），远处只会"变小"不会"变淡"，
+// 画面立刻变成一片糊在一起的方块。所以每层各给一档：
+//   近景最暗最饱和 → 中景中间 → 远景最亮最淡（向雾色靠）
+// 这个「暗 → 亮」的梯度就是廉价但有效的空气透视（大气散射）。
+// 追加新主题时**必须保持这个梯度**，否则远近视差会消失。
 const THEME = {
-  garden:   { sky: 0x9fe0c0, fog: 0xc2ead6, road: 0x63b189 },
-  collapse: { sky: 0x241c2a, fog: 0x35242f, road: 0x7a4a58 },
-  truth:    { sky: 0x111827, fog: 0x17223c, road: 0x44557e },
-  dawn:     { sky: 0xf2d3a0, fog: 0xf8e4bd, road: 0xd0a468 },
-  void:     { sky: 0x14161c, fog: 0x1c2028, road: 0x5a6270 },
+  garden:   { sky: 0x9fe0c0, fog: 0xc2ead6, road: 0x63b189,
+              scenNear: 0x2f6b48, scenMid: 0x74ad91, scenFar: 0xc4e8d5 },
+  collapse: { sky: 0x241c2a, fog: 0x35242f, road: 0x7a4a58,
+              scenNear: 0x120d16, scenMid: 0x38273a, scenFar: 0x5d4050 },
+  truth:    { sky: 0x111827, fog: 0x17223c, road: 0x44557e,
+              scenNear: 0x060a12, scenMid: 0x1e2a46, scenFar: 0x3b4c74 },
+  dawn:     { sky: 0xf2d3a0, fog: 0xf8e4bd, road: 0xd0a468,
+              scenNear: 0x7d5a33, scenMid: 0xc2a074, scenFar: 0xefdcb8 },
+  void:     { sky: 0x14161c, fog: 0x1c2028, road: 0x5a6270,
+              scenNear: 0x080a0e, scenMid: 0x242a34, scenFar: 0x424a58 },
   // 全粉色（单场景关卡用）：天空/雾是浅粉，路面是饱和的桃粉
-  pink:     { sky: 0xffd4e6, fog: 0xffe4f0, road: 0xf2579b },
+  pink:     { sky: 0xffd4e6, fog: 0xffe4f0, road: 0xf2579b,
+              scenNear: 0x8e2a57, scenMid: 0xc06a95, scenFar: 0xf0d2e0 },
   // 全灰色（双线实验关用）：天空/雾是浅灰，路面是中灰——
   // 白线（0xffffff）与黑线（0x000000）在同一条中灰路面上都能看清。
-  gray:     { sky: 0xb9bec6, fog: 0xd2d6db, road: 0x70767d },
+  gray:     { sky: 0xb9bec6, fog: 0xd2d6db, road: 0x70767d,
+              scenNear: 0x3f454c, scenMid: 0x848b93, scenFar: 0xc9ced4 },
 };
 
 // 相机相对「线头中点」的固定偏移（等距斜后方视角，DL 的典型机位）
@@ -94,6 +111,10 @@ function zoomScale(level, t) {
   return s - (s - 1) * (t - th) / Math.max(1e-6, t1 - th);
 }
 
+// 让外部（main.js 的调试钩子、离线截图工具）能拿到同一份 Three.js 实例，
+// 避免重复 import 造成"两份 THREE"的坑
+export { THREE };
+
 export class Game {
   constructor(canvas, level, buffer, opts = {}) {
     this.canvas = canvas;
@@ -154,7 +175,21 @@ export class Game {
     this.skyColor = new THREE.Color(th.sky);
     this.fogColor = new THREE.Color(th.fog);
     this.scene.background = this.skyColor.clone();
-    this.scene.fog = new THREE.Fog(this.fogColor.clone(), 70, 460);
+    /* 雾的范围必须**跟场景的真实尺度**匹配，否则等于没有雾。
+       旧值 70→460：相机离线只有 32m、布景最远也就 55m 左右，
+       也就是说视野内的东西一点雾都没沾上，全部是 100% 实色 ——
+       远处只"变小"不"变淡"，深度全靠透视尺寸硬撑，这就是画面平掉的原因。
+       相机在 CAM_OFF 上：它到自己的高度是 CAM_OFF.y=21，水平离线只有
+       hypot(17,17)≈24m，所以雾的近端要比 21m 大一点，才不会把脚下的路也雾掉。
+       → 45m 起雾、420m 全遮：近景依然实色，中/远景逐级融进天空。 */
+    this.scene.fog = new THREE.Fog(this.fogColor.clone(), 45, 420);
+    // 布景三层的当前颜色：跟着主题逐帧插值（见 renderFrame）
+    this.sceneryColor = {
+      scenNear: new THREE.Color(th.scenNear || th.road),
+      scenMid: new THREE.Color(th.scenMid || th.road),
+      scenFar: new THREE.Color(th.scenFar || th.fog),
+    };
+    this._scColors = { scenNear: new THREE.Color(), scenMid: new THREE.Color(), scenFar: new THREE.Color() };
 
     // 镜头环绕的参考系：「正后方」= -(两种行进方向之和)
     const d0 = DIRS[this.lineDefs[0].spawn.dir];
@@ -195,19 +230,55 @@ export class Game {
       new THREE.MeshBasicMaterial({ color: 0xffeaf3 })   // 亮粉白，会融进粉色雾
     );
     sea.rotation.x = -Math.PI / 2;
-    sea.position.set(0, -H * 2, 0);                     // 远在桥面之下，融入雾中
+    // 放得足够深（桥面的 5 倍高度 ≈ 60m）：远景剪影的楼底最低到 -22m 左右，
+    // 平面再高就会有方块从光海里戳出来。它本来就被雾完全吃掉、看不见，
+    // 所以放多深都一样，但深一点可以彻底避免"柱子插在水里"的破面。
+    sea.position.set(0, -H * 5, 0);
     this.scene.add(sea);
   }
 
-  // 布景：生成器预算好的纯几何块，这里只负责一次画完（InstancedMesh）
+  /* ------------------------------------------------------------------
+     布景：生成器预算好的纯几何块，这里只负责一次画完（InstancedMesh）。
+     生成器把块分成了三层（item.layer = 0 近景 / 1 中景 / 2 远景）：
+       近景  贴路立柱，给"速度感"；中景 体块，给城镇感；远景 剪影，给天际线。
+     三层各用一个 InstancedMesh 和一份材质 —— 只有 3 次绘制调用。
+     每个块再单独上一次颜色（instanceColor）：item.fade（0=出生点 … 1=最远）
+     在「该层的颜色」与「该层前一层的颜色」之间插值，
+     于是"近暗远淡"是**每一块各自**算出来的，而不是靠雾一刀切。
+     ------------------------------------------------------------------ */
   buildScenery() {
     const sc = this.level.scenery;
     if (!sc || !sc.items || !sc.items.length) return;
-    this.sceneryMesh = this.makeBlockMesh(sc.items, new THREE.MeshStandardMaterial({
-      // 中粉：比天空(浅粉)深、比路面(桃粉)浅，三者形成层次
-      color: 0xf8b0cc, roughness: 0.75, metalness: 0.0,
-    }));
-    this.scene.add(this.sceneryMesh);
+
+    const groups = [[], [], []];
+    for (const it of sc.items) {
+      const k = it.layer === 2 ? 2 : it.layer === 1 ? 1 : 0;
+      groups[k].push(it);
+    }
+
+    const COL = this.sceneryColor;
+    const tmp = new THREE.Color();
+    this.sceneryMeshes = [];
+    groups.forEach((items, k) => {
+      if (!items.length) return;
+      const mesh = this.makeBlockMesh(items, new THREE.MeshStandardMaterial({
+        color: 0xffffff, roughness: k === 0 ? 0.8 : 0.92, metalness: 0,
+      }));
+      const from = k === 0 ? COL.scenNear : (k === 1 ? COL.scenMid : COL.scenFar);
+      const to   = k === 0 ? COL.scenMid  : (k === 1 ? COL.scenFar  : COL.scenFar);
+      const tmp2 = new THREE.Color();
+      items.forEach((it, i) => {
+        // 老关卡（v1）没有 fade/arc：按这个块在世界里的距离现算一个
+        const f = it.fade != null ? it.fade
+                : Math.min(1, Math.pow(Math.hypot(it.pos[0], it.pos[2]) / 900, 0.55));
+        mesh.setColorAt(i, tmp.copy(from).lerp(tmp2.copy(to), f));
+      });
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      this.scene.add(mesh);
+      this.sceneryMeshes.push(mesh);
+    });
+    // 兼容旧引用（tools/shot.js、渲染脚本里可能拿 sceneryMesh 做实验）
+    this.sceneryMesh = this.sceneryMeshes[0] || null;
   }
 
   /* ---------------------- 轨迹（玩家实际画出来的） ---------------------- */
@@ -821,6 +892,14 @@ export class Game {
     this._tmp.setHex(th.road); this.roadMat.color.lerp(this._tmp, k);
     this.scene.background.copy(this.skyColor);
     this.scene.fog.color.copy(this.fogColor);
+    // 布景三层也跟着主题走：新关卡里有别的一幕（比如由粉转灰）时，
+    // 布景必须和天空/路面一起过渡，否则会留下一堆"上一幕的颜色"。
+    // 注意：这里只改材质基色，块自己的 instanceColor 是乘上去的，
+    // 所以"近暗远淡"的层次不会因为换主题而消失。
+    const SC = this.sceneryColor;
+    if (SC) this._tmp.setHex(th.scenNear); SC && SC.scenNear.lerp(this._tmp, k);
+    if (SC) this._tmp.setHex(th.scenMid);  SC && SC.scenMid.lerp(this._tmp, k);
+    if (SC) this._tmp.setHex(th.scenFar);  SC && SC.scenFar.lerp(this._tmp, k);
 
     this.renderer.render(this.scene, this.camera);
   }

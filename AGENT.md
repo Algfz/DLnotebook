@@ -84,13 +84,14 @@ DLnotebook/
 │  ├─ SceneryEditor.html       布景编辑器（拖入 level.json + dance-line.json，可视化放置/移动/缩放/删除布景块，导出 level.json）
 │  ├─ dev-server.js            开发服务器（`启动客户端.bat` 走的就是它；`--open` 自动开浏览器）
 │  ├─ render-demo.js           离线渲染演示视频（虚拟时钟逐帧渲染，见 §7「离线渲染」）
+│  ├─ shot.js                  看单帧截图（调视觉的"快循环"，见 §7「看单帧」）
 │  ├─ probe.js                 密度分析（每首曲子的踩音密度与线速权衡）
 │  ├─ analyze.js               踩音数据分析（密度分布、间隔统计）
 │  └─ analyze-music.py         音乐结构分析（段落/能量/onset → music-analysis.json；需 numpy + scipy）
 │
 ├─ build/
 │  ├─ gen-path.js            生成器：*.beat.json → level.json（理想轨迹 + 客户端关卡）
-│  └─ gen-scenery.js         布景生成：沿路线密布纯几何块 → level.json 的 scenery
+│  └─ gen-scenery.js         布景生成：沿真实路线布近/中/远三层纯几何块 → level.json 的 scenery
 │
 ├─ src/                          客户端（Web 技术栈，后接 Electron 打包）
 │  ├─ index.html                 单页应用：选关界面 + 游戏界面
@@ -157,7 +158,10 @@ DLnotebook/
   "teleports": [ { "t", "atPoint", "from", "to" } ],             // 瞬移（只作用线 A），平地关为空
   "lines":  [ /* 可选：多线关卡，每条线一组 path + color / key / elevate */ ],
   "cameraOrbit": { "start","peak","end","angleDeg","zoom" },     // 可选：环绕运镜
-  "scenery": [ /* 可选：布景块 { pos, scale, angY }，gen-scenery.js 生成，客户端一次画完 */ ],
+  "scenery": {                           // 可选：布景块（gen-scenery.js 生成，见下方"布景格式"）
+    "v": 2, "seed": 1, "density": 1, "count": 707,
+    "items": [ { "pos":[x,y,z], "scale":[w,h,d], "angY":0, "layer":0, "fade":0.212 } ]
+  },
   "scenes": [ { "id","title","t":[0,52.3],"theme","enter","palette","decor","camera","fx" } ]
 }
 ```
@@ -167,6 +171,19 @@ DLnotebook/
 2. **路径坐标由生成器预算**，客户端不做几何计算，只负责渲染
 3. **装饰只描述规则**（类型/密度/间隔），不逐个列坐标——客户端程序化铺陈，用 `InstancedMesh` 一次画上千个
    （例外：`scenery` 是**已烘好坐标的布景块**，属于"生成器预算"那一类，不走规则描述）
+
+**布景格式（`scenery`，v2）**
+```jsonc
+{ "v":2, "seed":1, "density":1, "count":707, "items":[
+  { "pos":[39.59,15,10.65], "scale":[0.87,6,2.09], "angY":0.17, "layer":0, "fade":0.21 }
+]}
+```
+- `pos` = 块**中心**；`scale` = 宽/高/深（米）；`angY` = 绕 Y 旋转（弧度）
+- `layer`：**0 近景 / 1 中景 / 2 远景**（客户端按此分 3 个 `InstancedMesh`）
+- `fade`：0=出生点 … 1=最远，只用来在主题的三档颜色之间插值
+- ⚠️ **没有颜色字段**——颜色由客户端主题表（`scenNear/scenMid/scenFar`）决定（ADR-14）
+- v1 老格式（`items[].{pos,scale,angY}` 没有 `layer/fade`）客户端**仍兼容**：
+  全部当近景画，`fade` 按世界距离现算
 
 ---
 
@@ -179,14 +196,35 @@ DLnotebook/
 | 密度 | `node tools/probe.js` | 各曲踩音密度 vs 线速的权衡表（判断某关是否"过密"） |
 | 音乐结构 | `python tools/analyze-music.py [音频]` | 段落/能量/亮度/onset/旋律轮廓 → 同目录 `music-analysis.json`；需 numpy + scipy |
 | 生成 | `node build/gen-path.js [关卡目录]` | `.beat.json` → `level.json`（理想轨迹 + 客户端关卡）；`--elevate` 高架、`--b-x/--b-y/--b-z` 双线平移/抬高、`--view a,b` 放大预览 |
-| 布景 | `node build/gen-scenery.js` | 给 `levels/` 下**最近修改**的关卡密布纯几何块 → 写回 `level.json` 的 `scenery`；`--seed/--density/--clear` |
+| 布景 | `node build/gen-scenery.js --level "ring a bell"` | 沿**真实路线**布近/中/远三层纯几何块 → 写回 `level.json` 的 `scenery`（v2 分层格式）；`--seed/--density/--clear/--dry`；缺 `--level` 时仍取 `levels/` 下最近修改的关卡 |
 | 布景手工编辑 | 双击 `tools/SceneryEditor.html` | 拖入 `level.json` + `dance-line.json`（或整个文件夹）→ 可视化放置/移动/缩放/删除布景块 → 「导出 level.json」覆盖原文件 |
 | 预览 | 双击 `tools/PathPreview.html`，拖入**关卡文件夹** | 俯视看路径，播放时红线沿路径移动，验证结构与音画同步；**支持多线**（含 `lines[]` 时同时画两条线） |
 | 运行客户端 | 双击 `启动客户端.bat`（= `node tools/dev-server.js --open`）→ http://localhost:8080 | 开发服务器。浏览器在 `file://` 下无法 fetch 本地 JSON，**必须走 HTTP** |
 | 渲染演示视频 | `node tools/render-demo.js --level "Breeze"` | **离线渲染**演示视频（默认 4K/60fps、隐藏 HUD），见下方「离线渲染」 |
+| 看单帧截图 | `node tools/shot.js --level "ring a bell" --times 8,45,90` | **调视觉用**：只抓指定时刻的静止画面（几秒出图），可用 `--setup-file x.js` 注入改动后立刻对比。见下方「看单帧」 |
 
 > 预览器需在浏览器中选择/拖入**整个关卡文件夹**（因为要同时读 `level.json` 和音乐文件）。
 > 它使用 `<input webkitdirectory>`，在 `file://` 下可正常工作。
+
+### 看单帧截图（`tools/shot.js`）—— 调视觉的"快循环"
+
+**为什么需要它**：`render-demo.js` 是给发起人看成片的（4K 逐帧，约 50ms/帧），
+改一行视觉参数就要等几分钟，没法快速对比。`shot.js` 用同一套虚拟时钟原理，
+**只抓指定时刻的那一帧**（1600×900 抓 5 个时刻只要几十秒），所以调布景/配色时
+可以"改参数 → 出图 → 看图"快速迭代。
+
+```bash
+node tools/shot.js --level "ring a bell" --times 8,45,90,150 --w 1600 --h 900
+node tools/shot.js --level "ring a bell" --times 90 --setup-file out/_my_tweak.js
+```
+
+- 默认输出 `out/shot/<关卡目录名>/t<时刻>s.jpg`；`--out DIR` 换目录，`--hud` 保留 HUD
+- **`--setup-file`：注入任意 JS 去改客户端参数后再截图**（不碰仓库代码就能试验）。
+  文件里直接用 `THREE / game / scene / camera / renderer / level` 这些名字即可
+  （`shot.js` 用 `with(...)` 把它们包进作用域）。⚠️ 里面**不要**再包一层 IIFE：
+  返回值会被丢掉，脚本静默不生效（不报错）。
+- 它靠 `src/js/main.js` 里的调试钩子 `window.__game` / `window.__THREE`
+  （正常玩游戏不受影响，刷新即消失）
 
 ### 离线渲染演示视频（`tools/render-demo.js`）
 
@@ -305,13 +343,32 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 - [x] **离线渲染演示视频 `tools/render-demo.js`**（2026-10-11）：虚拟时钟逐帧渲染客户端画面
       + ffmpeg 合成 mp3，**画面按 `latency = 0` 生成**（绕开「直接录屏音频提前 299ms」）；
       已产出过 Breeze 4K/60fps 成片（`out/` 现已清空，需要时重跑）。用法与耗时见 §7「离线渲染」
-- [x] **布景（纯几何块）三件套**（最新一批改动，2026-10-12）：
-  - [x] `build/gen-scenery.js`：沿路线布**近/中/远三层**纯几何块，做净空检查、互不重叠、
-        疏密跟随音乐能量 → 写回 `level.json` 的 `scenery`（`{ seed, count, items:[{pos,scale,angY}] }`）
-  - [x] **客户端渲染**：`game.js` 的 `buildScenery()` 把整批块塞进**一个** `InstancedMesh` 一次画完
-        （颜色暂硬编码中粉 `0xf8b0cc`）
+- [x] **布景（纯几何块）三件套**（2026-10-12）：
+  - [x] `build/gen-scenery.js`：沿**真实路线**（`dance-line.json` 的 `points` 折线，
+        不是 `samples`）布**近/中/远三层**纯几何块，做净空检查、互不重叠、
+        疏密跟随音乐能量 → 写回 `level.json` 的 `scenery`
   - [x] `tools/SceneryEditor.html`：可视化布景编辑器（放置/移动/缩放/删除 → 导出 level.json）
-  - 现状：`ring a bell-灰澈` 已烘入 512 块；`Breeze` 尚未生成
+  - 现状：`ring a bell-灰澈` 已烘入 707 块（近 405 / 中 230 / 远 72）；`Breeze` 尚未生成
+- [x] **布景 v2：分层 + 空气透视 + 颜色梯度**（最新一批改动，2026-10-12）——
+      发起人的原话是「能玩了但还很粗糙，尤其是布景」。诊断出三个病根并改掉：
+  1. **旧版所有块同色同朝向 → 一眼是"占位方块"**。现在按三层给**三档颜色**
+     （主题表新增 `scenNear/scenMid/scenFar`，7 套主题都配了），逐块用
+     `InstancedMesh.setColorAt()` 上色，颜色按 `item.fade` 在相邻两档之间过渡
+  2. **旧版没有节奏 → 只是噪声**。现在近景是**贴路两侧的立柱列**（沿真实路线
+     每 2.5m 一对，4 步一循环的疏密 + 长度 9 拍的长周期起伏），
+     产生 DL 最核心的"速度感/长廊感"
+  3. **旧版没有纵深 → 远处只"变小"不"变淡"**。原因是雾的起雾距离
+     `Fog(fogColor, 70, 460)` 比布景最远距离(55m)还大，视野里**一点雾都没有**。
+     现在改为 `45 / 420`，配合"近暗→远亮"的三档颜色，空气透视才真正出现
+  - 另外改了：`buildBridge()` 的「光海」平面从 `y=-24` 降到 `y=-60`（远景楼底
+    最低约 -22m，平面太高会有方块从光海戳出来）
+  - 新增 `tools/shot.js`（看单帧，见 §7）与 `main.js` 的 `window.__game` 调试钩子
+  - ⚠️ 约束：相机大约在**路面 +21m**，因此**近景/中景的块顶必须低于相机**，
+    只有远景允许越过视平线。第一版没管这条，楼顶冲过视平线把天空糊死，
+    整个画面变成一堵灰紫色的墙
+  - ⚠️ 约束：任何块离路线中心的距离必须 ≥ **路面半宽 + 线半宽**（= 2.0m）。
+    生成器里有一条**独立自检**（`rectDistXZ` 按底面矩形含旋转算最近距离），
+    不通过就 `exit 2` —— 这条自检是"不挡路"的唯一证据，**不要删**
 - [x] **音乐结构分析 `tools/analyze-music.py`**：段落/能量/亮度/onset → `music-analysis.json`（让 AI「看见」音乐）
 
 ### 📋 待办
@@ -387,6 +444,22 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 `docs/beatmarker-format.md` 里的 Unity 章节保留为**历史留档**，不再维护；
 该文档的导出格式部分仍有效（`.beat.json` 是引擎无关的纯数据）。
 
+**ADR-14：布景分三层 + 颜色由客户端主题表决定 + 疏密跟音乐（2026-10-12）**
+发起人指出「能玩了但还很粗糙，尤其是布景」。诊断出三个病根：同色同朝向的占位方块、
+与音乐无关的随机散布、雾的起雾距离比布景尺度还大（等于没有纵深）。决议：
+- **分三层且各层有明确职责**：近景=贴路立柱列（造速度感/长廊感）、
+  中景=错落体块（撑开中间层次）、远景=宽板剪影（当天际线）。三层不是"密度不同"，
+  而是**职责不同**——这是这次改动最要紧的一条。
+- **颜色不进关卡数据**：块只带 `layer` 与 `fade`，真正的颜色由客户端主题表的
+  `scenNear/scenMid/scenFar` 决定。理由：① 保住 ADR-2「关卡只描述位置」的分工；
+  ② 换主题时布景自动跟着换，不必重新生成关卡；③ JSON 里少一大堆颜色值。
+  ⚠️ 新增主题时**必须保持"近暗→远亮"的梯度**，否则远近视差消失（写进了 THEME 表注释）。
+- **布景必须沿真实路线摆**：`dance-line.json` 的 `samples` 是每 5m 一个采样点，
+  它中间的直线会**把转角切掉**，按它偏移算出来的位置会跑到路面上（实测偏 1~2m）。
+  摆放走 `points` 折线，`samples` 只用于"弧长 → 时间"以查音乐能量。
+- **相对相机的高度是硬约束**：相机约在路面 +21m，近/中景块顶必须低于相机
+  （否则天空被糊死、画面变成一堵墙），只有远景允许越过视平线。
+
 ---
 
 ## 10. 关卡素材与设计说明
@@ -414,7 +487,8 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 node tools/analyze.js          # 分析踩音数据
 node tools/probe.js            # 各曲密度 vs 线速
 node build/gen-path.js        # 生成 level.json
-node build/gen-scenery.js      # 布景：密布纯几何块 → level.json 的 scenery
+node build/gen-scenery.js --level "ring a bell"   # 布景：沿真实路线布三层纯几何块 → level.json 的 scenery
+node tools/shot.js --level "ring a bell" --times 8,45,90   # 看单帧截图（调视觉用）
 python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
 ```
 
@@ -451,7 +525,7 @@ python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
 | **路面重叠（参考信息）** | ℹ️ 决策已推迟 | 两方向模式下无交叉，重叠全来自**时间上相邻的平行段并排贴合**（段 i 与 i+2 平行，横向间距 = 中间那段长度）。**2026-10-12 统一口径重测**（同线内段-段最短三维距离 < 路宽，相邻段/跨线不计）：`Breeze` 线 A 4m→1067、3m→**614**、2m→0；`Breeze` 线 B 4m→312、3m→216、2m→0；`ring a bell` 4m→787、3m→**504**、2.5m→375、1.5m→52。旧数字（278 / 105 / 1）出自**旧路径数据**，已无法复现（详见 `docs/level-format.md`）。**按 ADR-8，路宽属于关卡制作阶段决策**，届时可按段长自适应路宽或用横截面形态（台形/谷形）处理 |
 | **波浪解决不了宽路重叠** | ✅ 已澄清 | 曾设想用「节拍同步的上下波浪」错开重叠，但振幅受坡度限制：振幅 1.0m 时最大坡度已达 34°，再大会变成过山车。而时间相邻段的高度差仅约 1m，远小于 4m 路宽。结论：**波浪只负责律动感，重叠必须靠路宽（或客户端按段长自适应路宽）** |
 | 客户端尚未存在 | ✅ 已完成 | v1 已实现并可玩（选关/首帧/引导线/延迟/自动重来），后续迭代见 §8 |
-| 视觉资产：`decor` 规则未实现 | 🚧 | 纯几何**布景 `scenery` 已渲染**（`gen-scenery.js` 生成 + `SceneryEditor.html` 手工调，客户端用**一个** `InstancedMesh` 画完；`ring a bell` 已烘入 512 块）。仍缺的是 `scenes[].decor` 那类**有语义的装饰**（拱门/花柱/花瓣…），目前关卡里 `decor` 都是空数组 |
+| 视觉资产：`decor` 规则未实现 | 🚧 | 纯几何**布景 `scenery` 已渲染**（v2：`gen-scenery.js` 生成三层 + `SceneryEditor.html` 手工调，客户端按层用 3 个 `InstancedMesh` 画、逐块 `setColorAt` 上色；`ring a bell` 已烘入 707 块）。仍缺的是 `scenes[].decor` 那类**有语义的装饰**（拱门/花柱/花瓣…），目前关卡里 `decor` 都是空数组 |
 | 延迟补偿依赖校准 | ✅ 已解决 | 299ms 已记录；2026-10-11 起**校准器搬进关卡界面**（蜂鸣 + 空格，与采音器同一套算法），弹窗里还摆出作者校准值给玩家参考（见 §8） |
 | **直接录屏「音频提前」** | ✅ 已解决 | 客户端画面比音频晚 `latency_ms`（预卷补偿，作者值 299ms），所以**录屏必然音画不同步**。不要录像，改用 `tools/render-demo.js` **离线逐帧渲染**：画面按 `latency = 0` 生成（转向正好落在鼓点上）+ 合成 mp3（见 §7） |
 | **Three.js 渲染坑（已修，勿复现）** | ✅ 见文档 | ①动态 count 的 InstancedMesh 被视锥剔除 ②near/far 比值过大导致贴路面元素被盖 ③共面 z-fighting ④不同材质导致色差。**详见 `docs/client-impl.md` §8** |
@@ -464,8 +538,12 @@ python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
 ## 14. 下一步（按优先级）
 
 1. **试玩迭代《ring a bell-灰澈》** — 高架高度、桥墩密度、相机平滑度、
-   布景密度是否合适（512 块刚烘进去），以及 3m 路宽在密集段是否糊成一团
-2. **视觉资产** — 补 `scenes[].decor` 那类**有语义的装饰**（拱门/花柱/花瓣…）；
+   布景密度是否合适（v2 刚烘进 707 块：近 405 / 中 230 / 远 72），
+   以及 3m 路宽在密集段是否糊成一团
+2. **视觉资产** — ① 布景 v2 之后的**轮廓变化**（中景目前还是"同大小的立方体"，
+   下一步想引入几种简单剪影：长短不一的板楼、带缺口的体块）；
+   ② 补 `scenes[].decor` 那类**有语义的装饰**（拱门/花柱/花瓣…）；
+   ③ 给 `Breeze` 也生成布景（它是 `gray` 主题，正好验证主题表驱动颜色这条设计）。
    纯几何布景 `scenery` 已完成（见 §8），可先用 `gen-scenery.js` + `SceneryEditor.html` 调密度分布。
    ⚠️ 概念图**直接用 AI 生成图片，不要用本地 ComfyUI 算力**（ADR-6，发起人明确要求）
 3. **检查点** — 175 秒的关卡死亡从头重来，体验差
