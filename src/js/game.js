@@ -266,6 +266,11 @@ export class Game {
     const sun = new THREE.DirectionalLight(0xffffff, 1.7);
     sun.position.set(-45, 90, -35);
     this.scene.add(sun);
+    // 补光：官方关卡的竖直面（崖壁/金字塔切面）有明确的"顶亮-侧中-背暗"三档，
+    // 主光单打时朝 +x/+z 的竖直面只剩环境光、会黑成一块洞。补光反过来打一次。
+    const fill = new THREE.DirectionalLight(0xffeef6, 0.45);
+    fill.position.set(40, 35, 55);
+    this.scene.add(fill);
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
     const th = THEME[themeAt(this.level, 0)] || THEME.void;

@@ -264,8 +264,10 @@ function motifCanyon(pts, W, M, surf) {
 
   // 槽壁：薄薄一层竖直面就够了 —— 顶边和台面内沿是同一批点，水密。
   // （早先用"分段盒子"拼墙，6m 厚的盒子在 90° 转角互相穿插，糊成一团方块。）
-  out.push(vertBand(sm1, +rim, surf - W.th, top, M.near, "canyon-wall-r"));
-  out.push(vertBand(sm1, -rim, surf - W.th, top, M.near, "canyon-wall-l"));
+  // 颜色用 mid 不用 near：竖直面只吃环境光，near 会黑成一条洞；官方山脉的崖壁
+  // 也是"和台面同色、靠顶亮/侧暗区分"。
+  out.push(vertBand(sm1, +rim, surf - W.th, top, M.mid, "canyon-wall-r"));
+  out.push(vertBand(sm1, -rim, surf - W.th, top, M.mid, "canyon-wall-l"));
 
   // 高台外沿的立面（给厚度感）
   out.push(vertBand(sm2, +W.plateauW, top - W.th, top, M.mid));
@@ -429,7 +431,7 @@ export const DEFAULT_PARAMS = {
 /* 地形色卡：关卡里只写**名字**，颜色仍然不进关卡文件（和主题色一个道理） */
 export const PALETTES = {
   rose:  { near: 0x8e2a57, mid: 0xc06a95, far: 0xf0d2e0 },   // 和 pink 主题同色
-  plum:  { near: 0x2f1730, mid: 0x6b3f63, far: 0xbe9cba },   // 深紫：裂谷
+  plum:  { near: 0x452838, mid: 0x6b3f63, far: 0xbe9cba },   // 深紫：裂谷（near 只留给槽底阴影，不再黑成洞）
   sand:  { near: 0x8a5a2b, mid: 0xc9a86f, far: 0xf2e4c4 },   // 暖沙：层叠平台
   ice:   { near: 0x27506e, mid: 0x5f89a6, far: 0xcfe2ec },   // 冰蓝：云海
   jade:  { near: 0x2f6b48, mid: 0x74ad91, far: 0xc4e8d5 },   // 草绿
