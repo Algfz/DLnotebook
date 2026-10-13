@@ -212,6 +212,44 @@ const SHADE_TONE = (hex) => {
 const roadPts = vertsW
   .filter((p, i) => i === 0 || Math.abs(p.x - vertsW[i - 1].x) > 1e-6 || Math.abs(p.z - vertsW[i - 1].z) > 1e-6)
   .map((p) => [+p.x.toFixed(2), +p.z.toFixed(2)]);
+/* ★ 舞线的"完整一条线"比 level.json 的 path[] 长：
+     path[] 到最后一个转折点就结束了（本关 t=166.966s），可曲子还有 7.7s ——
+     舞线要冲线到曲子结束（t=174.667s），那一段记在 dance-line.json 的末尾。
+     这里做**对齐校验**（逐个点比距离），只有确认 dance-line.json 跟 level.json 是同一条路时才把尾巴接上；
+     对不上（dance-line.json 过期了）就原样不接，绝不把错的路写进底稿。 */
+let tailPts = [];
+try {
+  const DL = path.join(ROOT, "levels", LEVEL_DIR, "dance-line.json");
+  if (fs.existsSync(DL)) {
+    const dl = JSON.parse(fs.readFileSync(DL, "utf8")).points || [];
+    const head = vertsW[0];
+    let k = -1, best = 1e9;
+    dl.forEach((q, i) => { const d = Math.hypot(q.x - head.x, q.z - head.z); if (d < best) { best = d; k = i; } });
+    if (best < 0.05 && dl.length > k + vertsW.length) {
+      let maxd = 0;
+      for (let i = 0; i < vertsW.length; i++) {
+        const q = dl[k + i];
+        maxd = Math.max(maxd, Math.hypot(q.x - vertsW[i].x, q.z - vertsW[i].z));
+      }
+      if (maxd < 0.05) {
+        // 出生点 → 第一个转折点那一段（本关 23.2 m）也属于舞线，一并接上，整条线才等于游戏里那条
+        for (const q of dl.slice(0, k).reverse()) {
+          const f = roadPts[0];
+          if (Math.abs(q.x - f[0]) > 1e-6 || Math.abs(q.z - f[1]) > 1e-6) roadPts.unshift([+q.x.toFixed(2), +q.z.toFixed(2)]);
+        }
+        tailPts = dl.slice(k + vertsW.length).map((q) => [+q.x.toFixed(2), +q.z.toFixed(2)]);
+        console.log(`舞线两头：前面接 ${k} 点（出生点→首转折）、后面接 ${tailPts.length} 点（→t=${dl[dl.length - 1].t.toFixed(3)}s），`
+          + `对齐最大偏差 ${maxd.toFixed(3)}m`);
+      } else {
+        console.log(`⚠️ dance-line.json 与 level.json 对不上（最大偏差 ${maxd.toFixed(2)}m）—— 尾巴不接，底稿只用 level.path`);
+      }
+    }
+  }
+} catch (e) { console.log(`⚠️ 读 dance-line.json 失败（${e.message}）—— 底稿只用 level.path`); }
+for (const p of tailPts) {
+  const last = roadPts[roadPts.length - 1];
+  if (Math.abs(p[0] - last[0]) > 1e-6 || Math.abs(p[1] - last[1]) > 1e-6) roadPts.push(p);
+}
 // ★ 底稿落在**关卡自己的目录**里，不是 out/：
 //   out/ 是"跑命令就能重生成的产物堆料场"（6 万多个文件、不进 git），发起人要手动打开的东西不该放那儿。
 //   放到 levels/<关卡目录>/ 后跟关卡同名同目录、一眼找到，而且纳入 git（删关时随关卡一起走，不留孤儿）。
