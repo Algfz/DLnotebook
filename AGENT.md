@@ -349,6 +349,7 @@ DLnotebook/
 | HTML 内联 JS 语法自检 | `node tools/check-html-js.mjs` | 把 `tools/SketchEditor.html` 的 `<script>` 抽出来喂 `vm.Script` 编译 —— **不碰 PowerShell 的字符串处理**（它会把中文注释写坏）。改完单文件 HTML 后跑一次 |
 | **空白底稿图**（只有网格 + 路线虚线 + 舞线轨迹） | `node tools/route-sheet.mjs [每米像素=4] [关卡目录] [打点秒=15]` | ⭐ 发起人明确要的交付物："我要的是一个只有路线和舞线轨迹的空白草图"。**打开就是最终样子**，不用在编辑器里关一堆图层。产物直接落在关卡目录里：`levels/<关卡>/route-sheet.svg`（矢量，双击即看）+ `route-sheet.png`（位图预览），两张都进 git。数据源 `levels/<关卡>/route-only.json` 的 `road[]`，时间轴按 `motion.speedMps` 恒速。⚠️ 别再退化成"编辑器里按一堆开关才看得到" —— 那是他说过的原话抱怨 |
 | 画布景草图（编辑器） | 双击 **`tools/SketchEditor.html`** | 见上一行（这是**工具**，不是交付物；要看干净底稿用 `route-sheet.mjs`） |
+| **浮空关卡的布景（无地形）** | `node tools/breeze-decor.mjs [--apply] [--clear] [--gap=3] [--s=0.5]` | 给**没有 `terrain` 的关卡**（如 `Breeze`，双线、浮在虚空）显式摆布景：读 `lines[].path`（两条都读）→ 每 **4 m** 一个锚点、**左右各放一件**（保证两侧一样密）→ 距离从候选梯子 `LADDER=[8,10,12.5,15,18,21.5,26,31,37,44,52,62]` 里取**第一个**对两条线都满足净空 `GAP`（默认 3 m）的档。净空用精确的线段×矩形最小距离。`--apply` 写回 `level.json` 的 `place[]`；`--s=` 出俯视取证图 `out/breeze-decor-preview.svg`。⚠️ 发起人 2026-10-13 反馈"2:10–4:00 左边景物有点少"：量化后发现**件数并不少**（左 230 / 右 179），而是**左侧平均距离 35.7m vs 右侧 29.7m** —— 东西在，但太远。改成"每锚点左右各一件 + 由近到远取第一档"后，全程左右严格相等（2:10–4:00 各 385 件），共 1970 件 |
 
 > 预览器需在浏览器中选择/拖入**整个关卡文件夹**（因为要同时读 `level.json` 和音乐文件）。
 > 它使用 `<input webkitdirectory>`，在 `file://` 下可正常工作。

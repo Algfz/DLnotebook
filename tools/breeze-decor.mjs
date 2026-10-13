@@ -105,35 +105,47 @@ const AMP = [0.7, 0.9, 1.1, 1.3];
 const PER = [6.0, 7.2, 8.4, 9.6];
 
 const items = [];
-const STEP = 4.0;                                  // 沿路每 4 m 一个锚点
-let tried = 0, rejected = 0, minClear = Infinity;for (let s = STEP; s < plan.total - STEP; s += STEP) {
+const STEP = 4.0;                                  // 沿路每 4 m 一个锚点，**左右各放一件**（保证两侧一样密）
+// 候选距离的"梯子"：从近到远试，第一个不被两条线挡住的就收下。
+// 为什么这么改（发起人看视频："2:10 到 4:00 那一段，左边的景物是不是有点少了"）：
+//   原来固定按 13/18/24/32/42/54 循环取距离，平均被推到 30m 开外 —— 东西其实不少，
+//   只是**太远**；而且两线挨近时那一侧全被另一条线的禁区挡掉，会整片空。
+//   改成梯子 + 每锚点两侧都试：能近就近，挡住的自动往外跳。
+const LADDER = [8, 10, 12.5, 15, 18, 21.5, 26, 31, 37, 44, 52, 62];
+let tried = 0, rejected = 0, minClear = Infinity, skipSide = 0;
+for (let s = STEP; s < plan.total - STEP; s += STEP) {
   const i = Math.round(s / STEP);
   const anchor = plan.atArc(s);
   const t = anchor.t;
-  const want = i % 3 === 0 ? 2 : 1;                // 每三个锚点放一对，显得成团而不是一串
-  for (let k = 0; k < want; k++) {
-    const gi = (i * 2 + k * 5) % OFFS.length;
-    const side = (Math.floor(i / 3) + k) % 2 === 0 ? 1 : -1;
-    const off = side * OFFS[gi];
-    const w = SIZE[(i + k * 3) % SIZE.length];
-    const d = SIZE[(i + k * 3 + 2) % SIZE.length];
-    const h = THICK[(i + k) % THICK.length];
-    const dy = DY[(i * 3 + k) % DY.length];
-    const p = plan.atArc(s);
-    const n = normAt(plan, s);
-    const cx = p.x + n.x * off, cz = p.z + n.z * off;
-    tried++;
-    // 净空：对**两条线**都要 >= GAP（方块边缘到任一条线的中心线）
-    const c1 = distToPlan(plan, cx, cz, w, d);
-    const c2 = plan2 ? distToPlan(plan2, cx, cz, w, d) : Infinity;
-    const c = Math.min(c1, c2);
-    if (c < GAP) { rejected++; continue; }
-    if (c < minClear) minClear = c;                  // 只统计**收下**的件
-    items.push({
-      t: +t.toFixed(3), off: +off.toFixed(2), w, d, h, dy: +dy.toFixed(2),
-      tone: (i + k) % 3, exact: true, anim: "breath",
-      amp: AMP[(i + k) % AMP.length], period: PER[(i + k * 2) % PER.length],
-    });
+  const n = normAt(plan, s);
+  for (const pass of [0, 1]) {                            // 0 = 左（off<0），1 = 右（off>0）：每个锚点两边都放
+    const side = pass === 0 ? -1 : 1;
+    const rot = (i * 5 + pass * 3) % LADDER.length;
+    let placed = false;
+    for (let a = 0; a < LADDER.length; a++) {
+      const dist = LADDER[(a + rot) % LADDER.length];
+      const off = side * dist;
+      const w = SIZE[(i + a) % SIZE.length];
+      const d = SIZE[(i + a + 2) % SIZE.length];
+      const h = THICK[(i + a + pass) % THICK.length];
+      const dy = DY[(i * 3 + a + pass) % DY.length];
+      const cx = anchor.x + n.x * off, cz = anchor.z + n.z * off;
+      tried++;
+      // 净空：对**两条线**都要 >= GAP（方块边缘到任一条线的中心线）
+      const c1 = distToPlan(plan, cx, cz, w, d);
+      const c2 = plan2 ? distToPlan(plan2, cx, cz, w, d) : Infinity;
+      const c = Math.min(c1, c2);
+      if (c < GAP) { rejected++; continue; }
+      if (c < minClear) minClear = c;                      // 只统计**收下**的件
+      items.push({
+        t: +t.toFixed(3), off: +off.toFixed(2), w, d, h, dy: +dy.toFixed(2),
+        tone: (i + a) % 3, exact: true, anim: "breath",
+        amp: AMP[(i + a) % AMP.length], period: PER[(i + a * 2 + pass) % PER.length],
+      });
+      placed = true;
+      break;                                               // 这一侧收下一件就够
+    }
+    if (!placed) skipSide++;                                // 这一侧的梯子全被挡住
   }
 }
 items.sort((a, b) => a.t - b.t);
