@@ -61,10 +61,8 @@
     </div>
 
     <div class="grp">
-      <label class="field" title="只画一条虚线路线：不出路带、不画方块"><input id="routeOnly" type="checkbox" checked> <b>只要路线</b></label>
-    <label class="field" title="画布上只留两样：路线虚线 + 舞线轨迹带（不出网格、路带、方块、顶点方块、起终标记、比例尺）"><input id="pure" type="checkbox"> <b>纯净：只留路线 + 轨迹</b></label>
+      <label class="field" title="画布上只留两样：路线虚线 + 舞线轨迹带（不出网格、方块、顶点方块、起终标记、比例尺）"><input id="pure" type="checkbox"> <b>纯净：只留路线 + 轨迹</b></label>
       <label class="field">每段 <input id="leg" type="number" value="3.4" step="0.1" min="0.5"> m</label>
-      <label class="field">路宽 <input id="rw" type="number" value="3" step="0.5" min="1"> m</label>
       <button id="revDir" class="ghost" title="切换第一段的朝向">先 +x / 先 +z</button>
       <button id="backLeg" class="ghost" title="退掉最后一段路（Backspace）">退一段</button>
     </div>
@@ -182,13 +180,10 @@ let S = {
   blocks: [],               // [{x,z,w,d,h,tone}] x,z = 中心
   nextDir: "+x",            // 下一段路的方向
   leg: 3.4,
-  roadWidth: 3,
   snap: true,
   grid: 1,
-  half: false,              // true＝路的中线落在半格上（格宽为奇数时，路带正好盖住整格）
+  half: false,              // true＝路的中线落在半格上
   trail: { on: false, lw: 1, speed: 14, tick: 0, dots: true },   // 舞线轨迹参考（线宽 1 m / 14 m/s / 打点间隔 0＝自动 / 打不打时间点）
-  routeOnly: true,          // true＝只要一条虚线路线：不出路带、不画方块（**默认开**：发起人只要"路线虚线 + 舞线轨迹"，
-                            //   那条 3 m 宽的浅蓝路带不是他要的东西 —— 他为此问过"这个蓝色的是什么"。要看路带再取消勾选）
   pure: false,              // true＝画布上只留两样：路线虚线 + 舞线轨迹带
   sel: -1,
   view: { x: 0, z: 0, s: 9 },      // 视口：世界中心 (x,z)，缩放 px/m
@@ -271,60 +266,36 @@ function draw() {
   // 舞线轨迹（画在虚线之下：先带、再头节点，最后才是路线虚线）
   drawTrail();
 
-  // 路带
+  // 路线：**永远只画一条虚线** —— 没有"路带"这种东西。
+  // 旧版本按 roadWidth 画一条 3 m 宽的浅蓝带子，发起人连着问了两次：
+  //   "这个蓝色的是什么" / "不要路带！只要舞线轨迹和路线（一条虚线）" / "关卡里根本就不需要路带"。
+  // 所以路带这个图层被**删掉**了（不是"默认关"，是不存在），JSON 里也不再带 roadWidth。
   if ($("showRoad").checked && S.road.length) {
     const pts = S.road.map((p) => W2S(p.x, p.z));
-    // 顶点方块只在"看得清"的时候画：681 个顶点挤在一起时会糊成一条红链（把轨迹带盖掉）
     let spacing = 999;
     if (pts.length > 1) {
       let sum = 0;
       for (let i = 1; i < pts.length; i++) sum += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
       spacing = sum / (pts.length - 1);
     }
-    // 顶点方块只在"看得清"的时候画，而且【只要路线】模式下**根本不画** ——
-    // 发起人只要"一条虚线 + 舞线轨迹"，角上那些小方块是多余的（681 个顶点挤在一起还会糊成一条红链把轨迹盖掉）
-    const showVerts = !S.routeOnly && spacing >= 7;
-
-    if (S.routeOnly) {
-      // 只要路线：一条虚线 + 每个顶点一个小方块（方便核对是否压在网格交点上）
-      ctx.save();
-      ctx.setLineDash([12, 8]);
-      ctx.strokeStyle = "#3a4763"; ctx.lineWidth = 2.5;
-      ctx.lineJoin = "miter"; ctx.lineCap = "butt";
-      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.stroke();
-      ctx.restore();
-      if (showVerts && !S.pure) {
-        ctx.fillStyle = "#a3452f";
-        for (const p of pts) ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
-      }
-    } else {
-      ctx.lineJoin = "miter"; ctx.lineCap = "butt";
-      ctx.strokeStyle = "#b9c6de";
-      // 整条关卡有 2.4 km 长：缩到全图时 3 m 的路面只有 ~2 px，会退化成一根细线、看不出"路"。
-      // 所以屏幕线宽**下限 6 px**（只影响观感，数值仍是真实路宽；放大到 2 px/m 以上就还原真实比例）。
-      ctx.lineWidth = Math.max(S.roadWidth * S.view.s, 6);
-      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.stroke();
-      // 中线（白虚线，和出图一致）
-      ctx.save();
-      ctx.setLineDash([S.view.s * 0.6, S.view.s * 0.45]);
-      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(1, S.view.s * 0.22);
-      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.stroke(); ctx.restore();
-      // 顶点小方块（同样只在看得清时画）
-      if (showVerts) {
-        ctx.fillStyle = "#5b6f9c";
-        for (const p of pts) ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
-      }
+    // 顶点小方块只在"看得清"且非纯净模式时画（681 个顶点挤在一起会糊成一条红链，把轨迹带盖掉）
+    const showVerts = !S.pure && spacing >= 7;
+    ctx.save();
+    ctx.setLineDash([12, 8]);
+    ctx.strokeStyle = "#3a4763"; ctx.lineWidth = 2.5;
+    ctx.lineJoin = "miter"; ctx.lineCap = "butt";
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+    ctx.restore();
+    if (showVerts) {
+      ctx.fillStyle = "#5b6f9c";
+      for (const p of pts) ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
     }
   }
 
-  // 方块（只要路线 / 纯净模式下整层不画）
-  if (!S.routeOnly && !S.pure) S.blocks.forEach((b, i) => {
+  // 方块（纯净模式下整层不画；**其余任何时候都画** —— 这是他自己摆的东西，绝不能藏）
+  if (!S.pure) S.blocks.forEach((b, i) => {
     const c = W2S(b.x, b.z);
     const pw = b.w * S.view.s, ph = b.d * S.view.s;
     ctx.fillStyle = TONE_COLORS[b.tone] || TONE_COLORS[1];
@@ -334,7 +305,7 @@ function draw() {
   });
 
   // 选中框的 4 个角柄
-  if (!S.routeOnly && !S.pure && S.sel >= 0 && S.blocks[S.sel]) {
+  if (!S.pure && S.sel >= 0 && S.blocks[S.sel]) {
     const b = S.blocks[S.sel], c = W2S(b.x, b.z);
     const hw = (b.w * S.view.s) / 2, hh = (b.d * S.view.s) / 2;
     ctx.fillStyle = "#fff"; ctx.strokeStyle = "#3f5286"; ctx.lineWidth = 2;
@@ -344,7 +315,7 @@ function draw() {
   }
 
   // 起点标记 + 比例尺
-  if ($("showOrigin").checked && !S.routeOnly && !S.pure) {
+  if ($("showOrigin").checked && !S.pure) {
     if (S.road.length) {
       const p0 = W2S(S.road[0].x, S.road[0].z), pn = W2S(S.road[S.road.length - 1].x, S.road[S.road.length - 1].z);
       ctx.fillStyle = "#2f7a4d"; ctx.beginPath(); ctx.arc(p0.x, p0.y, 6, 0, 7); ctx.fill();
@@ -658,22 +629,15 @@ $("tSelect").onclick = () => setTool("select");
 $("tRoad").onclick = () => setTool("road");
 $("tBlock").onclick = () => setTool("block");
 $("leg").onchange = () => { S.leg = +$("leg").value || 3.4; };
-$("rw").onchange = () => { S.roadWidth = +$("rw").value || 3; draw(); };
 $("revDir").onclick = () => { S.nextDir = S.nextDir === "+x" ? "+z" : "+x"; draw(); };
 $("backLeg").onclick = () => {
   if (S.road.length > 1) { snapshot(); S.road.pop(); S.nextDir = S.nextDir === "+x" ? "+z" : "+x"; draw(); syncSidebar(); }
 };
 $("snap").onchange = () => { S.snap = $("snap").checked; syncLegInfo(); };
 $("half").onchange = () => { S.half = $("half").checked; syncLegInfo(); };
-$("routeOnly").onchange = () => {
-  S.routeOnly = $("routeOnly").checked;
-  if (S.routeOnly) { $("showRoad").checked = true; S.sel = -1; syncSidebar(); }
-  zoomFit();
-};
 $("pure").onchange = () => {
   S.pure = $("pure").checked;
-  if (S.pure) {                       // 纯净＝连"只要路线"也一并接管，且轨迹默认打开；**网格线保留**（顶点要压在网格交点上）
-    $("routeOnly").checked = true; S.routeOnly = true;
+  if (S.pure) {                       // 纯净＝轨迹默认打开；**网格线保留**（顶点要压在网格交点上）
     $("trailOn").checked = true; S.trail.on = true;
     $("showGrid").checked = true;
     S.sel = -1; $("showRoad").checked = true; syncSidebar();
@@ -790,8 +754,8 @@ function download(name, text, mime) {
 function projectJSON() {
   return JSON.stringify({
     v: 1,
-    note: "tools/SketchEditor.html 导出的俯视草图；坐标单位=米；x 向右、z 向上（俯视）。方块 axis-aligned。",
-    roadWidth: S.roadWidth,
+    note: "tools/SketchEditor.html 导出的俯视草图；坐标单位=米；x 向右、z 向上（俯视）。方块 axis-aligned。"
+        + "路只存一条折线（road），没有「路带」宽度这个字段。",
     leg: +$("leg").value || 3.4,
     road: S.road.map((p) => [+p.x.toFixed(2), +p.z.toFixed(2)]),
     blocks: S.blocks.map((b) => ({
@@ -846,13 +810,9 @@ $("impLevel").onclick = () => {
           const last = S.road[S.road.length - 1];
           if (!last || Math.abs(last.x - x) > 1e-6 || Math.abs(last.z - z) > 1e-6) S.road.push({ x, z });
         }
-        S.roadWidth = +lv.roadWidth || 3;
-        $("rw").value = S.roadWidth;
         S.blocks = [];
         S.sel = -1;
-        // 从关卡 level.json 载入也只有路线：同样切到【只要路线】+【舞线轨迹】
-        // （否则画出来是 3 m 宽的浅蓝路带 —— 发起人看到那条带子会问"这个蓝色的是什么"）
-        S.routeOnly = true; $("routeOnly").checked = true;
+        // 从关卡 level.json 载入也只有路线：轨迹默认打开（路带这个图层已经不存在了）
         S.trail.on = true; $("trailOn").checked = true;
         zoomFit(); syncSidebar(); draw(); saveView();
         $("ioMsg").textContent = `已载入关卡的路：${S.road.length} 个顶点。`
@@ -882,16 +842,12 @@ function loadProject(j, srcName) {
   snapshot();
   S.road = (j.road || []).map((p) => ({ x: +p[0], z: +p[1] }));
   S.blocks = (j.blocks || []).map((b) => ({ x: +b.x, z: +b.z, w: +b.w, d: +b.d, h: +b.h ?? 1, tone: +b.tone ?? 1 }));
-  // 文件里没有方块 → 说明它本来就是"只有路线"的文件：自动切到【只要路线】+【舞线轨迹】，
-  // 免得发起人打开又看到"这些方块是哪来的"。他有开关，想改随时改。
-  if (!S.blocks.length && S.road.length > 1) {
-    S.routeOnly = true; $("routeOnly").checked = true;
-    S.trail.on = true; $("trailOn").checked = true;
-    S.trail.speed = +((j.trail && j.trail.speedMps) || S.trail.speed);
-    S.trail.lw = +((j.trail && j.trail.lineWidth) || S.trail.lw);
+  // 舞线轨迹默认打开（文件里带了 trail 参数就用文件里的）
+  S.trail.on = true; $("trailOn").checked = true;
+  if (j.trail) {
+    S.trail.speed = +j.trail.speedMps || S.trail.speed;
+    S.trail.lw = +j.trail.lineWidth || S.trail.lw;
   }
-  S.roadWidth = +j.roadWidth || S.roadWidth;
-  $("rw").value = S.roadWidth;
   if (j.leg) $("leg").value = j.leg;
   // 载入后把"这份文件到底是谁"写在侧栏：份数 + 首末点 —— 万一手滑选了旧副本，一眼能看出来
   const r0 = S.road[0], rn = S.road[S.road.length - 1];
@@ -911,7 +867,7 @@ function buildSvg() {
   let x0 = 0, x1 = 0, z0 = 0, z1 = 0;
   const acc = (x, z) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); };
   S.road.forEach((p) => acc(p.x, p.z));
-  if (!S.routeOnly) S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
+  S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
   const m = 6;
   x0 -= m; z0 -= m; x1 += m; z1 += m;
   const sc = 8;                                  // 8 px / m
@@ -940,8 +896,8 @@ function buildSvg() {
       if (d2.length < 400000) o.push(`<path d="${d2}" stroke="#e2d9c4" stroke-width="1.4"/>`);
     }
   }
-  if (!S.pure) o.push(`<text x="${pad}" y="${pad + 16}" font-size="22" font-weight="700" fill="#1e2740">${S.routeOnly ? "路线（虚线）" : "俯视草图（手绘）"}</text>`);
-  if (!S.routeOnly && !S.pure) for (const b of S.blocks) {
+  if (!S.pure) o.push(`<text x="${pad}" y="${pad + 16}" font-size="22" font-weight="700" fill="#1e2740">"俯视草图（手绘）"</text>`);
+  if (!S.pure) for (const b of S.blocks) {
     const w = (b.w * sc).toFixed(1), d = (b.d * sc).toFixed(1);
     o.push(`<rect x="${(X(b.x) - w / 2)}" y="${(Y(b.z) - d / 2)}" width="${w}" height="${d}" fill="${TONE_COLORS[b.tone] || TONE_COLORS[1]}" stroke="#2b3550" stroke-width="1.2"/>`);
   }
@@ -952,13 +908,9 @@ function buildSvg() {
       o.push(`<polyline points="${pts}" fill="none" stroke="#c9cfe0" stroke-width="${(lw + 2).toFixed(1)}" stroke-linejoin="miter"/>`);
       o.push(`<polyline points="${pts}" fill="none" stroke="#fdfdfb" stroke-width="${lw.toFixed(1)}" stroke-linejoin="miter"/>`);
     }
-    if (S.routeOnly) {
-      o.push(`<polyline points="${pts}" fill="none" stroke="#3a4763" stroke-width="2.5" stroke-dasharray="12 8" stroke-linejoin="miter"/>`);
-      if (!S.pure) for (const p of S.road) o.push(`<rect x="${(X(p.x) - 3)}" y="${(Y(p.z) - 3)}" width="6" height="6" fill="#a3452f"/>`);
-    } else {
-      o.push(`<polyline points="${pts}" fill="none" stroke="#b9c6de" stroke-width="${(S.roadWidth * sc).toFixed(1)}" stroke-linejoin="miter"/>`);
-      o.push(`<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="${(0.3 * sc).toFixed(1)}" stroke-dasharray="${(0.6 * sc).toFixed(1)} ${(0.45 * sc).toFixed(1)}"/>`);
-    }
+    // 路线永远只画一条虚线（"路带"这个图层已删除，不是默认关）
+    o.push(`<polyline points="${pts}" fill="none" stroke="#3a4763" stroke-width="2.5" stroke-dasharray="12 8" stroke-linejoin="miter"/>`);
+    if (!S.pure) for (const p of S.road) o.push(`<rect x="${(X(p.x) - 3)}" y="${(Y(p.z) - 3)}" width="6" height="6" fill="#a3452f"/>`);
     if (S.trail.on && S.trail.dots && S.road.length > 1) {          // 头部每 N 秒的位置
       const cum = roadCum(), total = cum[cum.length - 1];
       const speed = Math.max(0.5, S.trail.speed);
@@ -995,9 +947,9 @@ function zoomFit() {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   const acc = (x, z) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); };
   S.road.forEach((p) => acc(p.x, p.z));
-  if (!S.routeOnly) S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
+  S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
   if (isFinite(x0)) {                     // 把路带自身的宽度也算进包围盒，免得贴边被裁
-    const m = (S.routeOnly ? 1 : S.roadWidth / 2) + 1;
+    const m = 3;
     x0 -= m; x1 += m; z0 -= m; z1 += m;
   }
   if (!isFinite(x0)) { S.view = { x: 0, z: 0, s: 9 }; draw(); return; }
@@ -1030,14 +982,14 @@ function demo() {
 
 /* ── 显示设置记忆（localStorage）────────────────────────────────────────
    发起人问："为什么网址打开是我想要的、在编辑器里载入 level-sketch.json 就还是以前的残留？"
-   —— 因为 pure / 只要路线 / 轨迹 / 网格 这些**只是显示设置**：URL 参数才带得进来，
+   —— 因为 pure / 轨迹 / 网格 这些**只是显示设置**：URL 参数才带得进来，
       而载入文件只换**数据**、不动显示设置。
    所以把显示设置记在浏览器里：勾过一次【纯净】，以后直接双击打开编辑器也是纯净视图。 */
-const LS_KEY = "SketchEditor.view.v2";   // v2：默认改成"只要路线"（旧 v1 里存的 routeOnly=false 会让人又看到那条 3 m 路带）
+const LS_KEY = "SketchEditor.view.v3";   // v3：路带图层已删除（v1/v2 里存的旧设置直接作废）
 function saveView() {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({
-      pure: S.pure, routeOnly: S.routeOnly, trail: S.trail,
+      pure: S.pure, trail: S.trail,
       grid: S.grid, snap: S.snap, half: S.half,
       showGrid: $("showGrid").checked, showRoad: $("showRoad").checked, showOrigin: $("showOrigin").checked,
     }));
@@ -1047,10 +999,10 @@ function restoreView() {
   let j = null;
   try { j = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (e) { return; }
   if (!j) return;
-  S.pure = !!j.pure; S.routeOnly = !!j.routeOnly;
+  S.pure = !!j.pure;
   S.grid = +j.grid || 1; S.snap = j.snap !== false; S.half = !!j.half;
   if (j.trail) S.trail = Object.assign(S.trail, j.trail);
-  $("pure").checked = S.pure; $("routeOnly").checked = S.routeOnly;
+  $("pure").checked = S.pure;
   $("trailOn").checked = !!S.trail.on; $("trailDots").checked = S.trail.dots !== false;
   $("grid").value = S.grid; $("snap").checked = S.snap; $("half").checked = S.half;
   $("showGrid").checked = j.showGrid !== false;
@@ -1065,15 +1017,14 @@ resize();
 restoreView();                                    // 先恢复上次的显示设置，URL 参数再覆盖它
 document.addEventListener("change", saveView);    // 任何控件变动都记下来
 if (location.search.includes("demo")) { try { demo(); } catch (err) { window.__err = String((err && err.stack) || err); } }
-if (location.search.includes("route")) {          // ?route=1 直接用"只要路线"模式打开
-  $("routeOnly").checked = true; S.routeOnly = true; S.sel = -1; zoomFit();
+if (location.search.includes("route")) {          // ?route=1（旧链接）：等价于纯净模式 —— 只留路线 + 轨迹
+  $("pure").checked = true; S.pure = true; S.sel = -1; zoomFit();
 }
 if (location.search.includes("trail")) {          // ?trail=1 同时叠上舞线轨迹参考
   $("trailOn").checked = true; S.trail.on = true; syncSidebar(); draw();
 }
 if (location.search.includes("pure")) {           // ?pure=1 纯净模式：画布上只剩路线虚线 + 舞线轨迹带
   $("pure").checked = true; S.pure = true;
-  $("routeOnly").checked = true; S.routeOnly = true;
   $("trailOn").checked = true; S.trail.on = true;
   $("showGrid").checked = true;
   S.sel = -1;

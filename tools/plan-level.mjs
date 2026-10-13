@@ -263,7 +263,8 @@ fs.writeFileSync(ROUTE, JSON.stringify({
       + "沿线的时间/轨迹参考见同目录 route-sheet.svg。"
       + "⚠️ 这是生成物：改完关卡重跑 node tools/plan-level.mjs 会覆盖它。",
   level: LEVEL_DIR,
-  roadWidth: level.roadWidth || 3,
+  // ⚠️ 这里**故意不写 roadWidth** —— 发起人 2026-10-13 的原话："我要的就是，json文件自身就没！有！这！个！路！带！"
+  //    路在草图里只是一条折线（虚线画出来），"3 m 宽的路带"是编辑器自己凭空长出来的图层，已整个删除。
   road: roadPts,
   trail: {
     lineWidth: 1,                                   // 舞线在游戏里 1 m 宽
