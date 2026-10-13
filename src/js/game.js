@@ -525,14 +525,17 @@ export class Game {
   }
 
   // 计算所有路面块（段块 + 转角块），按路径顺序排列
-  roadBlocks(verts, roadW, thick, yOff) {
+  // tFrom / tTo：只在这个时刻区间内铺路面。**平原段不铺**（发起人："关卡里根本就不需要路带"）——
+  // 石板之间露出的地面才是线走的地方，路面会把答案画在卷子上；桥段才需要一块真正的桥面。
+  roadBlocks(verts, roadW, thick, yOff, tFrom = -Infinity, tTo = Infinity) {
     const items = [];
     const n = verts.length;
+    const segIn = (t0, t1) => t1 > tFrom && t0 < tTo;   // 与 [tFrom, tTo] 有交集就铺
     for (let i = 0; i < n - 1; i++) {
       const a = verts[i], b = verts[i + 1];
       const dx = b.x - a.x, dz = b.z - a.z;
       const len = Math.hypot(dx, dz);
-      if (len > 1e-6) {
+      if (len > 1e-6 && segIn(a.t, b.t)) {
         items.push({
           pos: [(a.x + b.x) / 2, (a.y + b.y) / 2 - thick / 2 + yOff, (a.z + b.z) / 2],
           angY: Math.atan2(dx, dz),
@@ -542,12 +545,14 @@ export class Game {
       }
       if (i < n - 2) {                    // 转角块（起点除外）
         const p = verts[i + 1];
-        items.push({
-          pos: [p.x, p.y - thick / 2 + yOff, p.z],
-          angY: 0,
-          scale: [roadW, thick, roadW],
-          endT: p.t,
-        });
+        if (p.t > tFrom && p.t < tTo) {
+          items.push({
+            pos: [p.x, p.y - thick / 2 + yOff, p.z],
+            angY: 0,
+            scale: [roadW, thick, roadW],
+            endT: p.t,
+          });
+        }
       }
     }
     return items;
@@ -724,9 +729,19 @@ export class Game {
 
     this.verts = this.lines[0].verts;                     // 兼容旧字段：意为线 A
 
+    // 路面只在 roadStrip 指定的时刻区间铺：
+    //   缺省 = 从 bridge.from 起（只有桥段需要一块真正的桥面）；
+    //   平原段不铺 —— 石板之间露出的地面才是线走的地方（发起人："关卡里根本就不需要路带"）。
+    //   关卡可以写 "roadStrip": {"from":0} 把路面铺满全程（老关卡/对照用）。
+    const rs = (this.level && this.level.roadStrip) || null;
+    const stripFrom = rs && rs.from != null ? rs.from
+                    : (this.level && this.level.bridge && this.level.bridge.from != null
+                        ? this.level.bridge.from : 0);
+    const stripTo = rs && rs.to != null ? rs.to : Infinity;
+
     // 2) 每条线一条路面（共用一个材质实例 → 主题色过渡一次全变）
     this.roads = this.lines.map(L => {
-      const blocks = this.roadBlocks(L.verts, this.roadW, this.thick, L.yOff);
+      const blocks = this.roadBlocks(L.verts, this.roadW, this.thick, L.yOff, stripFrom, stripTo);
       const mesh = this.makeBlockMesh(blocks, this.roadMat);
       this.scene.add(mesh);
       return mesh;
@@ -737,7 +752,7 @@ export class Game {
     //     于是路面四周露出一圈比路面更亮的边——这是"读得出路在哪"的关键（见 buildScene 里的注释）。
     this.trims = this.lines.map(L => {
       const blocks = this.roadBlocks(L.verts, this.roadW + Game.TRIM_W, this.thick,
-                                     L.yOff - Game.TRIM_DROP);
+                                     L.yOff - Game.TRIM_DROP, stripFrom, stripTo);
       const mesh = this.makeBlockMesh(blocks, this.trimMat);
       mesh.renderOrder = -1;                              // 先画描边，路面再盖上去
       this.scene.add(mesh);

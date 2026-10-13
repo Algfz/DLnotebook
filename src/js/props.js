@@ -1029,7 +1029,11 @@ export function buildPlaced(level, verts, opts = {}) {
 
   // ── A) 手工摆件：每一条都是关卡文件里写死的 ────────────────────────────
   for (const it of level.place || []) {
-    const need = roadW / 2 + Math.max(it.w || 1, it.d || 1) / 2 + 0.25;
+    // it.exact ＝ 手绘草图逐件落地的摆件：位置由设计者定死，**不做净空外推**，原样落在 (t, off) 上。
+    //   净空规则（roadW/2 + max(w,d)/2 + 0.25，外接圆口径）本来是给"规则撒点/粗略给 off"兜底的；
+    //   对手绘草图它会整片往外推 —— 本关前排方块边缘离路只有 0.7 m，而外接圆口径会要求 3 m 以上，
+    //   推完就不是作者画的那张图了。碰撞由 tools/sketch-to-place.mjs 离线检查并报告。
+    const need = it.exact ? 0 : roadW / 2 + Math.max(it.w || 1, it.d || 1) / 2 + 0.25;
     const a = put(it.t, it.off, need);
     const h = it.h == null ? 1 : it.h;
     const tone = it.tone || 0;                   // 0/1/2 → 三档蓝
