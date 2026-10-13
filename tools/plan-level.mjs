@@ -13,7 +13,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
-const LV = path.join(ROOT, "levels", "ring a bell-灰澈", "level.json");
+const LEVEL_DIR = "ring a bell-灰澈";
+const LV = path.join(ROOT, "levels", LEVEL_DIR, "level.json");
 const level = JSON.parse(fs.readFileSync(LV, "utf8"));
 const S = Number(process.argv[2] || 4);            // 每米多少像素
 const PAD = 240;
@@ -211,10 +212,16 @@ const SHADE_TONE = (hex) => {
 const roadPts = vertsW
   .filter((p, i) => i === 0 || Math.abs(p.x - vertsW[i - 1].x) > 1e-6 || Math.abs(p.z - vertsW[i - 1].z) > 1e-6)
   .map((p) => [+p.x.toFixed(2), +p.z.toFixed(2)]);
-fs.writeFileSync(path.join(ROOT, "out", "level-sketch.json"), JSON.stringify({
+// ★ 底稿落在**关卡自己的目录**里，不是 out/：
+//   out/ 是"跑命令就能重生成的产物堆料场"（6 万多个文件、不进 git），发起人要手动打开的东西不该放那儿。
+//   放到 levels/<关卡目录>/ 后跟关卡同名同目录、一眼找到，而且纳入 git（删关时随关卡一起走，不留孤儿）。
+const SKETCH = path.join(ROOT, "levels", LEVEL_DIR, "level-sketch.json");
+fs.writeFileSync(SKETCH, JSON.stringify({
   v: 1,
   note: "由 tools/plan-level.mjs 从关卡运行时真实几何导出（世界坐标，x 向右 z 向上）"
-      + "；可直接用 tools/SketchEditor.html 的【导入我的 JSON】打开，在真路底稿上改摆放。",
+      + "；直接拖进 tools/SketchEditor.html，或在编辑器里点【载入底稿】/用【载入关卡 / 底稿 JSON】选本文件。"
+      + "⚠️ 这是生成物：改完关卡重跑 node tools/plan-level.mjs 会覆盖它。",
+  level: LEVEL_DIR,
   roadWidth: level.roadWidth || 3,
   road: roadPts,
   blocks: raw.map((b) => ({
@@ -223,4 +230,4 @@ fs.writeFileSync(path.join(ROOT, "out", "level-sketch.json"), JSON.stringify({
     tone: SHADE_TONE(b.hex),
   })),
 }, null, 1));
-console.log(`已写出 out/level-sketch.json（路 ${roadPts.length} 点 + 方块 ${raw.length} 件，供 SketchEditor 导入）`);
+console.log(`已写出 levels/${LEVEL_DIR}/level-sketch.json（路 ${roadPts.length} 点 + 方块 ${raw.length} 件，供 SketchEditor 导入）`);

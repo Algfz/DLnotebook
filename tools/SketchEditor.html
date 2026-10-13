@@ -125,10 +125,10 @@
       <div class="row"><button id="expPng">导出 PNG</button><button id="expSvg">导出 SVG</button></div>
       <div class="row"><button id="expJson">导出 JSON</button><button id="impJson">导入我的 JSON</button></div>
       <div class="row"><button id="impLevel">载入关卡 / 底稿 JSON</button></div>
-      <div class="row"><button id="impSketch">一键载入底稿 out/level-sketch.json</button></div>
-      <div class="tiny">选 <code>out/level-sketch.json</code> = <b>真路 + 真方块</b>的完整底稿；<br>
+      <div class="row"><button id="impSketch" title="levels/ring a bell-灰澈/level-sketch.json">一键载入本关底稿（真路 + 真方块）</button></div>
+      <div class="tiny">底稿＝<code>levels/ring a bell-灰澈/level-sketch.json</code>（<b>真路 + 真方块</b>，跟关卡放在一起）；<br>
         选 <code>levels/…/level.json</code> = 只有真路（布景在那儿只存了"沿路距离+偏移"，浏览器读不出坐标）。<br>
-        用网址打开时也可以直接带参数：<code>?sketch=../out/level-sketch.json</code>。</div>
+        用网址打开时也可以直接带参数：<code>?sketch=../levels/ring a bell-灰澈/level-sketch.json</code>。</div>
       <div class="tiny" id="ioMsg"></div>
 
       <h2>背景参考图（可选）</h2>
@@ -832,13 +832,14 @@ $("impLevel").onclick = () => {
 };
 
 $("impSketch").onclick = () => {
-  $("ioMsg").textContent = "正在载入 out/level-sketch.json …";
-  fetch("../out/level-sketch.json")
+  const URL_SKETCH = "../levels/ring a bell-灰澈/level-sketch.json";   // 底稿跟着关卡走，不再放 out/
+  $("ioMsg").textContent = "正在载入底稿 …";
+  fetch(encodeURI(URL_SKETCH))
     .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then((j) => { loadProject(j); $("ioMsg").textContent = `已载入底稿：路 ${S.road.length} 点 + 方块 ${S.blocks.length} 件（世界坐标）`; })
     .catch((e) => {
       $("ioMsg").textContent = `自动载入失败（${e.message}）。这一键需要从 http:// 打开的页面（本页是 file:// 时浏览器禁止读取本地文件）——`
-        + `请改用上面【载入关卡 / 底稿 JSON】手动选 out/level-sketch.json。`;
+        + `请改用上面【载入关卡 / 底稿 JSON】手动选 levels/ring a bell-灰澈/level-sketch.json。`;
     });
 };
 
