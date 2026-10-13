@@ -349,6 +349,41 @@ const keepOld = (level.place || []).filter((p) => !p.g && p.t > 29.9 && p.t < 46
   console.log(`  ⚠ 保留的老摆件${keepOld.length} 件：压线 ${badN} 件 → 挪开 ${movedN} 件`);
 }
 
+/* ── 4c) **全关**连续护栏：每一腿、左右两侧都贴一块矮的（踩拍弹出）──────────
+   2026-10-13 发起人看游戏截图："有些路段两侧空荡荡，舞线孤零零一条，看不出路在哪" ——
+   护栏的作用是**读路**（撞障碍死、掉非路面死、掉虚空死），所以它必须**从头到尾连续**，
+   而且**不能把作者已经放好的方块挤掉/堆叠**：某处 3m 内已有方块就跳过那一个位置。 */
+let fenceN = 0;
+{
+  const occ = [];
+  // 只把**贴路的**已有方块算作"占位"（|off| < 8m），而且半径按最小 1.8m 算 ——
+  // 否则远处那些 20m 的大块会把整段护栏全跳过，路两侧又空了。
+  for (const o of out) if (Math.abs(o.off) < 8) { const q = ptAt(arcOfT(o.t), o.off); occ.push({ x: q.x, z: q.z, r: Math.min(Math.max(o.w, o.d) / 2, 1.8) }); }
+  if (sketch) for (const b of sketch.blocks) {
+    const { off } = toArcOff(b.x, b.z);
+    if (Math.abs(off) < 8) occ.push({ x: b.x, z: b.z, r: Math.min(Math.max(b.w, b.d) / 2, 1.8) });
+  }
+  const tooClose = (x, z, gap) => occ.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + gap);
+  let k = 0;
+  for (let s = 1.8; s < TOTAL - 1.8; s += LEGM, k++) {
+    const ss = s + (k % 2 ? 0.9 : 0);
+    for (const sgn of [1, -1]) {
+      const w = (k + (sgn > 0 ? 0 : 1)) % 3 === 0 ? 3.0 : 2.4;
+      const spot = tryPlace(ss, growCands(sgn * (w / 2 + CLEAR_MIN), 0.4, 14), w, w);
+      if (!spot) { stat.dropped++; continue; }
+      if (tooClose(spot.x, spot.z, 0.3)) continue;          // 那儿已经有方块了，别堆
+      const b = nearestBeat(spot.t);
+      out.push({ t: +spot.t.toFixed(3), off: +spot.off.toFixed(2), w, h: H_NEAR, d: w, tone: k % 2,
+                 rot: 0, rise: false, exact: true, clr: +spot.clear.toFixed(3), g: 1, fence: 1,
+                 anim: "pop", beat: +(b == null ? spot.t : b).toFixed(3),
+                 beatPeriod: +BEATPER.toFixed(4), every: 1 + (k % 3) });
+      occ.push({ x: spot.x, z: spot.z, r: w / 2 });
+      fenceN++; stat.pop++;
+    }
+  }
+  console.log(`  全关护栏：新增 ${fenceN} 件（已有方块旁边跳过，不含在"续画"统计里）`);
+}
+
 /* ── 5) 写回 ──────────────────────────────────────────────────────────── */
 if (APPLY) {
   const bak = path.join(ROOT, "out", "bak", `level-${LEVEL_DIR.replace(/[^\w\u4e00-\u9fa5]+/g, "_")}-${Date.now()}.json`);
