@@ -11,7 +11,7 @@ import {
 } from "./level.js";
 import { AudioClock } from "./audio.js";
 import { buildTerrain } from "./terrain.js";
-import { buildProps } from "./props.js";
+import { buildProps, buildPlaced, applyPlacedAnim } from "./props.js";
 import { buildAtmos, MOTIF_FX } from "./fx.js";
 
 // 各主题的视觉参数：
@@ -426,6 +426,15 @@ export class Game {
     });
     this.propsGroup = pg;
     this.scene.add(pg);
+
+    // 显式摆放的布景（平原上的方块 + 高架桥护栏/桥面/桥墩）：**零随机**，
+    // 每一件都在关卡文件的 place[]/bridge{} 里逐个写明。
+    const pl = buildPlaced(this.level, L0 ? L0.verts : null, {
+      roadWidth: this.level.roadWidth || 3,
+    });
+    this.placedGroup = pl.group;
+    this.placedAnim = pl.anim;
+    this.scene.add(pl.group);
   }
 
   /* ---------------------- 轨迹（玩家实际画出来的） ---------------------- */
@@ -663,7 +672,10 @@ export class Game {
   static get Y_STEP() { return 0.004; }
   // 路缘描边的宽度与下沉量（米）：左右各多 0.5m、顶面比路面低 6cm。
   static get TRIM_W() { return 0.7; }
-  static get TRIM_DROP() { return 0.06; }
+  // ⚠️ 这 6cm 曾经正好等于地形的 `surf = top - 0.06`（terrain.js 里那个"压低 6cm"），
+  //    于是**描边的顶面与板面严格共面** → 整条路两侧出现 z-fighting 闪烁（2026-10-13 报的 bug）。
+  //    现在取 3.5cm：描边顶面落在"路面之下 3.5cm、板面之上 2.5cm"，任何两面都不共面。
+  static get TRIM_DROP() { return 0.035; }
 
   buildScene() {
     const th = THEME[themeAt(this.level, 0)] || THEME.void;
@@ -1003,6 +1015,9 @@ export class Game {
 
     this.renderFrame(t);
     this.updateWhiteFade(t);
+    // 显式摆放的布景：带 rise 时间窗的会在线走到它前面若干米时"从地里升起来"
+    // （ETW29 那种"一片一片弹出来"的观感）。升完就空转，代价为零。
+    if (this.placedAnim && this.placedAnim.length) applyPlacedAnim(this.placedGroup, this.placedAnim, t);
     if (this.onTick) this.onTick(t, this);
   }
 

@@ -435,14 +435,17 @@ function endPyramid(pts, W, M, surf) {
 
 // ⚠️ splitRuns 把"母题名 + 色卡都相同"的相邻段并成一段（段内 params 取第一段的），
 //    所以"平板上切了槽"的那一段必须用**另一个母题名**，否则槽不会出现。
-const MOTIFS = { board: motifBoard, boardSlot: motifBoard, deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, islands: motifTerraces, cloud: motifCloud };
+const MOTIFS = { board: motifBoard, boardSlot: motifBoard, bridge: motifBoard, deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, islands: motifTerraces, cloud: motifCloud };
 
 // 每种母题缺省的尺寸参数（关卡里可以逐个覆盖）
 export const DEFAULT_PARAMS = {
   // 无限厚板（ETW29）：half 是"板有多宽"（要远到看不见边），slot/hi 是"板上切多深的槽"
-  board: { walk: 3.0, half: 150, th: 9.0, slot: 0, hi: 0 },
+  board: { walk: 3.0, half: 150, th: 9.0, slot: 0, hi: 0, drop: 0 },
   // 同一块板，但中间切了一条槽（ETW29 段 3 的"折线峡谷"）：路走槽底、槽壁露出蓝灰断面
-  boardSlot: { walk: 3.0, half: 150, th: 9.0, slot: 4.2, hi: 5.5 },
+  boardSlot: { walk: 3.0, half: 150, th: 9.0, slot: 4.2, hi: 5.5, drop: 0 },
+  // 高架桥段：同一块板，但**整块下沉 drop 米** —— 路面留在原高度，
+  // 于是路凭空比地面高出 drop，再由 props 的 bridge 摆件（护栏/桥面/桥墩）补成一座高架桥。
+  bridge: { walk: 3.0, half: 150, th: 9.0, slot: 0, hi: 0, drop: 7.0 },
   deck: { walk: 13.0, shelf: 2.4, th: 3.2, step: 1.6 },
   canyon: { walk: 4.4, slot: 2.2, hi: 4.0, floorW: 12, plateauW: 30, th: 3.0 },
   // ⚠️ 主台是"一串圆盘"：gap 必须 < 2*rx*0.82（最小半径），否则两块台子之间会有洞，
@@ -541,10 +544,18 @@ export function buildTerrain(level, colors, verts) {
   const spec = level && level.terrain;
   if (!spec || !spec.base || !spec.base.motif || !MOTIFS[spec.base.motif]) return null;
 
-  // 双面：条带/盒子的朝向不必抠得很准，双面省掉一整类"整片发黑"的坑
-  const mk = (c, rough) => new THREE.MeshStandardMaterial({
-    color: c, roughness: rough, metalness: 0, flatShading: true, side: THREE.DoubleSide,
-  });
+  // 双面：条带/盒子的朝向不必抠得很准，双面省掉一整类"整片发黑"的坑。
+  // polygonOffset：地形整体往深度里推一点，凡是与地形**共面或近共面**的东西
+  // （路面、路缘描边、贴地色块）都稳定赢下深度测试——这是"路两侧闪烁"的兜底修复。
+  const mk = (c, rough) => {
+    const m = new THREE.MeshStandardMaterial({
+      color: c, roughness: rough, metalness: 0, flatShading: true, side: THREE.DoubleSide,
+    });
+    m.polygonOffset = true;
+    m.polygonOffsetFactor = 2;
+    m.polygonOffsetUnits = 2;
+    return m;
+  };
   const mkMats = (c) => ({ near: mk(c.near, 0.92), mid: mk(c.mid, 0.88), far: mk(c.far, 0.95) });
   const mats = mkMats(colors);
 
@@ -575,7 +586,7 @@ export function buildTerrain(level, colors, verts) {
     // 路面色带本身就铺在这个高度上，完全齐平会共面闪烁，压 6cm 的台阶肉眼看不出。
     let top = -Infinity;
     for (const p of run.pts) if (p.y > top) top = p.y;
-    const surf = top - 0.06;
+    const surf = top - 0.06 - (P.drop || 0);
     const pts = simplify(run.pts, 2.0);
     const rm = palMats(run.palette) || mats;      // 这一段用哪套材质
     for (const m of fn(pts, P, rm, surf)) group.add(m);

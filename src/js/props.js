@@ -955,6 +955,175 @@ export function buildProps(level, verts, opts = {}) {
 }
 
 /* ---------------------------------------------------------------------------
+   显式摆放的布景（**零随机**）—— 2026-10-13 发起人的要求：
+     "以后所有的布景一律一个一个放置"
+   所以这一版没有任何 rand()/hash：每一件都在关卡文件的 `place` 数组里逐条写出
+   （t 时刻、离路中心的横向偏移 off、长宽高、朝向），
+   外加沿路"长出来"的高架桥护栏 / 桥面 / 桥墩——它们也是**逐段**由路径推导，
+   一段一条件，不是撒点。
+
+   返回 { group, anim }：anim[k] = { ix, y0, h, t0, t1 }，
+   表示第 ix 个实例要在线走到 t0 时从地里升起来，t1 时升到位（y0）。
+   游戏主循环每帧调 applyPlacedAnim(group, anim, t) 把它推上去。
+   --------------------------------------------------------------------------- */
+
+// 本段地面的高度（和 terrain.js 的 surf 用同一套算法：路径最高点 −6cm − 该母题的 drop）
+function groundDropAt(level, t) {
+  const spec = level.terrain || {};
+  const span = (spec.spans || []).find((s) => t >= s.t[0] && t < s.t[1]);
+  const motif = span ? span.motif : (spec.base && spec.base.motif);
+  const params = (span && span.params) || (spec.base && spec.base.params) || {};
+  const D = DEFAULT_PARAMS_BOARD[motif] || DEFAULT_PARAMS_BOARD.board;
+  const drop = params.drop != null ? params.drop : (span ? D.drop : (spec.base && spec.base.params && spec.base.params.drop)) ;
+  return drop || 0;
+}
+// 只有 board / bridge 两个母题的 drop 有意义（别的母题不走这条路）
+const DEFAULT_PARAMS_BOARD = { board: { drop: 0 }, boardSlot: { drop: 0 }, bridge: { drop: 6 } };
+
+export function buildPlaced(level, verts, opts = {}) {
+  const roadW = opts.roadWidth || level.roadWidth || 3;
+  const pal = PROP_COLORS.board;
+  const blues = [pal.blue0, pal.blue1, pal.blue2];
+  const pl = polyline(verts);
+  const out = [];                       // {x,y,z,rotY,w,h,d,color,rise:[t0,t1]|null}
+
+  // 时间 + 横向偏移 → 世界坐标 / 朝向（局部 +Z 沿路，+X 沿右法线）
+  const put = (t, off) => {
+    const s = timeToArc(pl, verts, t);
+    const p = atArc(pl, s);
+    const tx = -p.nz, tz = p.nx;                 // 切线
+    return {
+      x: p.x + p.nx * off, z: p.z + p.nz * off, y: p.y,
+      yaw: Math.atan2(tx, tz),
+      gy: p.y - 0.06 - groundDropAt(level, t),   // 该处地面高度
+    };
+  };
+
+  // ── A) 手工摆件：每一条都是关卡文件里写死的 ────────────────────────────
+  for (const it of level.place || []) {
+    const a = put(it.t, it.off);
+    const h = it.h == null ? 1 : it.h;
+    const tone = it.tone || 0;                   // 0/1/2 → 三档蓝
+    out.push({
+      x: a.x, z: a.z, y: a.gy + h / 2, rotY: a.yaw + (it.rot || 0),
+      w: it.w, h, d: it.d,
+      color: blues[tone] || blues[0],
+      rise: it.rise === false ? null : [it.t - (it.lead == null ? 2.2 : it.lead),
+                                        it.t - (it.lead == null ? 2.2 : it.lead) + (it.riseDur || 1.1)],
+    });
+  }
+
+  // ── B) 高架桥：护栏 / 桥面 / 桥墩 —— 逐段由路径推导 ─────────────────────
+  const B = level.bridge;
+  if (B && B.from != null) {
+    const to = B.to == null ? 1e9 : B.to;
+    const lead = B.lead == null ? 5.0 : B.lead;
+    const dur = B.rise == null ? 1.6 : B.rise;
+    const wallH = B.wallH == null ? 3.2 : B.wallH;
+    const wallW = B.wallW == null ? 1.1 : B.wallW;
+    const offW = roadW / 2 + wallW / 2 + (B.wallGap || 0);
+    const deckTh = B.deckTh == null ? 1.0 : B.deckTh;
+    const drop = groundDropAt(level, B.from);
+    const chunk = B.chunk || 4;                 // 每 chunk 个折点合成一段护栏（≈10m）
+    let acc = 0, lastPillar = -1e9, ci = 0;
+    for (let i = 1; i < verts.length; i++) {
+      const L = Math.hypot(verts[i].x - verts[i - 1].x, verts[i].z - verts[i - 1].z);
+      if (L > 1e-6) acc += L;
+      ci++;
+      if (ci < chunk && i < verts.length - 1) continue;
+      const a = verts[Math.max(0, i - ci)], b = verts[i];
+      ci = 0;
+      if (b.t < B.from || a.t > to) continue;
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-6) continue;
+      const yaw = Math.atan2(dx, dz);
+      const cx = (a.x + b.x) / 2, cz = (a.z + b.z) / 2, cy = (a.y + b.y) / 2;
+      const nx = dz / len, nz = -dx / len;                 // 右法线
+      const t0 = Math.min(a.t, b.t) - lead, t1 = Math.min(a.t, b.t) - lead + dur;
+      // 两侧护栏
+      for (const side of [1, -1]) {
+        out.push({
+          x: cx + nx * side * offW, z: cz + nz * side * offW, y: cy + wallH / 2,
+          rotY: yaw, w: wallW, h: wallH, d: len + 0.16,
+          color: side > 0 ? blues[0] : blues[1], rise: [t0, t1],
+        });
+      }
+      // 桥面（托在路面下方的一道梁）
+      out.push({
+        x: cx, z: cz, y: cy - 0.6 - deckTh / 2 + 0.02,
+        rotY: yaw, w: roadW + 2 * (offW - roadW / 2), h: deckTh, d: len + 0.16,
+        color: blues[2], rise: [t0 - 0.3, t1 - 0.3],
+      });
+      // 桥墩：每 pillarEvery 米一根，从地面顶到桥面底
+      const pe = B.pillarEvery || 12;
+      if (acc - lastPillar >= pe) {
+        lastPillar = acc;
+        const ph = Math.max(0.6, cy - 0.6 - deckTh - (cy - 0.06 - drop));
+        const pw = B.pillarW || 1.7;
+        out.push({
+          x: cx, z: cz, y: cy - 0.6 - deckTh - ph / 2 + 0.02,
+          rotY: yaw, w: pw, h: ph, d: pw,
+          color: blues[2], rise: [t0 + 0.25, t1 + 0.25],
+        });
+      }
+    }
+  }
+
+  // ── 建实例 ─────────────────────────────────────────────────────────────
+  const group = new THREE.Group();
+  group.name = "placed";
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0.0, flatShading: true });
+  const im = new THREE.InstancedMesh(GEOS.box, mat, Math.max(1, out.length));
+  im.name = "placed-box";
+  im.frustumCulled = false;
+  im.count = out.length;
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  const vp = new THREE.Vector3(), vs = new THREE.Vector3(), col = new THREE.Color();
+  const anim = [];
+  out.forEach((o, k) => {
+    e.set(0, o.rotY, 0);
+    q.setFromEuler(e);
+    const y = o.rise ? o.y - o.h : o.y;            // 还没升起来 → 埋在地里
+    vp.set(o.x, y, o.z);
+    vs.set(o.w, o.h, o.d);
+    m4.compose(vp, q, vs);
+    im.setMatrixAt(k, m4);
+    im.setColorAt(k, col.setHex(o.color));
+    if (o.rise) anim.push({ ix: k, x: o.x, z: o.z, y0: o.y, h: o.h, rotY: o.rotY, w: o.w, d: o.d, t0: o.rise[0], t1: o.rise[1] });
+  });
+  im.instanceMatrix.needsUpdate = true;
+  if (im.instanceColor) im.instanceColor.needsUpdate = true;
+  group.add(im);
+  group.userData.count = out.length;
+  group.userData.anim = anim;
+  return { group, anim };
+}
+
+// 把"正在升起来"的那几件推上去（升到位之后每帧都是空转，代价为零）
+export function applyPlacedAnim(group, anim, t) {
+  if (!group || !anim || !anim.length) return false;
+  const im = group.children[0];
+  if (!im) return false;
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  const vp = new THREE.Vector3(), vs = new THREE.Vector3();
+  let touched = false;
+  for (const a of anim) {
+    if (t >= a.t1) { if (a.done) continue; a.done = true; }
+    const k = Math.max(0, Math.min(1, (t - a.t0) / Math.max(1e-3, a.t1 - a.t0)));
+    const ease = 1 - Math.pow(1 - k, 3);            // 缓出：升起是"慢慢顶上来、最后停稳"
+    e.set(0, a.rotY, 0); q.setFromEuler(e);
+    vp.set(a.x, a.y0 - a.h + a.h * ease, a.z);
+    vs.set(a.w, a.h, a.d);
+    m4.compose(vp, q, vs);
+    im.setMatrixAt(a.ix, m4);
+    touched = true;
+  }
+  if (touched) im.instanceMatrix.needsUpdate = true;
+  return touched;
+}
+
+/* ---------------------------------------------------------------------------
    道具图鉴（离屏预览）
    ---------------------------------------------------------------------------
    把每种道具按不同随机种子生成若干个"实物"，摆成一张网格，供 tools/shot.js 截图。
