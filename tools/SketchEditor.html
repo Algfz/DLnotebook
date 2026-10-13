@@ -112,6 +112,7 @@
       <div class="row"><label class="field"><input id="trailOn" type="checkbox"> 显示舞线轨迹</label></div>
       <div class="row"><span class="k">线宽（游戏里 1 m）</span><input id="lw" type="number" value="1" step="0.25" min="0.25"></div>
       <div class="row"><span class="k">速度</span><input id="spd" type="number" value="14" step="0.5" min="0.5"> m/s</div>
+      <div class="row"><label class="field"><input id="trailDots" type="checkbox" checked> 打时间点（关掉就只剩一条轨迹带）</label></div>
       <div class="row"><span class="k">每 N 秒打一个点</span><input id="tickPer" type="number" value="0" step="1" min="0" title="0 = 自动（让整条路上大约出现 12 个点）"></div>
       <div class="row"><span class="k">路线长 / 预计用时</span><span id="runInfo">—</span></div>
       <div class="tiny">轨迹＝舞线走过留下的那条带（1 m 宽、方角），按速度每隔 N 秒在头部位置打一个点，用来对节奏。</div>
@@ -185,7 +186,7 @@ let S = {
   snap: true,
   grid: 1,
   half: false,              // true＝路的中线落在半格上（格宽为奇数时，路带正好盖住整格）
-  trail: { on: false, lw: 1, speed: 14, tick: 0 },   // 舞线轨迹参考（线宽 1 m / 14 m/s / 打点间隔 0＝自动）
+  trail: { on: false, lw: 1, speed: 14, tick: 0, dots: true },   // 舞线轨迹参考（线宽 1 m / 14 m/s / 打点间隔 0＝自动 / 打不打时间点）
   routeOnly: false,         // true＝只要一条虚线路线：不出路带、不画方块
   pure: false,              // true＝画布上只留两样：路线虚线 + 舞线轨迹带
   sel: -1,
@@ -443,6 +444,7 @@ function drawTrail() {
   ctx.restore();
 
   // 头部每 N 秒的位置（N=0 时自动：让整条路上大约出现 12 个点）
+  if (!S.trail.dots) return;                       // 关掉时间点：只剩一条轨迹带
   const cum = roadCum(), total = cum[cum.length - 1];
   const speed = Math.max(0.5, S.trail.speed);
   let step = S.trail.tick;
@@ -671,6 +673,7 @@ $("pure").onchange = () => {
   draw();
 };
 $("trailOn").onchange = () => { S.trail.on = $("trailOn").checked; syncSidebar(); draw(); };
+$("trailDots").onchange = () => { S.trail.dots = $("trailDots").checked; draw(); };
 $("lw").onchange = () => { S.trail.lw = Math.max(0.25, +$("lw").value || 1); draw(); };
 $("spd").onchange = () => { S.trail.speed = Math.max(0.5, +$("spd").value || 14); syncSidebar(); draw(); };
 $("tickPer").onchange = () => { S.trail.tick = Math.max(0, +$("tickPer").value || 0); syncSidebar(); draw(); };
@@ -908,7 +911,7 @@ function buildSvg() {
       o.push(`<polyline points="${pts}" fill="none" stroke="#b9c6de" stroke-width="${(S.roadWidth * sc).toFixed(1)}" stroke-linejoin="miter"/>`);
       o.push(`<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="${(0.3 * sc).toFixed(1)}" stroke-dasharray="${(0.6 * sc).toFixed(1)} ${(0.45 * sc).toFixed(1)}"/>`);
     }
-    if (S.trail.on && S.road.length > 1) {          // 头部每 N 秒的位置
+    if (S.trail.on && S.trail.dots && S.road.length > 1) {          // 头部每 N 秒的位置
       const cum = roadCum(), total = cum[cum.length - 1];
       const speed = Math.max(0.5, S.trail.speed);
       let stepS = S.trail.tick;
@@ -994,6 +997,9 @@ if (location.search.includes("pure")) {           // ?pure=1 纯净模式：画�
   $("showGrid").checked = false;
   S.sel = -1;
   zoomFit(); syncSidebar(); draw();
+}
+if (location.search.includes("dots=0")) {         // ?dots=0 连时间点也不要：只剩一条轨迹带 + 路线虚线
+  S.trail.dots = false; $("trailDots").checked = false; draw();
 }
 if (location.search.includes("svg")) {            // ?svg=1 自检：把导出的 SVG 放进 window.__svg
   try { window.__svg = buildSvg(); window.__svgLen = window.__svg.length; }
