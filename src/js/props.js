@@ -490,6 +490,10 @@ export const PROP_COLORS = {
   // 三档蓝用的是那一关的实测值（#7F95CF L58 / #657CBE L49 / #3F5286 L32）。
   board: { blue0: 0x7f95cf, blue1: 0x657cbe, blue2: 0x3f5286, white: 0xfdfdfb,
            ground: 0xd1d0bb, shade: 0xbcc0c9 },
+  // Breeze「灰」：虚空里的浮空云 —— 三档灰（亮/中/暗），别用蓝的（那一关整屏是灰的）
+  gray:  { blue0: 0xd8dbdf, blue1: 0xb3b8bf, blue2: 0x878d95, white: 0xf3f5f7,
+           ground: 0xeceef0, shade: 0xc2c6cb, foliage: 0x9aa0a6, wood: 0x7d8288,
+           stone: 0xc9ccd0, bloom: 0xdfe3e7, accent: 0xf0f2f4 },
   rose:  { foliage: 0x4f8f5f, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xf3a7c6, accent: 0xf7e08a, ground: 0xd08aa8, shade: 0xa45f80 },
   plum:  { foliage: 0x4a7f6a, wood: 0x5c4030, stone: 0xb9b0b6, bloom: 0xd98bb4, accent: 0xf2d98a, ground: 0x8a6480, shade: 0x5f3f5a },
   sand:  { foliage: 0x6f8c46, wood: 0x7a5a34, stone: 0xd8c9a8, bloom: 0xe8a06a, accent: 0xf6e2a8, ground: 0xe4d0a4, shade: 0xa8905c },
@@ -982,7 +986,9 @@ const DEFAULT_PARAMS_BOARD = { board: { drop: 0 }, boardSlot: { drop: 0 }, bridg
 
 export function buildPlaced(level, verts, opts = {}) {
   const roadW = opts.roadWidth || level.roadWidth || 3;
-  const pal = PROP_COLORS.board;
+  // 三档色跟**关卡自己的色卡**走（Breeze 的 palette:"gray" ⇒ 灰云；没有该色卡或没有 blue 档就回落 board 的蓝）
+  const palName = (level.scenes && level.scenes[0] && level.scenes[0].palette) || null;
+  const pal = (palName && PROP_COLORS[palName] && PROP_COLORS[palName].blue0) ? PROP_COLORS[palName] : PROP_COLORS.board;
   const blues = [pal.blue0, pal.blue1, pal.blue2];
   const pl = polyline(verts);
   const out = [];                       // {x,y,z,rotY,w,h,d,color,rise:[t0,t1]|null}
@@ -1038,7 +1044,8 @@ export function buildPlaced(level, verts, opts = {}) {
     const h = it.h == null ? 1 : it.h;
     const tone = it.tone || 0;                   // 0/1/2 → 三档蓝
     out.push({
-      x: a.x, z: a.z, y: a.gy + h / 2, rotY: snapYaw(a.yaw + (it.rot || 0)),
+      // it.dy ＝ 相对"贴地高度"的垂直偏移（Breeze 的浮空云用；不写就是贴在路面上）
+      x: a.x, z: a.z, y: a.gy + h / 2 + (it.dy || 0), rotY: snapYaw(a.yaw + (it.rot || 0)),
       w: it.w, h, d: it.d,
       color: blues[tone] || blues[0],
       rise: it.rise === false ? null : [it.t - (it.lead == null ? 2.2 : it.lead),

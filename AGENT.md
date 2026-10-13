@@ -885,6 +885,17 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 
 ## 11. 开发环境与资源
 
+**Breeze 的布景（2026-10-13）** —— `tools/breeze-decor.mjs`（`--apply` 写回 / `--clear` 清空 / `--gap=3` 换净空 /
+`--s=0.5` 换取证图比例）。Breeze 是**双线关卡**（白线 `lines[0]` + 黑线 `lines[1]`，各约 3.95 km），
+所以净空必须对**两条路径同时**精确判定（轴对齐线段×矩形，别打网格取样 —— 阶梯路会从采样格之间穿过去）。
+现况：试放 1313 件 → 收 **1054 件**，最小净空 **3.00 m**，越界 0 件；取证图 `out/breeze-decor-preview.svg`。
+
+同轮改的三处引擎侧：
+- `level.fx.atmos === false` ⇒ **不要空气粒子**（Breeze 去雪花；`src/js/game.js` 里 `this.atmos.points.visible`）。
+- `PROP_COLORS.gray` 色卡（三档灰）+ `buildPlaced` 的三档色改成**跟关卡自己的 palette 走**（有 `blue0` 才用，否则回落 board 的蓝）。
+- `place[]` 的取色/建造原来被 `buildGround()` 的 `if (!g) return;` 挡住 —— Breeze **没有地形**，
+  早退会把布景整段跳过。现在 `buildPlaced` 移到 `if (g)` **外面**（`place[]` 还支持 `dy`：相对贴地高度的垂直偏移，浮空云用）。
+
 **⚠️ 参考素材与临时文件都在仓库外（2026-10-13 发起人要求"把视频和图片移到仓库外"）**
 
 体积大的东西一律放在 **`C:\DLnotebook-media\`**（仓库外），`out/` 下只留**少量成品图**（`out/*.png|svg`、

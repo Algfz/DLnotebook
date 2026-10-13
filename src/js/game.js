@@ -425,20 +425,23 @@ export class Game {
       mid: this.sceneryColor.scenMid,
       far: this.sceneryColor.scenFar,
     }, L0 ? L0.verts : null);
-    if (!g) return;
-    this.terrainGroup = g;
-    this.terrainMats = g.userData.materials || null;
-    this.scene.add(g);
+    if (g) {
+      this.terrainGroup = g;
+      this.terrainMats = g.userData.materials || null;
+      this.scene.add(g);
 
-    // 道具（景物）：树/石头/花/栅栏…，形状是规则、颜色跟地形色卡走
-    const pg = buildProps(this.level, L0 ? L0.verts : null, {
-      roadWidth: this.level.roadWidth || 3,
-    });
-    this.propsGroup = pg;
-    this.scene.add(pg);
+      // 道具（景物）：树/石头/花/栅栏…，形状是规则、颜色跟地形色卡走
+      const pg = buildProps(this.level, L0 ? L0.verts : null, {
+        roadWidth: this.level.roadWidth || 3,
+      });
+      this.propsGroup = pg;
+      this.scene.add(pg);
+    }
 
     // 显式摆放的布景（平原上的方块 + 高架桥护栏/桥面/桥墩）：**零随机**，
     // 每一件都在关卡文件的 place[]/bridge{} 里逐个写明。
+    // ⚠️ 这一段**必须在 `if (g)` 外面**：没有地形的关卡（Breeze 就是 —— 两条线浮在虚空里）
+    //    buildTerrain 返回 null，早退会把 place[] 一起跳过 ⇒ 布景永远不出现。
     const pl = buildPlaced(this.level, L0 ? L0.verts : null, {
       roadWidth: this.level.roadWidth || 3,
     });
@@ -1175,11 +1178,16 @@ export class Game {
     }
 
     // 氛围粒子：跟着线头走，配方取当前地形段（换段时颜色平滑过渡，见 fx.js）
+    // level.fx.atmos === false 表示这一关**不要空气里的东西**（Breeze：发起人要求去掉雪花）
     if (this.atmos) {
+      const atmosOn = !(this.level.fx && this.level.fx.atmos === false);
+      this.atmos.points.visible = atmosOn;
       let fx = null;
-      const fs = this.level.__fxSpans;
-      if (fs) { for (const s of fs) if (t >= s.t0 && t <= s.t1) { fx = s.fx; break; } }
-      this.atmos.update(this._dt || 0.016, t, p.x, p.y, p.z, fx);
+      if (atmosOn) {
+        const fs = this.level.__fxSpans;
+        if (fs) { for (const s of fs) if (t >= s.t0 && t <= s.t1) { fx = s.fx; break; } }
+        this.atmos.update(this._dt || 0.016, t, p.x, p.y, p.z, fx);
+      }
     }
 
     // 主题色平滑过渡（分幕切换时不会突变）
