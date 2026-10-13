@@ -44,14 +44,17 @@ raw.forEach((b) => {
 });
 const counts = raw.reduce((a, b) => ((a[b.kind] = (a[b.kind] || 0) + 1), a), {});
 
-/* ── 2. 旋转到"路的主轴"（首点到末点），让关卡横着铺开 ─────────────── */
+/* ── 2. 不旋转：**保留世界坐标轴** ─────────────────────────────────────
+   发起人 2026-10-13 的更正：俯视图应当"从一角开始、到对角结束"，不要为了横着铺开而旋转。
+   本关的路只朝 +x / +z 两个方向延伸，所以按世界轴平铺时它天然是一条从一角走到对角的阶梯
+   （之前按"路的主轴"旋转把它掰成了横条，反而看不出这个结构）。 */
 const p0 = vertsW[0], pn = vertsW[vertsW.length - 1];
-const TH = Math.atan2(pn.z - p0.z, pn.x - p0.x);     // 主轴方向
+const TH = 0;                                        // 0 = 不旋转
 const cs = Math.cos(-TH), sn = Math.sin(-TH);
 const R2 = (x, z) => ({ x: x * cs - z * sn, z: x * sn + z * cs });
 const verts = vertsW.map((v) => { const r = R2(v.x, v.z); return { t: v.t, x: r.x, z: r.z }; });
 raw.forEach((b) => { const r = R2(b.x, b.z); b.rx = r.x; b.rz = r.z; });
-const ROT_DEG = (-TH * 180) / Math.PI;               // 方块在纸面上的偏转角
+const ROT_DEG = (-TH * 180) / Math.PI;               // 方块在纸面上的偏转角（0 = 轴对齐）
 
 /* ── 3. 边界（板面按 2*half 宽的带算进去） ──────────────────────────── */
 const half = ((DEFAULT_PARAMS.board || {}).half) || 60;
@@ -61,7 +64,8 @@ verts.forEach((v) => grow(v.x, v.z, half));
 raw.forEach((b) => grow(b.rx, b.rz, Math.max(b.w, b.d) / 2 + 2));
 const W = Math.round((x1 - x0) * S + PAD * 2), H = Math.round((z1 - z0) * S + PAD * 2 + TOP);
 const X = (x) => ((x - x0) * S + PAD).toFixed(1);
-const Z = (z) => ((z - z0) * S + PAD + TOP).toFixed(1);
+// z 轴翻转：让起点落在**左下角**、终点落到**右上对角**（世界的 +z 原本在 SVG 里向下画）
+const Z = (z) => ((z1 - z) * S + PAD + TOP).toFixed(1);
 const NX = (x) => Number(X(x)), NZ = (z) => Number(Z(z));
 
 /* ── 4. 画 ───────────────────────────────────────────────────────────── */
@@ -189,7 +193,7 @@ cams.forEach((c) => {
   push(`<line x1="${x.toFixed(1)}" y1="${tlY - 6}" x2="${x.toFixed(1)}" y2="${tlY + 44}" stroke="#8a3f2f" stroke-width="3"/>`);
 });
 push(`<text x="${PAD - 30}" y="${tlY + 130}" font-size="28" fill="#8a3f2f">竖线＝相机关键帧（tilt ${cams.map((c) => c.tilt).join("° / ")}°）</text>`);
-push(`<text x="${W / 2}" y="${H - 18}" font-size="26" fill="#8b8677" text-anchor="middle">全图已按路的主轴旋转（原世界坐标 x ${p0.x.toFixed(0)}→${pn.x.toFixed(0)}、z ${p0.z.toFixed(0)}→${pn.z.toFixed(0)}）</text>`);
+push(`<text x="${W / 2}" y="${H - 18}" font-size="26" fill="#8b8677" text-anchor="middle">按世界坐标轴平铺（不旋转）：起点在左下角、终点在右上对角　｜　世界坐标 x ${p0.x.toFixed(0)}→${pn.x.toFixed(0)}、z ${pn.z.toFixed(0)}→${p0.z.toFixed(0)}</text>`);
 push(`</svg>`);
 
 fs.writeFileSync(path.join(ROOT, "out", "level-plan.svg"), o.join("\n"));
