@@ -408,20 +408,39 @@ node tools/shot.js --level "ring a bell" --times 90 --setup-file out/_my_tweak.j
 （转向正好落在鼓点上），再和 mp3 合成。**不需要给客户端加任何录制功能。**
 
 ```bash
-node tools/render-demo.js --level "Breeze"                    # 整关，4K/60fps → out/
-node tools/render-demo.js --level "Breeze" --end 5             # 试跑前 5 秒（改参数后先试跑）
-node tools/render-demo.js --level "Breeze" --w 1920 --h 1080   # 1080p
-node tools/render-demo.js --level "Breeze" --hud               # 保留 HUD（默认隐藏）
-node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一段看效果
+node tools/render-demo.js --level "Breeze (Original Mix)-Axero"                    # 整关，4K/60fps → out/
+node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --end 5             # 试跑前 5 秒（改参数后先试跑）
+node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --w 1920 --h 1080   # 1080p
+node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --hud               # 保留 HUD（默认隐藏）
+node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --start 100 --end 105   # 只抽一段看效果
+node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 3840 --h 2160 \
+     --encoder hevc_nvenc --jobs 6                       # 4K120，6 进程并行（推荐）
 ```
 
+- ⚠️ **`--level` 不能用关键字简写**：传 `"Breeze"` 会匹配到别的/截断的关卡（时长和内容都不对），
+  必须传目录全名 `Breeze (Original Mix)-Axero`。
+- **`--jobs=N`（并行渲染）**：主进程先起一个 dev-server，再 fork N 个分片进程，
+  每个分片自带一个 Chrome + 独立 `--cdp-port`，各自渲染**自己那一段**（帧号仍是全局的），
+  全部完成后由主进程统一 ffmpeg 编码。实测（RTX 5060 Laptop / Ryzen 9 8945HX 16 核 32 线程，4K）：
+  单进程 ≈62ms/帧 → 6 进程 ≈**3.5 倍**吞吐（每进程 ~80ms/帧）。瓶颈是
+  单线程的「渲染一帧 + toDataURL」而不是 GPU，所以并行**很有用**。
+- **`--fine=<秒>`（分片预热窗口，默认 2.5s）**：分片进程的起点可能在中途，必须把游戏状态
+  推到那里。粗跳 + 末段**逐帧**对齐；单进程跑 `--start` 时是**逐帧精确**预热（保证和整段渲染一致）。
+  实测与「从 0 精确逐帧」的真值比，PSNR ≈44dB（差异来自粒子/雾的随机状态，肉眼不可辨）。
+- **`--encoder hevc_nvenc`**：4K120 用 H.264 编码不合规/兼容差，改用 HEVC（`-tag:v hvc1`，
+  `-cq 24` VBR）。4K120 实测码率 ≈31Mbps ⇒ 4 分 49 秒的成片约 **1.1GB**。
 - 实现要点都在文件头注释里；**核心约束**：`__setTime(t)`（走一帧）与
   `canvas.toDataURL()`（读像素）必须在**同一个 JS 任务**里，跨任务读会得到黑图。
 - 用本机 Chrome（有窗口但挪到屏幕外，走 GPU）跑；`--headless` 是软件渲染，慢很多。
 - 耗时参考（RTX 5060 Laptop，4K/60fps）：**约 50ms/帧**；
   Breeze（289s = 17345 帧）≈ **15 分钟渲染 + 4 分钟编码**（`h264_nvenc`，成片 465MB）。
-- 逐帧图写 `out/frames/`（Breeze 约 3.1GB），`--clean-frames` 编码后自动删。
-  进度写到 `out/render-progress.txt`（后台跑时看它）。
+  4K120（34691 帧）用 `--jobs 6`：≈ **8 分钟渲染 + 8 分钟编码**。
+- 逐帧图写 `out/frames/`（Breeze 约 3.1GB，4K120 用 `--frames out/frames-4k120` 且约 20GB），
+  `--clean-frames` 编码后自动删。进度写到 `out/render-progress.txt`（后台跑时看它）。
+- ⚠️ **别把长渲染命令套进 PowerShell 管道**（`Measure-Command { node ... | Select-Object }` 之类）：
+  子进程会继承一个管道做 stdio，实测会**挂死**（跑 10 分钟一帧不出）。用
+  `Start-Process ... -RedirectStandardOutput 日志` 或 `node ... *> 日志` 代替。
+
 
 ### BeatMarker 关键操作（详见 docs/beatmarker.md）
 - `Tab` 切换模式：空格 = 打踩音 / 采集 BPM

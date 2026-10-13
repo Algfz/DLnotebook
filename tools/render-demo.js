@@ -73,6 +73,9 @@ const O = {
   port: parseInt(A.port, 10) || 8231,
   cdpPort: parseInt(A["cdp-port"], 10) || 9231,
   chrome: A.chrome || null,
+  jobs: Math.max(1, parseInt(A.jobs, 10) || 1),           // 并行渲染进程数（每个一个 Chrome）
+  worker: A.worker != null ? parseInt(A.worker, 10) : -1, // 内部用：第几个分片（-1 = 主进程）
+  chunks: Math.max(1, parseInt(A.chunks, 10) || 1),
 };
 if (!O.level) {
   console.error("缺少 --level（关卡目录名或标题关键字）");
@@ -257,16 +260,47 @@ async function main() {
   log("");
   writeProgress("启动中…");
 
-  /* 1. 本地服务器 */
-  devServer = spawn(process.execPath, [path.join(ROOT, "tools", "dev-server.js"), String(O.port)],
-    { cwd: ROOT, stdio: "ignore" });
-  let up = false;
-  for (let i = 0; i < 60 && !up; i++) {
-    await sleep(250);
-    try { const r = await fetch("http://127.0.0.1:" + O.port + "/api/levels"); up = r.ok; } catch (e) { /* 还没起来 */ }
+  /* 1. 本地服务器（分片进程复用主进程起的那一个） */
+  const isWorker = O.worker >= 0;
+  if (!isWorker) {
+    devServer = spawn(process.execPath, [path.join(ROOT, "tools", "dev-server.js"), String(O.port)],
+      { cwd: ROOT, stdio: "ignore" });
+    let up = false;
+    for (let i = 0; i < 60 && !up; i++) {
+      await sleep(250);
+      try { const r = await fetch("http://127.0.0.1:" + O.port + "/api/levels"); up = r.ok; } catch (e) { /* 还没起来 */ }
+    }
+    if (!up) throw new Error("本地服务器启动失败（端口 " + O.port + " 被占用？）");
+    log("  本地服务器就绪 → http://127.0.0.1:" + O.port);
   }
-  if (!up) throw new Error("本地服务器启动失败（端口 " + O.port + " 被占用？）");
-  log("  本地服务器就绪 → http://127.0.0.1:" + O.port);
+
+  /* 1b. 多进程：主进程 fork N 个分片，各自一个 Chrome，渲染完再统一编码 */
+  if (!isWorker && O.jobs > 1) {
+    log("  并行      " + O.jobs + " 个渲染进程（各自一个 Chrome + 独立调试端口）");
+    log("  逐帧图    " + O.frames + "（先清空，避免混入上一轮的帧）");
+    fs.rmSync(O.frames, { recursive: true, force: true });
+    fs.mkdirSync(O.frames, { recursive: true });
+    const kids = [];
+    for (let i = 0; i < O.jobs; i++) {
+      const cargs = ["--level", O.level, "--w", String(O.w), "--h", String(O.h),
+        "--fps", String(O.fps), "--q", String(O.q), "--port", String(O.port),
+        "--frames", O.frames, "--worker", String(i), "--chunks", String(O.jobs),
+        "--cdp-port", String(O.cdpPort + 1 + i),
+        "--start", String(O.start), "--encoder", O.encoder, "--out", outFile, "--jobs", "1"];
+      if (O.end != null) cargs.push("--end", String(O.end));
+      if (O.hud) cargs.push("--hud");
+      if (O.headless) cargs.push("--headless");
+      const c = spawn(process.execPath, [__filename, ...cargs], { cwd: ROOT, stdio: "inherit" });
+      kids.push(new Promise((res) => c.on("exit", (code) => res(code))));
+      await sleep(500);                                  // 错开启动，别同时抢 CPU
+    }
+    const codes = await Promise.all(kids);
+    const bad = codes.filter((c) => c !== 0);
+    if (bad.length) throw new Error("有 " + bad.length + " 个渲染进程失败（退出码 " + bad.join(",") + "）");
+    log("");
+    log("  各分片渲染完成，开始合成");
+    return encodeAndFinish(outFile, musicPath, startFrame);   // 跳到第 6 步（合成）
+  }
 
   /* 2. 启动 Chrome */
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "dlrender-"));
@@ -387,20 +421,33 @@ async function main() {
   log("  画布实际尺寸 " + info.canvas + "，操作按键行 " + info.keyBtns + "（= 线数）");
   if (!O.hud) log("  HUD 已隐藏（要保留加 --hud）");
 
-  /* 5. 逐帧渲染 */
+  /* 5. 逐帧渲染（分片：每个 worker 只画自己那一段，帧号仍是全局的） */
   log("");
+  const cw = Math.ceil((nFrames - startFrame) / O.chunks);
+  const f0 = isWorker ? startFrame + O.worker * cw : startFrame;
+  const f1 = isWorker ? Math.min(nFrames, f0 + cw) : nFrames;
+  if (isWorker) log("  分片 " + (O.worker + 1) + "/" + O.chunks + "：第 " + f0 + " ~ " + (f1 - 1) + " 帧");
   const t0 = Date.now();
-  for (let i = 0; i < nFrames; i++) {
-    const t = i / O.fps;
-    if (i < startFrame) {
-      // 只推进不截帧：把轨迹/相机状态热到该时刻
-      if (i === 0 || i % Math.max(1, Math.floor(startFrame / 10)) === 0) {
-        const p = (i / startFrame * 100).toFixed(0);
-        process.stdout.write("\r  预热中 " + p + "%   ");
+  // 预热：把状态推到 f0。分片进程起点可能很靠后，所以先按粗步长跳（最多 ~400 次），
+  // 再在 f0 前的 fineSec 秒里**逐帧**对齐 —— 相机缓动/轨迹生长是有状态的，粗跳会留下可见偏差。
+  const fine = Math.max(60, Math.round((A.fine != null ? parseFloat(A.fine) : 2.5) * O.fps));
+  if (f0 > 0 && !isWorker) {                              // 单进程：逐帧精确预热（和旧行为一致）
+    for (let i = 0; i < f0; i++) {
+      if (i % Math.max(1, Math.floor(f0 / 20)) === 0) {
+        process.stdout.write("\r  预热中 " + (100 * i / f0).toFixed(0) + "%   ");
       }
-      await cdp.eval("window.__setTime(" + t + ")");
-      continue;
+      await cdp.eval("window.__setTime(" + (i / O.fps) + ")");
     }
+    process.stdout.write("\r  预热完成（精确逐帧到 " + (f0 / O.fps).toFixed(1) + "s）        \n");
+  } else if (f0 > 0) {                                    // 分片进程：粗跳 + 末段逐帧
+    const coarse = Math.max(1, Math.floor(Math.max(1, f0 - fine) / 400));
+    for (let i = 0; i < f0 - fine; i += coarse) await cdp.eval("window.__setTime(" + (i / O.fps) + ")");
+    for (let i = Math.max(0, f0 - fine); i < f0; i++) await cdp.eval("window.__setTime(" + (i / O.fps) + ")");
+    log("  预热到第 " + f0 + " 帧（" + (f0 / O.fps).toFixed(1) + "s，逐帧对齐最后 "
+      + (fine / O.fps).toFixed(1) + "s）");
+  }
+  for (let i = f0; i < f1; i++) {
+    const t = i / O.fps;
     // 关键：设置时间、走一帧、读像素，三段必须在同一个 JS 任务里
     const dataUrl = await cdp.eval(`(() => {
       window.__setTime(${t});
@@ -413,15 +460,15 @@ async function main() {
     fs.writeFileSync(path.join(O.frames, "frame_" + String(i).padStart(6, "0") + ".jpg"), buf);
     framesWritten++;
 
-    if (i % 30 === 0 || i === nFrames - 1) {
+    if (i % 30 === 0 || i === f1 - 1) {
       const el = (Date.now() - t0) / 1000;
-      const done = i - startFrame + 1;
+      const done = i - f0 + 1;
       const perMs = (el * 1000) / Math.max(1, done);       // 毫秒/帧
-      const eta = (nFrames - i - 1) * perMs / 60000;       // 剩余分钟
-      process.stdout.write("\r  渲染 " + (i + 1) + "/" + nFrames + " 帧  "
-        + (100 * (i + 1) / nFrames).toFixed(1) + "%  " + perMs.toFixed(0) + "ms/帧  剩余约 "
+      const eta = (f1 - i - 1) * perMs / 60000;            // 剩余分钟
+      process.stdout.write("\r  [片" + (isWorker ? O.worker + 1 : 1) + "] " + (i + 1) + "/" + f1 + " 帧  "
+        + (100 * (i + 1) / f1).toFixed(1) + "%  " + perMs.toFixed(0) + "ms/帧  剩余约 "
         + eta.toFixed(1) + " 分钟   ");
-      writeProgress("渲染 " + (i + 1) + "/" + nFrames + " 帧（" + perMs.toFixed(0) + "ms/帧，剩余约 "
+      writeProgress("渲染 " + (i + 1) + "/" + f1 + " 帧（" + perMs.toFixed(0) + "ms/帧，剩余约 "
         + eta.toFixed(1) + " 分钟）");
     }
   }
@@ -432,14 +479,21 @@ async function main() {
   if (jsErr) log("  ⚠ 页面运行时报错过：" + String(jsErr).slice(0, 300));
 
   cleanup();
+  if (isWorker) return;                                   // 分片进程不编码，交给主进程
 
-  /* 6. 合成 mp4 */
+  return encodeAndFinish(outFile, musicPath, startFrame);
+}
+
+/* 6. 合成 mp4（主进程 / 单进程都走这里） */
+async function encodeAndFinish(outFile, musicPath, startFrame) {
   log("");
   log("  ffmpeg 合成中（" + O.encoder + "）…");
   writeProgress("ffmpeg 合成中…");
   const enc = O.encoder === "libx264"
     ? ["-preset", "slow", "-crf", "18"]
-    : ["-preset", "p5", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-spatial-aq", "1"];
+    : O.encoder === "hevc_nvenc"
+      ? ["-preset", "p5", "-rc", "vbr", "-cq", "24", "-b:v", "0", "-spatial-aq", "1", "-tag:v", "hvc1"]
+      : ["-preset", "p5", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-spatial-aq", "1"];
   const ffArgs = [
     "-y", "-hide_banner", "-loglevel", "warning", "-stats",
     "-framerate", String(O.fps), "-start_number", String(startFrame),
