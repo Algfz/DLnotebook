@@ -992,20 +992,45 @@ export function buildPlaced(level, verts, opts = {}) {
   //   所以任何长方体都能严格朝 +x/−x/+z/−z —— 对应 ETW29 里"没有一个方块是斜的"。
   const SNAP = Math.PI / 2;
   const snapYaw = (y) => Math.round(y / SNAP) * SNAP;
-  const put = (t, off) => {
+  // ★ 横向偏移用**一条长基线的方向**，而不是"眼下那一段"的方向。
+  //   本关的路每 3.4m 折 90°，逐段法线会在 x 与 z 两个方向之间来回跳，
+  //   于是同一个 off 在相邻时刻落到两条互相垂直的斜线上 —— 平面图上就是一片交叉的斜格
+  //   （发起人 2026-10-13 在草图上圈出来的"怪"就是这个）。改用 ±30m 基线后，
+  //   同一排方块落在一条直线上、相邻排互相平行。
+  const BASE = 30;
+  const dirAt = (s) => {
+    const a = atArc(pl, Math.max(0, s - BASE)), b = atArc(pl, Math.min(pl.total, s + BASE));
+    let dx = b.x - a.x, dz = b.z - a.z;
+    const l = Math.hypot(dx, dz) || 1;
+    return { x: dx / l, z: dz / l };
+  };
+  const distToPath = (x, z) => {           // 到**整条路**的最小距离（路是阶梯，只看本段会误判）
+    let m = Infinity;
+    for (let i = 0; i < verts.length; i++) {
+      const d = (verts[i].x - x) * (verts[i].x - x) + (verts[i].z - z) * (verts[i].z - z);
+      if (d < m) m = d;
+    }
+    return Math.sqrt(m);
+  };
+  const put = (t, off, need = 0) => {
     const s = timeToArc(pl, verts, t);
     const p = atArc(pl, s);
-    const tx = -p.nz, tz = p.nx;                 // 切线
-    return {
-      x: p.x + p.nx * off, z: p.z + p.nz * off, y: p.y,
-      yaw: snapYaw(Math.atan2(tx, tz)),
-      gy: p.y - 0.06 - groundDropAt(level, t),   // 该处地面高度
-    };
+    const d = dirAt(s);
+    const nx = d.z, nz = -d.x;                        // 右法线（长基线）
+    let o2 = off, x = p.x + nx * o2, z = p.z + nz * o2;
+    for (let g = 0; g < 3 && need > 0; g++) {         // 把真实离路距离顶到 need 以上
+      const dd = distToPath(x, z);
+      if (dd >= need) break;
+      o2 += need - dd;
+      x = p.x + nx * o2; z = p.z + nz * o2;
+    }
+    return { x, z, y: p.y, yaw: snapYaw(Math.atan2(d.x, d.z)), gy: p.y - 0.06 - groundDropAt(level, t) };
   };
 
   // ── A) 手工摆件：每一条都是关卡文件里写死的 ────────────────────────────
   for (const it of level.place || []) {
-    const a = put(it.t, it.off);
+    const need = roadW / 2 + Math.max(it.w || 1, it.d || 1) / 2 + 0.25;
+    const a = put(it.t, it.off, need);
     const h = it.h == null ? 1 : it.h;
     const tone = it.tone || 0;                   // 0/1/2 → 三档蓝
     out.push({
