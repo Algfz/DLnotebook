@@ -825,10 +825,12 @@ $("impLevel").onclick = () => {
     rd.onload = () => {
       try {
         const lv = JSON.parse(rd.result);
-        // ① 底稿 / 编辑器自己的草图（有 road + blocks 的世界坐标）→ 直接当项目打开
-        if (Array.isArray(lv.road) && Array.isArray(lv.blocks) && lv.blocks.length
-            && lv.blocks.every((b) => b && b.x !== undefined && b.w !== undefined)) {
-          loadProject(lv, "载入的关卡 level.json（只有路）");
+        // ① 有 road[] 的文件（route-only.json / 编辑器自己导出的 JSON / 旧底稿）→ 直接当项目打开。
+        //    ⚠️ 以前这里要求"必须有 blocks 且非空"，于是**只有路线的 route-only.json 匹配不上**，
+        //    掉进下面的 level.json 分支去读 path[]（route-only.json 没有 path）→ 载入出 0 个顶点、画布空的。
+        //    （发起人 2026-10-13 就是这么踩着这个坑的："route-only.json打开了什么都没看到"）
+        if (Array.isArray(lv.road) && lv.road.length) {
+          loadProject(lv, f.name);
           return;
         }
         // ② 关卡 level.json：只能拿到真路（place[] 里只有 t/off，没有世界 x/z）
