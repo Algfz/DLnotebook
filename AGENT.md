@@ -339,6 +339,8 @@ DLnotebook/
 | 出关卡总平面图 | `node tools/plan-level.mjs` | **俯视总平面图**：在 Node 里 `import` 仓库自带 three + 关卡的 `buildPlaced()`，把 InstancedMesh 逐实例拆开，画出 655 件方块的俯视位置 → `out/level-plan.svg/.png`。见下方「两张俯视图」 |
 | 读参考关卡布景 | `python tools/etw-layout.py` | **《驻足的宁静》布景读图**（人工临摹）：原片抽帧 ｜ 按帧读出的俯视平面 → `out/etw-layout.svg/.png`。见下方「两张俯视图」 |
 | 交接文件自检 | `node tools/agent-doc-check.mjs` | **检查 `AGENT.md` 是否跟上最新提交**：落后 0 个提交 = 通过（退出码 0），落后 N 个 = 红字列出那 N 条（退出码 1）。每轮收尾前跑一次 |
+| 画布景草图 | 双击 **`tools/SketchEditor.html`** | **给发起人手绘俯视图用**：单位米、右=+x 上=+z；【路】每点一下长一段（+x/+z 交替，天然一角到对角）、【方块】拖出轴对齐矩形、【选择】移动/缩放/改色档。导出 PNG / SVG / JSON（JSON 结构＝`{road:[[x,z]…], blocks:[{x,z,w,d,h,tone}]}`，我再换算成关卡的 `t/off/rise`）。可「载入现有 level.json」把真路当底稿、也可挂一张背景参考图描 |
+| HTML 内联 JS 语法自检 | `node tools/check-html-js.mjs` | 把 `tools/SketchEditor.html` 的 `<script>` 抽出来喂 `vm.Script` 编译 —— **不碰 PowerShell 的字符串处理**（它会把中文注释写坏）。改完单文件 HTML 后跑一次 |
 
 > 预览器需在浏览器中选择/拖入**整个关卡文件夹**（因为要同时读 `level.json` 和音乐文件）。
 > 它使用 `<input webkitdirectory>`，在 `file://` 下可正常工作。

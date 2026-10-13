@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>俯视草图编辑器 · DLnotebook</title>
+<style>
+  :root{
+    --bg:#f6f4ee; --panel:#fffdf8; --line:#e2ddd0; --ink:#1e2740; --dim:#6b7280;
+    --accent:#3f5286; --accent2:#7f95cf; --warn:#a3452f;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:"Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+  #app{display:flex;flex-direction:column;height:100%}
+
+  header{padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:700;white-space:nowrap}
+  header .sub{font-size:12.5px;color:var(--dim)}
+  .grp{display:flex;gap:6px;align-items:center;padding-left:14px;border-left:1px solid var(--line)}
+  .grp:first-of-type{border-left:none;padding-left:0}
+  button{font:inherit;font-size:13px;padding:6px 11px;border:1px solid var(--line);background:#fff;border-radius:7px;cursor:pointer;color:var(--ink)}
+  button:hover{background:#f2efe6}
+  button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.ghost{background:transparent}
+  label.field{font-size:12.5px;color:var(--dim);display:flex;align-items:center;gap:5px}
+  input[type=number]{width:66px;font:inherit;font-size:13px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink)}
+  input[type=range]{width:110px}
+
+  main{flex:1;display:flex;min-height:0}
+  #stage{flex:1;position:relative;min-width:0;background:
+     repeating-linear-gradient(0deg,#faf8f2 0 1px,transparent 1px 100%);}
+  canvas{display:block;width:100%;height:100%;cursor:crosshair;touch-action:none}
+  #hint{position:absolute;left:14px;top:12px;font-size:12.5px;color:var(--dim);background:#fffdf8e6;border:1px solid var(--line);border-radius:8px;padding:6px 10px;pointer-events:none;max-width:60%}
+  #scalebar{position:absolute;left:16px;bottom:14px;font-size:12px;color:var(--ink);background:#fffdf8e6;border:1px solid var(--line);border-radius:8px;padding:6px 10px;pointer-events:none}
+
+  aside{width:286px;background:var(--panel);border-left:1px solid var(--line);padding:12px 14px;overflow:auto;font-size:13px}
+  aside h2{font-size:13px;margin:14px 0 6px;color:var(--accent);letter-spacing:.5px}
+  aside h2:first-child{margin-top:0}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:5px 0}
+  .row .k{color:var(--dim)}
+  .tone{display:flex;gap:6px}
+  .tone button{width:30px;height:26px;padding:0;border-radius:6px}
+  .swatch{display:flex;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--dim)}
+  .swatch i{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;border:1px solid #0002}
+  kbd{font:12px/1.4 ui-monospace,Consolas,monospace;background:#fff;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--ink)}
+  .hintbox{background:#fff8e8;border:1px solid #f0e2bd;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.65;color:#5b4a1f}
+  .hintbox b{color:#7a5a12}
+  hr{border:none;border-top:1px solid var(--line);margin:12px 0}
+  .tiny{font-size:12px;color:var(--dim);line-height:1.6}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>俯视草图编辑器</h1>
+    <span class="sub">单位＝米；<b>上＝+z，右＝+x</b>；路就画成"+x/+z 交替的阶梯"</span>
+
+    <div class="grp">
+      <button id="tSelect" title="选择/移动/缩放方块（V）">选择</button>
+      <button id="tRoad"   title="点一下长一段路：交替 +x / +z（R）">路</button>
+      <button id="tBlock"  title="按住拖出一个方块（B）">方块</button>
+    </div>
+
+    <div class="grp">
+      <label class="field">每段 <input id="leg" type="number" value="3.4" step="0.1" min="0.5"> m</label>
+      <label class="field">路宽 <input id="rw" type="number" value="3" step="0.5" min="1"> m</label>
+      <button id="revDir" class="ghost" title="切换第一段的朝向">先 +x / 先 +z</button>
+      <button id="backLeg" class="ghost" title="退掉最后一段路（Backspace）">退一段</button>
+    </div>
+
+    <div class="grp">
+      <label class="field"><input id="snap" type="checkbox" checked> 吸附网格</label>
+      <label class="field">格 <input id="grid" type="number" value="1" step="0.5" min="0.25"> m</label>
+      <button id="zoomFit" class="ghost">适应窗口</button>
+    </div>
+
+    <div class="grp">
+      <button id="undo" class="ghost" title="Ctrl+Z">撤销</button>
+      <button id="demo" class="ghost" title="放一小段示例，看看怎么用">示例</button>
+      <button id="clear" class="ghost">清空</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <div id="hint">右键拖 = 平移，滚轮 = 缩放</div>
+      <div id="scalebar"></div>
+    </div>
+
+    <aside>
+      <h2>选中的方块</h2>
+      <div class="tiny" id="selInfo">没有选中。用【选择】工具点一个方块。</div>
+      <div class="row"><span class="k">宽 w（x 向）</span><input id="bw" type="number" step="0.5" min="0.25"></div>
+      <div class="row"><span class="k">深 d（z 向）</span><input id="bd" type="number" step="0.5" min="0.25"></div>
+      <div class="row"><span class="k">高 h（只记录）</span><input id="bh" type="number" step="0.5" min="0.1"></div>
+      <div class="row"><span class="k">色档</span>
+        <span class="tone">
+          <button data-tone="0" title="深蓝"></button>
+          <button data-tone="1" title="中蓝"></button>
+          <button data-tone="2" title="浅蓝"></button>
+          <button data-tone="3" title="白（点缀）"></button>
+        </span>
+      </div>
+      <div class="row"><button id="dupSel" class="ghost">复制一个</button><button id="delSel" class="ghost">删除</button></div>
+
+      <h2>图纸</h2>
+      <div class="row"><span class="k">路顶点 / 方块</span><span id="stat">0 / 0</span></div>
+      <div class="row"><label class="field"><input id="showGrid" type="checkbox" checked> 显示网格</label></div>
+      <div class="row"><label class="field"><input id="showRoad" type="checkbox" checked> 显示路带</label></div>
+      <div class="row"><label class="field"><input id="showOrigin" type="checkbox" checked> 显示起点/比例尺</label></div>
+
+      <h2>导出 / 导入</h2>
+      <div class="row"><button id="expPng">导出 PNG</button><button id="expSvg">导出 SVG</button></div>
+      <div class="row"><button id="expJson">导出 JSON</button><button id="impJson">导入我的 JSON</button></div>
+      <div class="row"><button id="impLevel">载入现有 level.json</button></div>
+      <div class="tiny" id="ioMsg"></div>
+
+      <h2>背景参考图（可选）</h2>
+      <div class="row"><input id="bgFile" type="file" accept="image/*" style="font-size:12px"></div>
+      <div class="row"><span class="k">透明度</span><input id="bgAlpha" type="range" min="0" max="100" value="45"></div>
+      <div class="row"><span class="k">缩放</span><input id="bgScale" type="number" value="1" step="0.05" min="0.05"></div>
+      <div class="row"><span class="k">X / Z 位置</span><span><input id="bgX" type="number" value="0" step="1" style="width:58px"> <input id="bgZ" type="number" value="0" step="1" style="width:58px"></span></div>
+      <div class="row"><button id="bgClear" class="ghost">去掉背景图</button></div>
+
+      <hr>
+      <div class="hintbox">
+        <b>两条硬规则（画的时候编辑器已经帮你保证）</b><br>
+        ① <b>路只朝两个方向</b>：+x 与 +z 交替 → 天然是从一角走到对角的阶梯，永不回头；<br>
+        ② <b>方块一律轴对齐</b>：四条边永远平行于坐标轴，不会出现斜着摆的方块。
+      </div>
+      <h2>快捷键</h2>
+      <div class="tiny">
+        <kbd>V</kbd> 选择　<kbd>R</kbd> 路　<kbd>B</kbd> 方块<br>
+        <kbd>Backspace</kbd> 退一段路<br>
+        <kbd>Delete</kbd> 删除选中方块<br>
+        <kbd>方向键</kbd> 微移 1m（<kbd>Shift</kbd> 10m）<br>
+        <kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销　<kbd>Esc</kbd> 取消选中<br>
+        右键拖 平移　滚轮 缩放
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+/* =====================================================================
+   俯视草图编辑器（单文件，零依赖）
+   —— 给发起人手绘"布景俯视图"用。坐标：世界 (x,z)，单位米；屏幕上 右=+x、上=+z。
+   路只能画成"每段交替 +x / +z"的阶梯（DL 只有两种行进方向），方块一律轴对齐。
+   导出 JSON 的结构刻意贴近关卡的 place[]（x/z/w/d/h/tone），我再换算成 t/off/rise。
+   ===================================================================== */
+
+const TONE_COLORS = ["#3f5286", "#657cbe", "#7f95cf", "#fdfdfb"];   // 深 / 中 / 浅 / 白
+const TONE_NAMES  = ["深蓝", "中蓝", "浅蓝", "白"];
+
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const stage = document.getElementById("stage");
+const $ = (id) => document.getElementById(id);
+
+/* ── 状态 ─────────────────────────────────────────────────────────── */
+let S = {
+  tool: "select",
+  road: [],                 // [{x,z}] 路的中线顶点
+  blocks: [],               // [{x,z,w,d,h,tone}] x,z = 中心
+  nextDir: "+x",            // 下一段路的方向
+  leg: 3.4,
+  roadWidth: 3,
+  snap: true,
+  grid: 1,
+  sel: -1,
+  view: { x: 0, z: 0, s: 9 },      // 视口：世界中心 (x,z)，缩放 px/m
+  bg: null,                 // {img, alpha, scale, x, z}
+};
+let drag = null;            // 拖拽中的临时状态
+let undoStack = [], redoHint = 0;
+
+function snapshot() {
+  undoStack.push(JSON.stringify({ road: S.road, blocks: S.blocks, nextDir: S.nextDir }));
+  if (undoStack.length > 200) undoStack.shift();
+}
+function undo() {
+  if (!undoStack.length) return;
+  const prev = JSON.parse(undoStack.pop());
+  S.road = prev.road; S.blocks = prev.blocks; S.nextDir = prev.nextDir; S.sel = -1;
+  syncSidebar(); draw();
+}
+
+/* ── 坐标换算 ─────────────────────────────────────────────────────── */
+function W2S(x, z) {                      // 世界 → 屏幕（上=+z）
+  const r = cv.getBoundingClientRect();
+  return { x: r.width / 2 + (x - S.view.x) * S.view.s,
+           y: r.height / 2 - (z - S.view.z) * S.view.s };
+}
+function S2W(px, py) {                    // 屏幕 → 世界
+  const r = cv.getBoundingClientRect();
+  return { x: (px - r.width / 2) / S.view.s + S.view.x,
+           z: -(py - r.height / 2) / S.view.s + S.view.z };
+}
+function snapV(v) { return S.snap ? Math.round(v / S.grid) * S.grid : Math.round(v * 100) / 100; }
+
+/* ── 画布尺寸 ─────────────────────────────────────────────────────── */
+function resize() {
+  const r = stage.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.max(1, Math.round(r.width * dpr));
+  cv.height = Math.max(1, Math.round(r.height * dpr));
+  cv.style.width = r.width + "px";
+  cv.style.height = r.height + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+window.addEventListener("resize", resize);
+
+/* ── 绘制 ─────────────────────────────────────────────────────────── */
+function draw() {
+  const r = cv.getBoundingClientRect(), w = r.width, h = r.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#faf8f2";
+  ctx.fillRect(0, 0, w, h);
+
+  drawBackground(r);
+
+  const g = S.grid * S.view.s;
+  if ($("showGrid").checked && g >= 3) {
+    // 细格
+    ctx.lineWidth = 1; ctx.strokeStyle = "#eee8da";
+    ctx.beginPath();
+    const o = W2S(0, 0);
+    for (let x = o.x % g; x < w; x += g) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    for (let y = o.y % g; y < h; y += g) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+    ctx.stroke();
+    // 10 格粗线
+    const G = g * 10;
+    if (G >= 12) {
+      ctx.strokeStyle = "#e2d9c4"; ctx.beginPath();
+      for (let x = o.x % G; x < w; x += G) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+      for (let y = o.y % G; y < h; y += G) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+      ctx.stroke();
+    }
+  }
+
+  // 路带
+  if ($("showRoad").checked && S.road.length) {
+    ctx.lineJoin = "miter"; ctx.lineCap = "butt";
+    const pts = S.road.map((p) => W2S(p.x, p.z));
+    ctx.strokeStyle = "#b9c6de";
+    ctx.lineWidth = S.roadWidth * S.view.s;
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+    // 中线（白虚线，和出图一致）
+    ctx.save();
+    ctx.setLineDash([S.view.s * 0.6, S.view.s * 0.45]);
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(1, S.view.s * 0.22);
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke(); ctx.restore();
+    // 顶点小方块
+    ctx.fillStyle = "#5b6f9c";
+    for (const p of pts) ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
+  }
+
+  // 方块
+  S.blocks.forEach((b, i) => {
+    const c = W2S(b.x, b.z);
+    const pw = b.w * S.view.s, ph = b.d * S.view.s;
+    ctx.fillStyle = TONE_COLORS[b.tone] || TONE_COLORS[1];
+    ctx.strokeStyle = "#2b3550"; ctx.lineWidth = i === S.sel ? 3 : 1.2;
+    ctx.fillRect(c.x - pw / 2, c.y - ph / 2, pw, ph);
+    ctx.strokeRect(c.x - pw / 2, c.y - ph / 2, pw, ph);
+  });
+
+  // 选中框的 4 个角柄
+  if (S.sel >= 0 && S.blocks[S.sel]) {
+    const b = S.blocks[S.sel], c = W2S(b.x, b.z);
+    const hw = (b.w * S.view.s) / 2, hh = (b.d * S.view.s) / 2;
+    ctx.fillStyle = "#fff"; ctx.strokeStyle = "#3f5286"; ctx.lineWidth = 2;
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      ctx.beginPath(); ctx.rect(c.x + dx * hw - 5, c.y + dz * hh - 5, 10, 10); ctx.fill(); ctx.stroke();
+    }
+  }
+
+  // 起点标记 + 比例尺
+  if ($("showOrigin").checked) {
+    if (S.road.length) {
+      const p0 = W2S(S.road[0].x, S.road[0].z), pn = W2S(S.road[S.road.length - 1].x, S.road[S.road.length - 1].z);
+      ctx.fillStyle = "#2f7a4d"; ctx.beginPath(); ctx.arc(p0.x, p0.y, 6, 0, 7); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.font = "11px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("起", p0.x, p0.y + 4);
+      ctx.fillStyle = "#a3452f"; ctx.beginPath(); ctx.arc(pn.x, pn.y, 6, 0, 7); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.fillText("终", pn.x, pn.y + 4);
+      ctx.textAlign = "left";
+    }
+  }
+
+  // 正在拖出的方块
+  if (drag && drag.type === "newBlock") {
+    const a = drag.a, b = drag.b;
+    const p = W2S(Math.min(a.x, b.x), Math.max(a.z, b.z));
+    const pw = Math.abs(b.x - a.x) * S.view.s, ph = Math.abs(b.z - a.z) * S.view.s;
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = "#a3452f"; ctx.lineWidth = 1.6;
+    ctx.strokeRect(p.x, p.y, pw, ph); ctx.setLineDash([]);
+  }
+
+  if (location.search.includes("dbg")) {          // ?dbg：把关键读数画在画布左下（截图即可读）
+    const r2 = cv.getBoundingClientRect();
+    ctx.fillStyle = "#a3452f"; ctx.font = "bold 22px monospace"; ctx.textAlign = "left";
+    ctx.fillText(`s=${S.view.s.toFixed(2)} road=${S.road.length} blocks=${S.blocks.length}`, 20, h - 70);
+    ctx.fillText(`cv=${Math.round(r2.width)}x${Math.round(r2.height)}  view=(${S.view.x.toFixed(1)},${S.view.z.toFixed(1)})`, 20, h - 40);
+    if (window.__err) { ctx.font = "bold 18px monospace"; ctx.fillText("ERR " + String(window.__err).slice(0, 140), 20, h - 100); }
+  }
+
+  // 比例尺文字
+  const px100 = 100 * S.view.s;
+  $("scalebar").innerHTML = `1 格 = ${S.grid} m　｜　比例尺 <b>${Math.round(S.view.s * 10)}px = 10m</b>`
+    + (S.bg ? "　｜　<b>背景参考图已加载</b>" : "");
+  updateHint();
+}
+
+function drawBackground() {
+  if (!S.bg) return;
+  const c = W2S(S.bg.x, S.bg.z);
+  const w = S.bg.img.width * S.bg.scale * 1; // 图片按 1px = 1m 的基准，再乘缩放
+  const h = S.bg.img.height * S.bg.scale * 1;
+  ctx.save();
+  ctx.globalAlpha = S.bg.alpha;
+  ctx.drawImage(S.bg.img, c.x - w / 2, c.y - h / 2, w, h);
+  ctx.restore();
+}
+
+function updateHint() {
+  const t = S.tool;
+  $("hint").textContent =
+    t === "road" ? (S.road.length
+        ? `【路】点一下再长一段（下一段朝 ${S.nextDir}）；退一段＝Backspace；切方向＝顶栏按钮`
+        : `【路】在任意位置点第一下开始画（第一段朝 ${S.nextDir}）`)
+    : t === "block" ? "【方块】按住拖出一个矩形（按住 Shift 可拖出正方形）"
+    : "【选择】点方块＝选中；拖动＝移动；拖四角＝缩放；空白处拖动＝平移";
+}
+
+/* ── 指针交互 ─────────────────────────────────────────────────────── */
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+
+cv.addEventListener("pointerdown", (e) => {
+  cv.setPointerCapture(e.pointerId);
+  const r = cv.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  const wpt = S2W(px, py);
+
+  // 右键 / 中键 / 空格 = 平移
+  if (e.button === 2 || e.button === 1) {
+    drag = { type: "pan", px, py, vx: S.view.x, vz: S.view.z };
+    return;
+  }
+
+  if (S.tool === "road") {
+    snapshot();
+    const leg = Math.max(0.5, +$("leg").value || 3.4);
+    if (!S.road.length) {
+      S.road.push({ x: snapV(wpt.x), z: snapV(wpt.z) });
+      draw(); syncSidebar(); return;
+    }
+    const last = S.road[S.road.length - 1];
+    const p = S.nextDir === "+x" ? { x: last.x + leg, z: last.z } : { x: last.x, z: last.z + leg };
+    S.road.push(p);
+    S.nextDir = S.nextDir === "+x" ? "+z" : "+x";
+    draw(); syncSidebar(); return;
+  }
+
+  if (S.tool === "block") {
+    const a = { x: snapV(wpt.x), z: snapV(wpt.z) };
+    drag = { type: "newBlock", a, b: a };
+    return;
+  }
+
+  // select
+  const hit = hitHandle(px, py) || hitBlock(px, py);
+  if (hit && hit.kind === "handle") {
+    snapshot();
+    drag = { type: "resize", i: hit.i, corner: hit.corner };
+  } else if (hit && hit.kind === "block") {
+    S.sel = hit.i; syncSidebar();
+    snapshot();
+    drag = { type: "move", i: hit.i, ox: wpt.x - S.blocks[hit.i].x, oz: wpt.z - S.blocks[hit.i].z };
+  } else {
+    S.sel = -1; syncSidebar();
+    drag = { type: "pan", px, py, vx: S.view.x, vz: S.view.z };
+  }
+  draw();
+});
+
+cv.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const r = cv.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  const wpt = S2W(px, py);
+
+  if (drag.type === "pan") {
+    S.view.x = drag.vx - (px - drag.px) / S.view.s;
+    S.view.z = drag.vz + (py - drag.py) / S.view.s;
+    draw(); return;
+  }
+  if (drag.type === "newBlock") {
+    let b = { x: snapV(wpt.x), z: snapV(wpt.z) };
+    if (e.shiftKey) {                       // 正方形
+      const dx = Math.abs(b.x - drag.a.x), dz = Math.abs(b.z - drag.a.z), m = Math.max(dx, dz);
+      b = { x: drag.a.x + Math.sign(b.x - drag.a.x || 1) * m, z: drag.a.z + Math.sign(b.z - drag.a.z || 1) * m };
+    }
+    drag.b = b; draw(); return;
+  }
+  if (drag.type === "move") {
+    const b = S.blocks[drag.i];
+    b.x = snapV(wpt.x - drag.ox); b.z = snapV(wpt.z - drag.oz);
+    syncSidebar(); draw(); return;
+  }
+  if (drag.type === "resize") {
+    const b = S.blocks[drag.i];
+    const dx = Math.sign(drag.corner[0]), dz = Math.sign(drag.corner[1]);
+    const fixedX = b.x - dx * b.w / 2, fixedZ = b.z - dz * b.d / 2;
+    let nx = snapV(wpt.x), nz = snapV(wpt.z);
+    const nw = Math.max(0.25, Math.abs(nx - fixedX)), nd = Math.max(0.25, Math.abs(nz - fixedZ));
+    b.w = Math.round(nw * 100) / 100; b.d = Math.round(nd * 100) / 100;
+    b.x = fixedX + dx * b.w / 2; b.z = fixedZ + dz * b.d / 2;
+    syncSidebar(); draw(); return;
+  }
+});
+
+function endDrag() {
+  if (drag && drag.type === "newBlock") {
+    const a = drag.a, b = drag.b;
+    const w = Math.abs(b.x - a.x), d = Math.abs(b.z - a.z);
+    if (w >= 0.25 && d >= 0.25) {
+      snapshot();
+      S.blocks.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, w: +w.toFixed(2), d: +d.toFixed(2), h: 1, tone: 1 });
+      S.sel = S.blocks.length - 1;
+    }
+  }
+  drag = null; syncSidebar(); draw();
+}
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  const before = S2W(px, py);
+  const k = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  S.view.s = Math.min(400, Math.max(0.4, S.view.s * k));
+  const after = S2W(px, py);
+  S.view.x += before.x - after.x;
+  S.view.z += before.z - after.z;
+  draw();
+}, { passive: false });
+
+function hitBlock(px, py) {
+  for (let i = S.blocks.length - 1; i >= 0; i--) {
+    const b = S.blocks[i], c = W2S(b.x, b.z);
+    const hw = (b.w * S.view.s) / 2, hh = (b.d * S.view.s) / 2;
+    if (px >= c.x - hw && px <= c.x + hw && py >= c.y - hh && py <= c.y + hh) return { kind: "block", i };
+  }
+  return null;
+}
+function hitHandle(px, py) {
+  if (S.sel < 0 || !S.blocks[S.sel]) return null;
+  const b = S.blocks[S.sel], c = W2S(b.x, b.z);
+  const hw = (b.w * S.view.s) / 2, hh = (b.d * S.view.s) / 2;
+  for (const corner of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const hx = c.x + corner[0] * hw, hy = c.y + corner[1] * hh;
+    if (Math.abs(px - hx) <= 8 && Math.abs(py - hy) <= 8) return { kind: "handle", i: S.sel, corner };
+  }
+  return null;
+}
+
+/* ── 键盘 ─────────────────────────────────────────────────────────── */
+window.addEventListener("keydown", (e) => {
+  if (/input|textarea/i.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (e.ctrlKey && k === "z") { e.preventDefault(); undo(); return; }
+  if (e.key === "Delete" && S.sel >= 0) { snapshot(); S.blocks.splice(S.sel, 1); S.sel = -1; syncSidebar(); draw(); return; }
+  if (e.key === "Backspace" && S.tool === "road" && S.road.length > 1) {
+    e.preventDefault(); snapshot(); S.road.pop(); S.nextDir = S.nextDir === "+x" ? "+z" : "+x"; draw(); syncSidebar(); return;
+  }
+  if (e.key === "Escape") { S.sel = -1; syncSidebar(); draw(); return; }
+  if (k === "v") setTool("select");
+  if (k === "r") setTool("road");
+  if (k === "b") setTool("block");
+  if (e.key.startsWith("Arrow") && S.sel >= 0) {
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    const b = S.blocks[S.sel];
+    if (e.key === "ArrowLeft") b.x -= step;
+    if (e.key === "ArrowRight") b.x += step;
+    if (e.key === "ArrowUp") b.z += step;
+    if (e.key === "ArrowDown") b.z -= step;
+    syncSidebar(); draw();
+  }
+});
+
+/* ── UI 绑定 ──────────────────────────────────────────────────────── */
+function setTool(t) {
+  S.tool = t; drag = null;
+  for (const [id, key] of [["tSelect", "select"], ["tRoad", "road"], ["tBlock", "block"]])
+    $(id).classList.toggle("on", key === t);
+  updateHint(); draw();
+}
+$("tSelect").onclick = () => setTool("select");
+$("tRoad").onclick = () => setTool("road");
+$("tBlock").onclick = () => setTool("block");
+$("leg").onchange = () => { S.leg = +$("leg").value || 3.4; };
+$("rw").onchange = () => { S.roadWidth = +$("rw").value || 3; draw(); };
+$("revDir").onclick = () => { S.nextDir = S.nextDir === "+x" ? "+z" : "+x"; draw(); };
+$("backLeg").onclick = () => {
+  if (S.road.length > 1) { snapshot(); S.road.pop(); S.nextDir = S.nextDir === "+x" ? "+z" : "+x"; draw(); syncSidebar(); }
+};
+$("snap").onchange = () => { S.snap = $("snap").checked; };
+$("grid").onchange = () => { S.grid = Math.max(0.25, +$("grid").value || 1); draw(); };
+$("undo").onclick = undo;
+$("demo").onclick = () => { snapshot(); demo(); };
+$("clear").onclick = () => {
+  if (!confirm("清空整张图？（路 + 所有方块）")) return;
+  snapshot(); S.road = []; S.blocks = []; S.sel = -1; syncSidebar(); draw();
+};
+$("zoomFit").onclick = zoomFit;
+$("showGrid").onchange = draw;
+$("showRoad").onchange = draw;
+$("showOrigin").onchange = draw;
+
+function syncSidebar() {
+  $("stat").textContent = `${S.road.length} / ${S.blocks.length}`;
+  const sel = S.blocks[S.sel];
+  $("selInfo").textContent = sel
+    ? `已选中第 ${S.sel + 1} 个：中心 (${sel.x.toFixed(1)}, ${sel.z.toFixed(1)})`
+    : "没有选中。用【选择】工具点一个方块。";
+  $("bw").value = sel ? sel.w : "";
+  $("bd").value = sel ? sel.d : "";
+  $("bh").value = sel ? sel.h : "";
+  document.querySelectorAll("[data-tone]").forEach((b) => {
+    b.classList.toggle("on", sel && +b.dataset.tone === sel.tone);
+    b.style.background = TONE_COLORS[+b.dataset.tone];
+    b.style.borderColor = sel && +b.dataset.tone === sel.tone ? "#1e2740" : "#0003";
+  });
+}
+$("bw").onchange = () => { const b = S.blocks[S.sel]; if (b) { snapshot(); b.w = Math.max(0.25, +$("bw").value || 1); draw(); } };
+$("bd").onchange = () => { const b = S.blocks[S.sel]; if (b) { snapshot(); b.d = Math.max(0.25, +$("bd").value || 1); draw(); } };
+$("bh").onchange = () => { const b = S.blocks[S.sel]; if (b) { b.h = Math.max(0.1, +$("bh").value || 1); } };
+document.querySelectorAll("[data-tone]").forEach((b) => {
+  b.onclick = () => { const s = S.blocks[S.sel]; if (s) { snapshot(); s.tone = +b.dataset.tone; syncSidebar(); draw(); } };
+});
+$("dupSel").onclick = () => {
+  const b = S.blocks[S.sel]; if (!b) return;
+  snapshot();
+  S.blocks.push({ ...b, x: b.x + b.w, z: b.z });
+  S.sel = S.blocks.length - 1; syncSidebar(); draw();
+};
+$("delSel").onclick = () => {
+  if (S.sel < 0) return;
+  snapshot(); S.blocks.splice(S.sel, 1); S.sel = -1; syncSidebar(); draw();
+};
+
+/* ── 背景参考图 ───────────────────────────────────────────────────── */
+$("bgFile").onchange = (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image();
+  img.onload = () => {
+    S.bg = { img, alpha: +$("bgAlpha").value / 100, scale: +$("bgScale").value || 1, x: 0, z: 0 };
+    draw();
+  };
+  img.src = URL.createObjectURL(f);
+};
+$("bgAlpha").oninput = () => { if (S.bg) { S.bg.alpha = +$("bgAlpha").value / 100; draw(); } };
+$("bgScale").onchange = () => { if (S.bg) { S.bg.scale = +$("bgScale").value || 1; draw(); } };
+$("bgX").onchange = () => { if (S.bg) { S.bg.x = +$("bgX").value || 0; draw(); } };
+$("bgZ").onchange = () => { if (S.bg) { S.bg.z = +$("bgZ").value || 0; draw(); } };
+$("bgClear").onclick = () => { S.bg = null; $("bgFile").value = ""; draw(); };
+
+/* ── 导入 / 导出 ──────────────────────────────────────────────────── */
+function download(name, text, mime) {
+  const blob = new Blob([text], { type: mime || "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  $("ioMsg").textContent = `已导出 ${name}`;
+}
+function projectJSON() {
+  return JSON.stringify({
+    v: 1,
+    note: "tools/SketchEditor.html 导出的俯视草图；坐标单位=米；x 向右、z 向上（俯视）。方块 axis-aligned。",
+    roadWidth: S.roadWidth,
+    leg: +$("leg").value || 3.4,
+    road: S.road.map((p) => [+p.x.toFixed(2), +p.z.toFixed(2)]),
+    blocks: S.blocks.map((b) => ({
+      x: +b.x.toFixed(2), z: +b.z.toFixed(2),
+      w: +b.w.toFixed(2), d: +b.d.toFixed(2), h: +b.h.toFixed(2), tone: b.tone,
+    })),
+  }, null, 2);
+}
+$("expJson").onclick = () => download("sketch-plan.json", projectJSON(), "application/json");
+
+$("impJson").onclick = () => {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json,application/json";
+  inp.onchange = () => {
+    const f = inp.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const j = JSON.parse(rd.result);
+        loadProject(j); $("ioMsg").textContent = "已导入草图 JSON";
+      } catch (err) { $("ioMsg").textContent = "导入失败：" + err.message; }
+    };
+    rd.readAsText(f);
+  };
+  inp.click();
+};
+
+$("impLevel").onclick = () => {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json,application/json";
+  inp.onchange = () => {
+    const f = inp.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const lv = JSON.parse(rd.result);
+        snapshot();
+        S.road = [];
+        const pts = lv.path || (lv.lines && lv.lines[0] && lv.lines[0].path) || [];
+        for (const p of pts) {
+          const pos = p.pos || p;
+          const x = +pos[0], z = +pos[2];
+          const last = S.road[S.road.length - 1];
+          if (!last || Math.abs(last.x - x) > 1e-6 || Math.abs(last.z - z) > 1e-6) S.road.push({ x, z });
+        }
+        S.roadWidth = +lv.roadWidth || 3;
+        $("rw").value = S.roadWidth;
+        S.blocks = (lv.place || []).map((b) => ({
+          x: +b.x || 0, z: +b.z || 0, w: +b.w || 4, d: +b.d || 4, h: +b.h || 1, tone: +b.tone ?? 1,
+        }));
+        // 关卡里没有直接存 x/z（只有 t/off），所以 place[] 一般导不出来 —— 提示一下
+        S.sel = -1;
+        zoomFit(); syncSidebar(); draw();
+        $("ioMsg").textContent = `已载入：路 ${S.road.length} 个顶点、方块 ${S.blocks.length} 个`
+          + (lv.place && lv.place.length && !S.blocks.length ? "（该关的 place[] 只存了 t/off，无法直接还原成 x/z，请用背景参考图对照）" : "");
+      } catch (err) { $("ioMsg").textContent = "载入失败：" + err.message; }
+    };
+    rd.readAsText(f);
+  };
+  inp.click();
+};
+
+function loadProject(j) {
+  snapshot();
+  S.road = (j.road || []).map((p) => ({ x: +p[0], z: +p[1] }));
+  S.blocks = (j.blocks || []).map((b) => ({ x: +b.x, z: +b.z, w: +b.w, d: +b.d, h: +b.h ?? 1, tone: +b.tone ?? 1 }));
+  S.roadWidth = +j.roadWidth || S.roadWidth;
+  $("rw").value = S.roadWidth;
+  if (j.leg) $("leg").value = j.leg;
+  S.sel = -1; zoomFit(); syncSidebar(); draw();
+}
+
+/* SVG 导出：和屏幕完全同一套坐标（y 轴向下，所以 z 取负） */
+$("expSvg").onclick = () => {
+  const pad = 20;
+  let x0 = 0, x1 = 0, z0 = 0, z1 = 0;
+  const acc = (x, z) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); };
+  S.road.forEach((p) => acc(p.x, p.z));
+  S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
+  const m = 6;
+  x0 -= m; z0 -= m; x1 += m; z1 += m;
+  const sc = 8;                                  // 8 px / m
+  const W = Math.round((x1 - x0) * sc + pad * 2), H = Math.round((z1 - z0) * sc + pad * 2);
+  const X = (x) => ((x - x0) * sc + pad).toFixed(1);
+  const Y = (z) => ((z1 - z) * sc + pad).toFixed(1);
+
+  const o = [];
+  o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" font-family="'Noto Sans SC','Microsoft YaHei',sans-serif">`);
+  o.push(`<rect width="${W}" height="${H}" fill="#faf8f2"/>`);
+  o.push(`<text x="${pad}" y="${pad + 16}" font-size="22" font-weight="700" fill="#1e2740">俯视草图（手绘）</text>`);
+  for (const b of S.blocks) {
+    const w = (b.w * sc).toFixed(1), d = (b.d * sc).toFixed(1);
+    o.push(`<rect x="${(X(b.x) - w / 2)}" y="${(Y(b.z) - d / 2)}" width="${w}" height="${d}" fill="${TONE_COLORS[b.tone] || TONE_COLORS[1]}" stroke="#2b3550" stroke-width="1.2"/>`);
+  }
+  if (S.road.length) {
+    const pts = S.road.map((p) => `${X(p.x)},${Y(p.z)}`).join(" ");
+    o.push(`<polyline points="${pts}" fill="none" stroke="#b9c6de" stroke-width="${(S.roadWidth * sc).toFixed(1)}" stroke-linejoin="miter"/>`);
+    o.push(`<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="${(0.3 * sc).toFixed(1)}" stroke-dasharray="${(0.6 * sc).toFixed(1)} ${(0.45 * sc).toFixed(1)}"/>`);
+  }
+  o.push(`<line x1="${pad}" y1="${H - pad - 14}" x2="${pad + 10 * sc}" y2="${H - pad - 14}" stroke="#1e2740" stroke-width="3"/>`);
+  o.push(`<text x="${pad + 10 * sc + 8}" y="${H - pad - 8}" font-size="14" fill="#1e2740">10 m</text>`);
+  o.push(`</svg>`);
+  download("sketch-plan.svg", o.join("\n"), "image/svg+xml");
+};
+
+$("expPng").onclick = () => {
+  cv.toBlob((b) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b); a.download = "sketch-plan.png"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    $("ioMsg").textContent = "已导出 sketch-plan.png（就是当前视图）";
+  });
+};
+
+/* ── 适应窗口 / 示例 ─────────────────────────────────────────────── */
+function zoomFit() {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  const acc = (x, z) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); };
+  S.road.forEach((p) => acc(p.x, p.z));
+  S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
+  if (isFinite(x0)) {                     // 把路带自身的宽度也算进包围盒，免得贴边被裁
+    const m = S.roadWidth / 2 + 1;
+    x0 -= m; x1 += m; z0 -= m; z1 += m;
+  }
+  if (!isFinite(x0)) { S.view = { x: 0, z: 0, s: 9 }; draw(); return; }
+  const r = stage.getBoundingClientRect();
+  const sw = Math.max(1, x1 - x0), sh = Math.max(1, z1 - z0);
+  S.view.s = Math.max(0.4, Math.min(200, Math.min((r.width - 80) / sw, (r.height - 80) / sh)));
+  S.view.x = (x0 + x1) / 2; S.view.z = (z0 + z1) / 2;
+  draw();
+}
+
+/* 示例：一小段阶梯路 + 几个方块（也可以避免空白页吓人） */
+function demo() {
+  S.road = [{ x: 0, z: 0 }];
+  S.nextDir = "+x";
+  const leg = 3.4;
+  for (let i = 0; i < 10; i++) {
+    const last = S.road[S.road.length - 1];
+    S.road.push(S.nextDir === "+x" ? { x: last.x + leg, z: last.z } : { x: last.x, z: last.z + leg });
+    S.nextDir = S.nextDir === "+x" ? "+z" : "+x";
+  }
+  S.blocks = [
+    { x: 8.5, z: 3.4, w: 4, d: 2, h: 1, tone: 1 },
+    { x: 5.1, z: 8.5, w: 2, d: 4, h: 1, tone: 0 },
+    { x: 12, z: 12, w: 6, d: 6, h: 0.9, tone: 2 },
+    { x: 2, z: 14, w: 3, d: 3, h: 8, tone: 0 },
+  ];
+  zoomFit(); syncSidebar(); draw();
+}
+
+/* ── 启动 ─────────────────────────────────────────────────────────── */
+setTool("select");
+resize();
+if (location.search.includes("demo")) { try { demo(); } catch (err) { window.__err = String((err && err.stack) || err); } }
+syncSidebar();
+if (location.search.includes("dbg")) draw();   // ?dbg 时再画一遍，确保读数在图上
+</script>
+</body>
+</html>
