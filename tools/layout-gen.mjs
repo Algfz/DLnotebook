@@ -152,6 +152,9 @@ const NEAR_OFF = 6.0;            // |off| 小于它 = "紧挨路线" → 压低 
 const H_NEAR = 0.5;              // 紧邻路线的高度（发起人：低一点，方便看路）
 const CLEAR_MIN = 0.85;          // 方块边缘到路径中心的净空下限：舞线半宽 0.5 ⇒ 留 0.35m 视觉余量
 const TRAIL_HALF = 0.5;          // 舞线宽 1m ⇒ 半宽 0.5m：方块边缘离中心线必须 > 它，否则就是"压在轨迹上"
+// 🧱 围墙：先把舞线两侧 ±WALL_OFF 的界限画出来（建的时候看得见），障碍物只许建在外面，建完围墙"拆掉"
+//    （只是施工基准，不进关卡数据）。舞线半宽 0.5m ⇒ 墙设在 1.0m，中间 0.5m 是不许建的缓冲带。
+const WALL_OFF = (() => { const a = process.argv.find((x) => x.startsWith("--wall=")); return a ? +a.split("=")[1] : 1.0; })();
 
 const out = [];
 const stat = { tidyFront: 0, dropped: 0, near: 0, mid: 0, far: 0, pop: 0, breath: 0 };
@@ -283,7 +286,7 @@ for (let s = S0; s < TOTAL; s += LEGM, vi++) {
 }
 
 /* ── 3) 报告（位置一律按引擎口径 ptAt(arcOfT(t), off) 反算）────────────── */
-const cl = out.map((o) => { const p = ptAt(arcOfT(o.t), o.off); return { ...o, x: p.x, z: p.z }; });
+let cl = out.map((o) => { const p = ptAt(arcOfT(o.t), o.off); return { ...o, x: p.x, z: p.z }; });
 const arcOfS = new Map(out.map((o) => [o, o.sPlace == null ? arcOfT(o.t) : o.sPlace]));
 let minC = Infinity, bad = 0;
 for (const o of cl) { const c = distToPathR(o.x, o.z, o.w, o.d); o._clear = c; if (c < minC) minC = c; if (c < CLEAR_MIN - 1e-6) bad++; }
@@ -307,8 +310,11 @@ const bySec = {};
 for (const o of cl) { const k = o.t < 29.7 ? "① 平原" : (o.t < 46 ? "② 立起来" : "③ 桥"); bySec[k] = (bySec[k] || 0) + 1; }
 console.log(`  分段：${Object.entries(bySec).map(([k, v]) => k + " " + v + " 件").join(" | ")}`);
 
-/* ── 4) 俯视预览图（给发起人看设计，不写进关卡）────────────────────────── */
-{
+/* ── 4) 俯视预览图（给发起人看设计，不写进关卡）──────────────────────────
+   放在**围墙审计之后**调用：图上要能看到白带（舞线）、两侧红虚线（围墙）和每一块的落点，
+   越墙的块画成纯红——目标是 0 个红块（发起人的做法：建墙 → 只在外侧建 → 拆墙）。 */
+function emitPreview() {
+  cl = out.map((o) => { const p = ptAt(arcOfT(o.t), o.off); return { ...o, x: p.x, z: p.z }; });
   const xs = cl.map((o) => o.x), zs = cl.map((o) => o.z);
   const x0 = Math.min(...xs) - 20, x1 = Math.max(...xs) + 20, z0 = Math.min(...zs) - 20, z1 = Math.max(...zs) + 20;
   const S = Math.min(2000 / (x1 - x0), 2000 / (z1 - z0));
@@ -317,14 +323,24 @@ console.log(`  分段：${Object.entries(bySec).map(([k, v]) => k + " " + v + " 
   const W = Math.round((x1 - x0) * S), H = Math.round((z1 - z0) * S);
   const svg = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
     `<rect width="100%" height="100%" fill="#faf8f2"/>`];
+  // ① 舞线轨迹带（1m 宽）② 两侧围墙（±WALL_OFF）—— 建的时候要看得见，建完就"拆掉"（不进关卡数据）
+  // ① 先铺"禁区"（±WALL_OFF 的红带＝施工时的围墙以内）② 再铺舞线白带 ③ 中心线
+  svg.push(`<polyline points="${paths}" fill="none" stroke="#f0a49a" stroke-width="${(2 * WALL_OFF * S).toFixed(1)}" stroke-linejoin="miter" opacity="0.75"/>`);
+  svg.push(`<polyline points="${paths}" fill="none" stroke="#ffffff" stroke-width="${(1.0 * S).toFixed(1)}" stroke-linejoin="miter"/>`);
+  svg.push(`<polyline points="${paths}" fill="none" stroke="#c9cfe0" stroke-width="${(1.0 * S).toFixed(1)}" stroke-linejoin="miter" opacity="0.35"/>`);
+  svg.push(`<polyline points="${paths}" fill="none" stroke="#1d2740" stroke-width="1.2" stroke-dasharray="6 4" stroke-linejoin="miter"/>`);
+  let breach = 0;
   for (const o of cl) {
-    const c = o.anim === "pop" ? "#c8552f" : (o.h > 1.6 ? "#2f3d63" : "#7d8aa8");
+    const q = ptAt(arcOfT(o.t), o.off);
+    const inner = distToPathR(q.x, q.z, o.w, o.d) < WALL_OFF - 1e-6;   // 越墙？
+    if (inner) breach++;
+    const c = inner ? "#ff0000" : (o.anim === "pop" ? "#e08a2e" : (o.h > 1.6 ? "#2f3d63" : "#7d8aa8"));
     svg.push(`<rect x="${(+X(o.x - o.w / 2)).toFixed(1)}" y="${(+Y(o.z + o.d / 2)).toFixed(1)}" width="${(o.w * S).toFixed(1)}" height="${(o.d * S).toFixed(1)}" fill="${c}" opacity="0.85"/>`);
   }
-  svg.push(`<polyline points="${paths}" fill="none" stroke="#1d2740" stroke-width="1.6"/>`);
   svg.push(`</svg>`);
   fs.writeFileSync(path.join(ROOT, "out", "layout-gen-preview.svg"), svg.join("\n"));
-  console.log(`  预览：out/layout-gen-preview.svg（红＝踩音弹出、深蓝＝立起来、浅蓝＝呼吸）`);
+  console.log(`  预览：out/layout-gen-preview.svg（白带＝舞线 1m、红虚线＝围墙 ±${WALL_OFF.toFixed(2)}m、`
+            + `红块＝越墙 ${breach} 件；其余：红＝弹出、深蓝＝立起来、浅蓝＝呼吸）`);
 }
 
 /* ── 4b) 保留的老摆件也要过一遍"压轨迹"检查 ────────────────────────────────
@@ -383,6 +399,31 @@ let fenceN = 0;
   }
   console.log(`  全关护栏：新增 ${fenceN} 件（已有方块旁边跳过，不含在"续画"统计里）`);
 }
+
+/* ── 4d) "围墙"审计（发起人 2026-10-13 的做法：
+       ① 先把舞线两侧的界限画出来当围墙 ② 障碍物只许建在围墙外 ③ 再把围墙拆掉）──────
+   WALL_OFF = 围墙离路径中心的距离（常量声明在文件顶部，见 CLEAR_MIN 旁边）。 */
+let wallBad = 0, wallMoved = 0, wallDrop = 0;
+{
+  const audit = (o) => {                     // o 必须是 out / keepOld 里的**本体**（不是副本）
+    const at = (off) => { const q = ptAt(arcOfT(o.t), off); return distToPathR(q.x, q.z, o.w, o.d); };
+    if (at(o.off) >= WALL_OFF) return true;
+    wallBad++;
+    const k = Math.sign(o.off) || 1;
+    for (let g = 1; g <= 60; g++) {
+      const o2 = +(k * (Math.abs(o.off) + g * 0.25)).toFixed(2);
+      if (at(o2) >= WALL_OFF) { o.off = o2; o.wallMoved = 1; wallMoved++; return true; }
+    }
+    return false;
+  };
+  const keeps = [];
+  for (const o of out) if (!audit(o)) { wallDrop++; } else keeps.push(o);
+  for (const p of keepOld) audit(p);          // 保留的老摆件：只挪不删（发起人要的"云朵"）
+  out.length = 0; out.push(...keeps);
+  console.log(`  🧱 围墙审计（墙在 ±${WALL_OFF.toFixed(2)}m）：越墙 ${wallBad} 件 → 挪到墙外 ${wallMoved} 件`
+            + `，删掉实在放不下的 ${wallDrop} 件`);
+}
+emitPreview();     // 审计之后再画：图上红块应当为 0
 
 /* ── 5) 写回 ──────────────────────────────────────────────────────────── */
 if (APPLY) {
