@@ -249,7 +249,7 @@ function draw() {
   drawBackground(r);
 
   const g = S.grid * S.view.s;
-  if ($("showGrid").checked && !S.pure && g >= 3) {
+  if ($("showGrid").checked && g >= 3) {
     // 细格
     ctx.lineWidth = 1; ctx.strokeStyle = "#eee8da";
     ctx.beginPath();
@@ -663,10 +663,10 @@ $("routeOnly").onchange = () => {
 };
 $("pure").onchange = () => {
   S.pure = $("pure").checked;
-  if (S.pure) {                       // 纯净＝连"只要路线"也一并接管，且轨迹默认打开
+  if (S.pure) {                       // 纯净＝连"只要路线"也一并接管，且轨迹默认打开；**网格线保留**（顶点要压在网格交点上）
     $("routeOnly").checked = true; S.routeOnly = true;
     $("trailOn").checked = true; S.trail.on = true;
-    $("showGrid").checked = false;
+    $("showGrid").checked = true;
     S.sel = -1; $("showRoad").checked = true; syncSidebar();
   }
   zoomFit();
@@ -892,6 +892,24 @@ function buildSvg() {
   const o = [];
   o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" font-family="'Noto Sans SC','Microsoft YaHei',sans-serif">`);
   o.push(`<rect width="${W}" height="${H}" fill="#faf8f2"/>`);
+  // 网格线（勾了【显示网格】才画；一格 = S.grid 米，每 10 格一条粗线）—— 顶点要压在网格交点上，出图也得有
+  if ($("showGrid").checked) {
+    const gpx = S.grid * sc;
+    if (gpx >= 3) {
+      const kx0 = Math.floor((x0 - pad / sc) / S.grid), kx1 = Math.ceil((x1 + pad / sc) / S.grid);
+      const kz0 = Math.floor((z0 - pad / sc) / S.grid), kz1 = Math.ceil((z1 + pad / sc) / S.grid);
+      // 细格：竖线（世界 x = k·grid）+ 横线（世界 z = k·grid）
+      let d = "";
+      for (let k = kx0; k <= kx1; k++) { const px = X(k * S.grid); d += `M${px} 0L${px} ${H}`; }
+      for (let k = kz0; k <= kz1; k++) { const py = Y(k * S.grid); d += `M0 ${py}L${W} ${py}`; }
+      if (d.length < 400000) o.push(`<path d="${d}" stroke="#eee8da" stroke-width="1"/>`);
+      // 10 格粗线
+      let d2 = "";
+      for (let k = Math.floor(kx0 / 10) * 10; k <= kx1; k += 10) { const px = X(k * S.grid); d2 += `M${px} 0L${px} ${H}`; }
+      for (let k = Math.floor(kz0 / 10) * 10; k <= kz1; k += 10) { const py = Y(k * S.grid); d2 += `M0 ${py}L${W} ${py}`; }
+      if (d2.length < 400000) o.push(`<path d="${d2}" stroke="#e2d9c4" stroke-width="1.4"/>`);
+    }
+  }
   if (!S.pure) o.push(`<text x="${pad}" y="${pad + 16}" font-size="22" font-weight="700" fill="#1e2740">${S.routeOnly ? "路线（虚线）" : "俯视草图（手绘）"}</text>`);
   if (!S.routeOnly && !S.pure) for (const b of S.blocks) {
     const w = (b.w * sc).toFixed(1), d = (b.d * sc).toFixed(1);
@@ -994,11 +1012,11 @@ if (location.search.includes("pure")) {           // ?pure=1 纯净模式：画�
   $("pure").checked = true; S.pure = true;
   $("routeOnly").checked = true; S.routeOnly = true;
   $("trailOn").checked = true; S.trail.on = true;
-  $("showGrid").checked = false;
+  $("showGrid").checked = true;
   S.sel = -1;
   zoomFit(); syncSidebar(); draw();
 }
-if (location.search.includes("dots=0")) {         // ?dots=0 连时间点也不要：只剩一条轨迹带 + 路线虚线
+if (location.search.includes("dots=0")) {         // ?dots=0 连时间点也不要：只剩网格 + 轨迹带 + 路线虚线
   S.trail.dots = false; $("trailDots").checked = false; draw();
 }
 if (location.search.includes("svg")) {            // ?svg=1 自检：把导出的 SVG 放进 window.__svg
