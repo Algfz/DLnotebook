@@ -107,6 +107,14 @@
       </div>
       <div class="row"><button id="dupSel" class="ghost">复制一个</button><button id="delSel" class="ghost">删除</button></div>
 
+      <h2>舞线轨迹（参考）</h2>
+      <div class="row"><label class="field"><input id="trailOn" type="checkbox"> 显示舞线轨迹</label></div>
+      <div class="row"><span class="k">线宽（游戏里 1 m）</span><input id="lw" type="number" value="1" step="0.25" min="0.25"></div>
+      <div class="row"><span class="k">速度</span><input id="spd" type="number" value="14" step="0.5" min="0.5"> m/s</div>
+      <div class="row"><span class="k">每 N 秒打一个点</span><input id="tickPer" type="number" value="0" step="1" min="0" title="0 = 自动（让整条路上大约出现 12 个点）"></div>
+      <div class="row"><span class="k">路线长 / 预计用时</span><span id="runInfo">—</span></div>
+      <div class="tiny">轨迹＝舞线走过留下的那条带（1 m 宽、方角），按速度每隔 N 秒在头部位置打一个点，用来对节奏。</div>
+
       <h2>图纸</h2>
       <div class="row"><span class="k">路顶点 / 方块</span><span id="stat">0 / 0</span></div>
       <div class="row"><label class="field"><input id="showGrid" type="checkbox" checked> 显示网格</label></div>
@@ -175,6 +183,7 @@ let S = {
   snap: true,
   grid: 1,
   half: false,              // true＝路的中线落在半格上（格宽为奇数时，路带正好盖住整格）
+  trail: { on: false, lw: 1, speed: 14, tick: 0 },   // 舞线轨迹参考（线宽 1 m / 14 m/s / 打点间隔 0＝自动）
   routeOnly: false,         // true＝只要一条虚线路线：不出路带、不画方块
   sel: -1,
   view: { x: 0, z: 0, s: 9 },      // 视口：世界中心 (x,z)，缩放 px/m
@@ -253,6 +262,9 @@ function draw() {
       ctx.stroke();
     }
   }
+
+  // 舞线轨迹（画在虚线之下：先带、再头节点，最后才是路线虚线）
+  drawTrail();
 
   // 路带
   if ($("showRoad").checked && S.road.length) {
@@ -338,6 +350,10 @@ function draw() {
     ctx.fillText(`s=${S.view.s.toFixed(2)} road=${S.road.length} blocks=${S.blocks.length}`, 20, h - 70);
     ctx.fillText(`cv=${Math.round(r2.width)}x${Math.round(r2.height)}  view=(${S.view.x.toFixed(1)},${S.view.z.toFixed(1)})`, 20, h - 40);
     if (window.__err) { ctx.font = "bold 18px monospace"; ctx.fillText("ERR " + String(window.__err).slice(0, 140), 20, h - 100); }
+    if (window.__svgLen || window.__svgErr) {
+      ctx.font = "bold 18px monospace";
+      ctx.fillText(window.__svgErr ? ("SVGERR " + window.__svgErr) : ("SVG len=" + window.__svgLen), 20, h - 130);
+    }
   }
 
   // 比例尺文字
@@ -368,7 +384,75 @@ function updateHint() {
     : "【选择】点方块＝选中；拖动＝移动；拖四角＝缩放；空白处拖动＝平移";
 }
 
-/* ── 指针交互 ─────────────────────────────────────────────────────── */
+// 舞线轨迹参考：把路线按弧长参数化，算出"每秒头部在哪"与"线体留下的带"
+function roadCum() {                       // 累积弧长（长度 = road.length）
+  const cum = [0];
+  for (let i = 1; i < S.road.length; i++) {
+    const a = S.road[i - 1], b = S.road[i];
+    cum.push(cum[i - 1] + Math.hypot(b.x - a.x, b.z - a.z));
+  }
+  return cum;
+}
+function roadAt(s) {                       // 弧长 s（米）处的世界坐标
+  if (S.road.length < 2) return S.road[0] ? { x: S.road[0].x, z: S.road[0].z } : { x: 0, z: 0 };
+  const cum = roadCum(), total = cum[cum.length - 1];
+  s = Math.max(0, Math.min(total, s));
+  let i = 1;
+  while (i < cum.length - 1 && cum[i] < s) i++;
+  const a = S.road[i - 1], b = S.road[i], seg = cum[i] - cum[i - 1] || 1;
+  const k = (s - cum[i - 1]) / seg;
+  return { x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k };
+}
+
+// 在画布上画轨迹带 + 头部打点（屏幕坐标系由调用方给）
+function drawTrail() {
+  if (!S.trail.on || S.road.length < 2) return;
+  const r = S.view, lw = Math.max(0.25, S.trail.lw) * r.s;
+  const pts = S.road.map((p) => W2S(p.x, p.z));
+  ctx.save();
+  ctx.lineJoin = "miter"; ctx.lineCap = "butt";
+  ctx.strokeStyle = "#fdfdfb"; ctx.lineWidth = lw;      // 线体（白）
+  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+  ctx.strokeStyle = "#c9cfe0"; ctx.lineWidth = Math.max(1, lw * 0.08);
+  ctx.stroke();                                          // 描边
+  ctx.restore();
+
+  // 头部每 N 秒的位置（N=0 时自动：让整条路上大约出现 12 个点）
+  const cum = roadCum(), total = cum[cum.length - 1];
+  const speed = Math.max(0.5, S.trail.speed);
+  let step = S.trail.tick;
+  if (!(step > 0)) {
+    const runT = total / speed;                       // 全程秒数
+    for (const c of [1, 2, 5, 10, 15, 20, 30, 60, 120, 300]) {
+      if (runT / c <= 12) { step = c; break; }
+      step = c;
+    }
+  }
+  step = Math.max(0.5, step);
+  const marks = [];
+  for (let t = step; t * speed <= total; t += step) marks.push({ t, s: t * speed, p: roadAt(t * speed) });
+  const scr = marks.map((m) => ({ t: m.t, ...W2S(m.p.x, m.p.z) }));
+  const dense = scr.length > 1 && Math.hypot(scr[1].x - scr[0].x, scr[1].y - scr[0].y) < 30;
+  ctx.font = "bold 12px ui-monospace,Consolas,monospace"; ctx.textAlign = "center";
+  for (const m of scr) {
+    ctx.fillStyle = "#a3452f";
+    ctx.beginPath(); ctx.arc(m.x, m.y, 4, 0, 7); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(m.x, m.y, 2, 0, 7); ctx.fill();
+    if (!dense) {
+      ctx.font = "bold 12px ui-monospace,Consolas,monospace";
+      const txt = m.t + "s", w = ctx.measureText(txt).width;
+      ctx.fillStyle = "#fffdf8dd";
+      ctx.fillRect(m.x - w / 2 - 2, m.y - 26, w + 4, 15);
+      ctx.fillStyle = "#3a4763";
+      ctx.fillText(txt, m.x, m.y - 14);
+    }
+  }
+  ctx.textAlign = "left";
+}
+
+
 cv.addEventListener("contextmenu", (e) => e.preventDefault());
 
 cv.addEventListener("pointerdown", (e) => {
@@ -552,6 +636,10 @@ $("routeOnly").onchange = () => {
   if (S.routeOnly) { $("showRoad").checked = true; S.sel = -1; syncSidebar(); }
   zoomFit();
 };
+$("trailOn").onchange = () => { S.trail.on = $("trailOn").checked; syncSidebar(); draw(); };
+$("lw").onchange = () => { S.trail.lw = Math.max(0.25, +$("lw").value || 1); draw(); };
+$("spd").onchange = () => { S.trail.speed = Math.max(0.5, +$("spd").value || 14); syncSidebar(); draw(); };
+$("tickPer").onchange = () => { S.trail.tick = Math.max(0, +$("tickPer").value || 0); syncSidebar(); draw(); };
 $("grid").onchange = () => {
   S.grid = Math.max(0.25, +$("grid").value || 1);
   syncLegInfo(); draw();
@@ -591,6 +679,14 @@ $("showOrigin").onchange = draw;
 
 function syncSidebar() {
   $("stat").textContent = `${S.road.length} / ${S.blocks.length}`;
+  // 路线长 / 预计用时（按当前速度）
+  if (S.road.length > 1) {
+    const cum = roadCum(), total = cum[cum.length - 1];
+    const spd = Math.max(0.5, S.trail.speed);
+    const sec = total / spd;
+    $("runInfo").innerHTML = `<b>${total.toFixed(0)} m</b> ／ ${sec.toFixed(1)} s`
+      + (S.trail.speed ? `（${(sec / 60).toFixed(2)} 分）` : "");
+  } else $("runInfo").textContent = "—";
   const sel = S.blocks[S.sel];
   $("selInfo").textContent = sel
     ? `已选中第 ${S.sel + 1} 个：中心 (${sel.x.toFixed(1)}, ${sel.z.toFixed(1)})`
@@ -729,8 +825,9 @@ function loadProject(j) {
   S.sel = -1; zoomFit(); syncSidebar(); draw();
 }
 
-/* SVG 导出：和屏幕完全同一套坐标（y 轴向下，所以 z 取负） */
-$("expSvg").onclick = () => {
+/* SVG 导出：和屏幕完全同一套坐标（y 轴向下，所以 z 取负）。
+   抽成 buildSvg() 是为了能自检（?svg=1 会把结果塞进 window.__svg，用 --dump-dom 读回来验证合法性）。 */
+function buildSvg() {
   const pad = 20;
   let x0 = 0, x1 = 0, z0 = 0, z1 = 0;
   const acc = (x, z) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); };
@@ -753,6 +850,11 @@ $("expSvg").onclick = () => {
   }
   if (S.road.length) {
     const pts = S.road.map((p) => `${X(p.x)},${Y(p.z)}`).join(" ");
+    if (S.trail.on && S.road.length > 1) {          // 舞线轨迹带（画在路线之下）
+      const lw = Math.max(0.25, S.trail.lw) * sc;
+      o.push(`<polyline points="${pts}" fill="none" stroke="#c9cfe0" stroke-width="${(lw + 2).toFixed(1)}" stroke-linejoin="miter"/>`);
+      o.push(`<polyline points="${pts}" fill="none" stroke="#fdfdfb" stroke-width="${lw.toFixed(1)}" stroke-linejoin="miter"/>`);
+    }
     if (S.routeOnly) {
       o.push(`<polyline points="${pts}" fill="none" stroke="#3a4763" stroke-width="2.5" stroke-dasharray="12 8" stroke-linejoin="miter"/>`);
       for (const p of S.road) o.push(`<rect x="${(X(p.x) - 3)}" y="${(Y(p.z) - 3)}" width="6" height="6" fill="#a3452f"/>`);
@@ -760,12 +862,25 @@ $("expSvg").onclick = () => {
       o.push(`<polyline points="${pts}" fill="none" stroke="#b9c6de" stroke-width="${(S.roadWidth * sc).toFixed(1)}" stroke-linejoin="miter"/>`);
       o.push(`<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="${(0.3 * sc).toFixed(1)}" stroke-dasharray="${(0.6 * sc).toFixed(1)} ${(0.45 * sc).toFixed(1)}"/>`);
     }
+    if (S.trail.on && S.road.length > 1) {          // 头部每 N 秒的位置
+      const cum = roadCum(), total = cum[cum.length - 1];
+      const speed = Math.max(0.5, S.trail.speed);
+      let stepS = S.trail.tick;
+      if (!(stepS > 0)) { const runT = total / speed; for (const c of [1, 2, 5, 10, 15, 20, 30, 60, 120, 300]) { stepS = c; if (runT / c <= 12) break; } }
+      stepS = Math.max(0.5, stepS);
+      for (let t = stepS; t * speed <= total; t += stepS) {
+        const p = roadAt(t * speed);
+        o.push(`<circle cx="${X(p.x)}" cy="${Y(p.z)}" r="5" fill="#a3452f" stroke="#fff" stroke-width="2"/>`);
+        o.push(`<text x="${X(p.x)}" y="${(Number(Y(p.z)) - 10).toFixed(1)}" font-size="13" font-weight="700" fill="#3a4763" text-anchor="middle">${t % 1 ? t.toFixed(1) : t}s</text>`);
+      }
+    }
   }
   o.push(`<line x1="${pad}" y1="${H - pad - 14}" x2="${pad + 10 * sc}" y2="${H - pad - 14}" stroke="#1e2740" stroke-width="3"/>`);
   o.push(`<text x="${pad + 10 * sc + 8}" y="${H - pad - 8}" font-size="14" fill="#1e2740">10 m</text>`);
   o.push(`</svg>`);
-  download("sketch-plan.svg", o.join("\n"), "image/svg+xml");
-};
+  return o.join("\n");
+}
+$("expSvg").onclick = () => download("sketch-plan.svg", buildSvg(), "image/svg+xml");
 
 $("expPng").onclick = () => {
   cv.toBlob((b) => {
@@ -820,6 +935,14 @@ resize();
 if (location.search.includes("demo")) { try { demo(); } catch (err) { window.__err = String((err && err.stack) || err); } }
 if (location.search.includes("route")) {          // ?route=1 直接用"只要路线"模式打开
   $("routeOnly").checked = true; S.routeOnly = true; S.sel = -1; zoomFit();
+}
+if (location.search.includes("trail")) {          // ?trail=1 同时叠上舞线轨迹参考
+  $("trailOn").checked = true; S.trail.on = true; syncSidebar(); draw();
+}
+if (location.search.includes("svg")) {            // ?svg=1 自检：把导出的 SVG 放进 window.__svg
+  try { window.__svg = buildSvg(); window.__svgLen = window.__svg.length; }
+  catch (e) { window.__svgErr = String(e && e.message || e); }
+  document.title = "SVG=" + (window.__svgLen || 0) + (window.__svgErr ? " ERR " + window.__svgErr : "");
 }
 
 // ?sketch=<url>：用网址打开时直接载入一份底稿（在 http:// 下有效；file:// 会被浏览器禁止 fetch）
