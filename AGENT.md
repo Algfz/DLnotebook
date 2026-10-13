@@ -338,6 +338,7 @@ DLnotebook/
 | 看单帧截图 | `node tools/shot.js --level "ring a bell" --times 8,45,90` | **调视觉用**：只抓指定时刻的静止画面（几秒出图），可用 `--setup-file x.js` 注入改动后立刻对比。见下方「看单帧」 |
 | 出关卡总平面图 | `node tools/plan-level.mjs` | **俯视总平面图**：在 Node 里 `import` 仓库自带 three + 关卡的 `buildPlaced()`，把 InstancedMesh 逐实例拆开，画出 655 件方块的俯视位置 → `out/level-plan.svg/.png`。见下方「两张俯视图」 |
 | 读参考关卡布景 | `python tools/etw-layout.py` | **《驻足的宁静》布景读图**（人工临摹）：原片抽帧 ｜ 按帧读出的俯视平面 → `out/etw-layout.svg/.png`。见下方「两张俯视图」 |
+| 交接文件自检 | `node tools/agent-doc-check.mjs` | **检查 `AGENT.md` 是否跟上最新提交**：落后 0 个提交 = 通过（退出码 0），落后 N 个 = 红字列出那 N 条（退出码 1）。每轮收尾前跑一次 |
 
 > 预览器需在浏览器中选择/拖入**整个关卡文件夹**（因为要同时读 `level.json` 和音乐文件）。
 > 它使用 `<input webkitdirectory>`，在 `file://` 下可正常工作。
@@ -815,6 +816,9 @@ python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
 
 **必须遵守**
 - ✅ 每次改动项目后更新 `AGENT.md`（尤其是进度、决策、已知问题三节）
+- ✅ **每轮收尾前跑一次 `node tools/agent-doc-check.mjs`，它必须报"落后 0 个提交"**
+  （这条是 2026-10-13 加的：那天查出我连续 **14 个提交**没更新本文件，
+  发起人问起来才发现 —— 光写"必须更新"没用，得有个能一跑就露的检查）
 - ✅ 代码注释用**中文**（发起人不编程，需要能读懂）
 - ✅ 新增文档放 `docs/`，新增工具放 `tools/`，构建脚本放 `build/`
 - ✅ 给发起人的说明要**说人话**，避免 jargon；必须解释"为什么"，不只是"怎么做"

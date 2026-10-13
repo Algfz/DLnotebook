@@ -33,5 +33,5 @@ if (behind.length === 0) {
 
 console.error(`✗ AGENT.md 落后 ${behind.length} 个提交 —— 按约定必须先更新它（进度/决策/已知问题三节）：\n`);
 for (const line of behind) console.error("   " + line);
-console.error(`\n   最后改 AGENT.md 的提交：${git("log -1 --format='%h %ad %s' --date=format:'%m-%d %H:%M' -- AGENT.md")}`);
+console.error(`\n   最后改 AGENT.md 的提交：${git('log -1 --format="%h %ad %s" --date=format:"%m-%d %H:%M" -- AGENT.md')}`);
 process.exit(1);
