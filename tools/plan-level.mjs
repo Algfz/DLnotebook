@@ -200,3 +200,27 @@ fs.writeFileSync(path.join(ROOT, "out", "level-plan.svg"), o.join("\n"));
 console.log(`方块 ${raw.length} 件：` + Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(" / "));
 console.log(`纸面范围 x ${x0.toFixed(1)}…${x1.toFixed(1)}  z ${z0.toFixed(1)}…${z1.toFixed(1)} → SVG ${W}×${H} px（${S} px/m）`);
 fs.writeFileSync(path.join(ROOT, "out", "level-plan-stats.json"), JSON.stringify({ W, H, S, total: raw.length, counts, P, ROT_DEG, bounds: { x0, x1, z0, z1 } }, null, 2));
+
+// 给 tools/SketchEditor.html 用的"底稿"：世界坐标的真实路 + 真实方块的 x/z/w/d + 色档
+// （关卡 level.json 的 place[] 只存 t/off，编辑器读不出 x/z —— 所以这里导一份带 x/z 的）
+const SHADE_TONE = (hex) => {
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+  const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return L > 220 ? 3 : L > 140 ? 2 : L > 95 ? 1 : 0;
+};
+const roadPts = vertsW
+  .filter((p, i) => i === 0 || Math.abs(p.x - vertsW[i - 1].x) > 1e-6 || Math.abs(p.z - vertsW[i - 1].z) > 1e-6)
+  .map((p) => [+p.x.toFixed(2), +p.z.toFixed(2)]);
+fs.writeFileSync(path.join(ROOT, "out", "level-sketch.json"), JSON.stringify({
+  v: 1,
+  note: "由 tools/plan-level.mjs 从关卡运行时真实几何导出（世界坐标，x 向右 z 向上）"
+      + "；可直接用 tools/SketchEditor.html 的【导入我的 JSON】打开，在真路底稿上改摆放。",
+  roadWidth: level.roadWidth || 3,
+  road: roadPts,
+  blocks: raw.map((b) => ({
+    x: +b.x.toFixed(2), z: +b.z.toFixed(2),
+    w: +b.w.toFixed(2), d: +b.d.toFixed(2), h: +b.h.toFixed(2),
+    tone: SHADE_TONE(b.hex),
+  })),
+}, null, 1));
+console.log(`已写出 out/level-sketch.json（路 ${roadPts.length} 点 + 方块 ${raw.length} 件，供 SketchEditor 导入）`);

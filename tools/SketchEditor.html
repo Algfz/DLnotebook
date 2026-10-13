@@ -112,7 +112,10 @@
       <h2>导出 / 导入</h2>
       <div class="row"><button id="expPng">导出 PNG</button><button id="expSvg">导出 SVG</button></div>
       <div class="row"><button id="expJson">导出 JSON</button><button id="impJson">导入我的 JSON</button></div>
-      <div class="row"><button id="impLevel">载入现有 level.json</button></div>
+      <div class="row"><button id="impLevel">载入关卡 / 底稿 JSON</button></div>
+      <div class="tiny">选 <code>out/level-sketch.json</code> = <b>真路 + 真方块</b>的完整底稿；<br>
+        选 <code>levels/…/level.json</code> = 只有真路（布景在那儿只存了"沿路距离+偏移"，浏览器读不出坐标）。<br>
+        用网址打开时也可以直接带参数：<code>?sketch=../out/level-sketch.json</code>。</div>
       <div class="tiny" id="ioMsg"></div>
 
       <h2>背景参考图（可选）</h2>
@@ -623,6 +626,14 @@ $("impLevel").onclick = () => {
     rd.onload = () => {
       try {
         const lv = JSON.parse(rd.result);
+        // ① 底稿 / 编辑器自己的草图（有 road + blocks 的世界坐标）→ 直接当项目打开
+        if (Array.isArray(lv.road) && Array.isArray(lv.blocks) && lv.blocks.length
+            && lv.blocks.every((b) => b && b.x !== undefined && b.w !== undefined)) {
+          loadProject(lv);
+          $("ioMsg").textContent = `已载入底稿：路 ${S.road.length} 点 + 方块 ${S.blocks.length} 件`;
+          return;
+        }
+        // ② 关卡 level.json：只能拿到真路（place[] 里只有 t/off，没有世界 x/z）
         snapshot();
         S.road = [];
         const pts = lv.path || (lv.lines && lv.lines[0] && lv.lines[0].path) || [];
@@ -634,14 +645,13 @@ $("impLevel").onclick = () => {
         }
         S.roadWidth = +lv.roadWidth || 3;
         $("rw").value = S.roadWidth;
-        S.blocks = (lv.place || []).map((b) => ({
-          x: +b.x || 0, z: +b.z || 0, w: +b.w || 4, d: +b.d || 4, h: +b.h || 1, tone: +b.tone ?? 1,
-        }));
-        // 关卡里没有直接存 x/z（只有 t/off），所以 place[] 一般导不出来 —— 提示一下
+        S.blocks = [];
         S.sel = -1;
         zoomFit(); syncSidebar(); draw();
-        $("ioMsg").textContent = `已载入：路 ${S.road.length} 个顶点、方块 ${S.blocks.length} 个`
-          + (lv.place && lv.place.length && !S.blocks.length ? "（该关的 place[] 只存了 t/off，无法直接还原成 x/z，请用背景参考图对照）" : "");
+        $("ioMsg").textContent = `已载入关卡的路：${S.road.length} 个顶点。`
+          + (lv.place && lv.place.length
+              ? `⚠️ 这 ${lv.place.length} 件布景存的是 t/off（沿路距离 + 横向偏移），没有世界坐标 —— 想要"路 + 方块"的完整底稿，请选 out/level-sketch.json（或用左边【导入我的 JSON】）。`
+              : "");
       } catch (err) { $("ioMsg").textContent = "载入失败：" + err.message; }
     };
     rd.readAsText(f);
@@ -742,6 +752,15 @@ function demo() {
 setTool("select");
 resize();
 if (location.search.includes("demo")) { try { demo(); } catch (err) { window.__err = String((err && err.stack) || err); } }
+
+// ?sketch=<url>：用网址打开时直接载入一份底稿（在 http:// 下有效；file:// 会被浏览器禁止 fetch）
+const _q = new URLSearchParams(location.search);
+if (_q.has("sketch")) {
+  fetch(_q.get("sketch"))
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then((j) => { loadProject(j); $("ioMsg").textContent = `已载入底稿：${_q.get("sketch")}（路 ${S.road.length} 点 + 方块 ${S.blocks.length} 件）`; })
+    .catch((e) => { $("ioMsg").textContent = `底稿载入失败（${e.message}）—— file:// 下浏览器禁止读取本地文件，请改用【导入我的 JSON】选文件，或从 http:// 打开本页。`; });
+}
 syncSidebar();
 if (location.search.includes("dbg")) draw();   // ?dbg 时再画一遍，确保读数在图上
 </script>
