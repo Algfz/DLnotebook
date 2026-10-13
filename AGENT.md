@@ -832,6 +832,13 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
   `loadLevelJSON()` 现在带 `?t=Date.now()` + `{cache:"no-store"}`。否则浏览器缓存住旧副本，
   会让人以为"改了没生效"（2026-10-13 发起人："那你开始施工了吗？为什么进游戏一看还是各种遮挡？"）。
   **改了关卡数据后，让他 Ctrl+F5 强刷一次再判断。**
+- **相机关键帧的两种写法都要认**（2026-10-13 发起人："Breeze 这一关视角怎么这么奇怪，改回来啊"）：
+  新写法 `{ t, tilt, dist, yaw }`；**老写法 `{ t, mode:"follow", height, dist }`**（Breeze 就是这种）。
+  老代码直接 `tilt: +k.tilt` → 老关卡得到 **NaN 俯角** ⇒ 镜头贴地平视（整关变成一条缝）。
+  `src/js/game.js` 的 `camKeysAt()` 现在：缺 `tilt`/`dist` 一律回落到引擎默认机位（`CAM_TILT0` ≈ 41.1°、
+  `CAM_DIST0` ≈ 31.9m），老写法的 `height` **不换算**（换算会得到 16m 超近机位，与 10-12 验收图不符）。
+  ⚠️ 排查纪律：先用 `git worktree add out/tmp/pre <改动前的提交>` 渲同一时刻对比 —— 这次渲出来**逐字节相同**
+  （sha256 一致），证明不是我改的，再去找真正的 NaN。
 
 ---
 

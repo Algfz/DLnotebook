@@ -84,8 +84,8 @@ function camKeysAt(level, t) {
   //    都要走同一个换算，否则首尾会按"度当成弧度"算：sin(30rad) = -0.99，
   //    相机会掉到地面以下（曾经把整关最后 5 秒变成一片地形背面）。
   const norm = (k) => ({
-    tilt: (k.tilt || 0) * Math.PI / 180,
-    dist: k.dist,
+    tilt: (k.tilt != null ? k.tilt : CAM_TILT0 * 180 / Math.PI) * Math.PI / 180,
+    dist: k.dist != null ? k.dist : CAM_DIST0,
     yaw: (k.yaw || 0) * Math.PI / 180,
   });
   if (t <= A[0].t) return norm(A[0]);
@@ -97,9 +97,13 @@ function camKeysAt(level, t) {
   const k0 = (t - a.t) / Math.max(1e-6, b.t - a.t);
   const k = k0 * k0 * (3 - 2 * k0);                    // smoothstep
   const mix = (u, v) => u + (v - u) * k;
+  // ⚠️ 老关卡（如 Breeze）的相机关键帧写的是 { mode:"follow", height, dist }，没有 tilt ——
+  //    以前直接 `+k.tilt` 会变成 **NaN**，相机的俯角算崩、镜头贴到地面平视（发起人："Breeze 视角怎么这么奇怪"）。
+  //    缺 tilt / dist 时一律回落到引擎默认机位（CAM_TILT0 ≈ 41°、CAM_DIST0 ≈ 32m）。
+  const dT = CAM_TILT0 * 180 / Math.PI, dD = CAM_DIST0;
   return {
-    tilt: mix(a.tilt, b.tilt) * Math.PI / 180,
-    dist: mix(a.dist, b.dist),
+    tilt: mix(a.tilt != null ? a.tilt : dT, b.tilt != null ? b.tilt : dT) * Math.PI / 180,
+    dist: mix(a.dist != null ? a.dist : dD, b.dist != null ? b.dist : dD),
     yaw: mix(a.yaw || 0, b.yaw || 0) * Math.PI / 180,
   };
 }
@@ -214,7 +218,13 @@ export class Game {
     const cam = [];
     for (const sc of level.scenes || []) {
       for (const k of sc.camera || []) {
-        if (k && k.t != null) cam.push({ t: +k.t, tilt: +k.tilt, dist: +k.dist, yaw: k.yaw || 0 });
+        if (!k || k.t == null) continue;
+        // 新写法 { t, tilt, dist, yaw }；老写法 { t, mode:"follow", height, dist }（如 Breeze）：
+        // 老写法里的 height/dist 是"跟随机位"的粗糙参数，**不换算成 tilt**（换算会得到 16m 的超近机位，
+        // 和 10-12 的验收图对不上）—— 直接留空，交给 camKeysAt 回落到引擎默认机位（≈41° / 32m）。
+        const tilt = k.tilt != null ? +k.tilt : null;
+        const dist = k.dist != null && k.tilt != null ? +k.dist : null;
+        cam.push({ t: +k.t, tilt, dist, yaw: k.yaw || 0 });   // 仍是 null 就交给 camKeysAt 回落默认机位
       }
     }
     cam.sort((a, b) => a.t - b.t);
