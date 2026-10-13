@@ -87,7 +87,7 @@
   <main>
     <div id="stage">
       <canvas id="cv"></canvas>
-      <div id="hint">右键拖 = 平移，滚轮 = 缩放</div>
+      <div id="hint">整条舞线 2.4 km 长 —— 缩到全图时 1 m 不到 1 像素，路带/舞线用"最小线宽"显示（不然整条会变成一根几乎看不见的细线）；滚轮放大到 2 px/m 以上就是真实比例。</div>
       <div id="scalebar"></div>
     </div>
 
@@ -296,7 +296,9 @@ function draw() {
     } else {
       ctx.lineJoin = "miter"; ctx.lineCap = "butt";
       ctx.strokeStyle = "#b9c6de";
-      ctx.lineWidth = S.roadWidth * S.view.s;
+      // 整条关卡有 2.4 km 长：缩到全图时 3 m 的路面只有 ~2 px，会退化成一根细线、看不出"路"。
+      // 所以屏幕线宽**下限 6 px**（只影响观感，数值仍是真实路宽；放大到 2 px/m 以上就还原真实比例）。
+      ctx.lineWidth = Math.max(S.roadWidth * S.view.s, 6);
       ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
       for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
       ctx.stroke();
@@ -422,6 +424,8 @@ function roadAt(s) {                       // 弧长 s（米）处的世界坐�
 function drawTrail() {
   if (!S.trail.on || S.road.length < 2) return;
   const r = S.view, lw = Math.max(0.25, S.trail.lw) * r.s;
+  // 屏幕线宽下限 4 px：缩到全图（0.8 px/m）时 1 m 的舞线只有 0.8 px，会整条看不见
+  const lws = Math.max(lw, 4);
   const pts = S.road.map((p) => W2S(p.x, p.z));
   ctx.save();
   ctx.lineJoin = "miter"; ctx.lineCap = "butt";
@@ -431,8 +435,8 @@ function drawTrail() {
     ctx.stroke();
   };
   // 先描一圈深一号的边（否则白线在近白的画布上看不见），再填白 —— 顺序反了就成了中线不是边
-  ctx.strokeStyle = "#9aa7c2"; ctx.lineWidth = lw + Math.max(2.5, lw * 0.16); path();
-  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = lw; path();
+  ctx.strokeStyle = "#9aa7c2"; ctx.lineWidth = lws + Math.max(2.5, lws * 0.16); path();
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = lws; path();
   ctx.restore();
 
   // 头部每 N 秒的位置（N=0 时自动：让整条路上大约出现 12 个点）
