@@ -885,6 +885,19 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 
 ## 11. 开发环境与资源
 
+**⚠️ 参考素材与临时文件都在仓库外（2026-10-13 发起人要求"把视频和图片移到仓库外"）**
+
+体积大的东西一律放在 **`C:\DLnotebook-media\`**（仓库外），`out/` 下只留**少量成品图**（`out/*.png|svg`、
+`out/shot/`、`out/bak/`）。已经搬出去的目录：`ref_official2`、`ref_official`、`ref_etw`、`ref_st`、`ref_hi`、
+`ref_video`、`ref_sheets*`、`ref`、`ref2`、`frames`、`tmp`、`_stills*`、`_sb`、`_probe`、`_chknew`、`_wiki`、
+`after`、`before`、`proto`、`tools` 以及根目录几个 `.mp4`。
+
+- **路径照旧能用**：每个搬走的目录在 `out/` 下留了一个**目录联接（junction）**指回去
+  （`out\ref_etw` → `C:\DLnotebook-media\ref_etw`），所以老命令、老脚本不用改。
+- 再要放大文件时，照这个套路：`Move-Item` 到 `C:\DLnotebook-media\`，再
+  `New-Item -ItemType Junction -Path out\<名> -Target C:\DLnotebook-media\<名>`。
+- 搬完仓库目录从 **6.4 GB 降到 120 MB**（`.git` 只有 21.5 MB，历史里没有大文件）。
+
 **发起人的机器**（可用于本地 AI 生成）：
 - GPU：RTX 5060 Laptop **8GB 显存**
 - 内存：**32GB**
