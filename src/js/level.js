@@ -14,7 +14,9 @@ export async function fetchLevels() {
 }
 
 export async function loadLevelJSON(dir) {
-  const r = await fetch("/levels/" + encodeURIComponent(dir) + "/level.json");
+  // ⚠️ 必须绕开 HTTP 缓存：level.json 是**施工中反复改写**的文件，
+  //    浏览器缓存住旧副本会让人以为"改了没生效"（2026-10-13 发起人："为什么进游戏一看还是各种遮挡？"）。
+  const r = await fetch("/levels/" + encodeURIComponent(dir) + "/level.json?t=" + Date.now(), { cache: "no-store" });
   if (!r.ok) throw new Error("无法读取 level.json（HTTP " + r.status + "）");
   return r.json();
 }
