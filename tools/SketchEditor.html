@@ -61,6 +61,7 @@
     </div>
 
     <div class="grp">
+      <label class="field" title="只画一条虚线路线：不出路带、不画方块"><input id="routeOnly" type="checkbox"> <b>只要路线</b></label>
       <label class="field">每段 <input id="leg" type="number" value="3.4" step="0.1" min="0.5"> m</label>
       <label class="field">路宽 <input id="rw" type="number" value="3" step="0.5" min="1"> m</label>
       <button id="revDir" class="ghost" title="切换第一段的朝向">先 +x / 先 +z</button>
@@ -174,6 +175,7 @@ let S = {
   snap: true,
   grid: 1,
   half: false,              // true＝路的中线落在半格上（格宽为奇数时，路带正好盖住整格）
+  routeOnly: false,         // true＝只要一条虚线路线：不出路带、不画方块
   sel: -1,
   view: { x: 0, z: 0, s: 9 },      // 视口：世界中心 (x,z)，缩放 px/m
   bg: null,                 // {img, alpha, scale, x, z}
@@ -204,10 +206,10 @@ function S2W(px, py) {                    // 屏幕 → 世界
            z: -(py - r.height / 2) / S.view.s + S.view.z };
 }
 function snapV(v) { return S.snap ? Math.round(v / S.grid) * S.grid : Math.round(v * 100) / 100; }
-// 路的顶点用这个：吸附到网格（+可选的半格偏移），保证每一段都是网格的整数倍
+// 路的顶点用这个：**永远**吸附到网格（每一段都是格宽的整数倍，拐点必在网格交点上）
 function snapRoad(v) {
   const g = S.grid;
-  const base = S.snap ? Math.round(v / g) * g : Math.round(v * 100) / 100;
+  const base = Math.round(v / g) * g;
   return S.half ? base + g / 2 : base;
 }
 
@@ -254,27 +256,42 @@ function draw() {
 
   // 路带
   if ($("showRoad").checked && S.road.length) {
-    ctx.lineJoin = "miter"; ctx.lineCap = "butt";
     const pts = S.road.map((p) => W2S(p.x, p.z));
-    ctx.strokeStyle = "#b9c6de";
-    ctx.lineWidth = S.roadWidth * S.view.s;
-    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.stroke();
-    // 中线（白虚线，和出图一致）
-    ctx.save();
-    ctx.setLineDash([S.view.s * 0.6, S.view.s * 0.45]);
-    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(1, S.view.s * 0.22);
-    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.stroke(); ctx.restore();
-    // 顶点小方块
-    ctx.fillStyle = "#5b6f9c";
-    for (const p of pts) ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
+
+    if (S.routeOnly) {
+      // 只要路线：一条虚线 + 每个顶点一个小方块（方便核对是否压在网格交点上）
+      ctx.save();
+      ctx.setLineDash([12, 8]);
+      ctx.strokeStyle = "#3a4763"; ctx.lineWidth = 2.5;
+      ctx.lineJoin = "miter"; ctx.lineCap = "butt";
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = "#a3452f";
+      for (const p of pts) ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
+    } else {
+      ctx.lineJoin = "miter"; ctx.lineCap = "butt";
+      ctx.strokeStyle = "#b9c6de";
+      ctx.lineWidth = S.roadWidth * S.view.s;
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+      // 中线（白虚线，和出图一致）
+      ctx.save();
+      ctx.setLineDash([S.view.s * 0.6, S.view.s * 0.45]);
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(1, S.view.s * 0.22);
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke(); ctx.restore();
+      // 顶点小方块
+      ctx.fillStyle = "#5b6f9c";
+      for (const p of pts) ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
+    }
   }
 
-  // 方块
-  S.blocks.forEach((b, i) => {
+  // 方块（只要路线模式下整层不画）
+  if (!S.routeOnly) S.blocks.forEach((b, i) => {
     const c = W2S(b.x, b.z);
     const pw = b.w * S.view.s, ph = b.d * S.view.s;
     ctx.fillStyle = TONE_COLORS[b.tone] || TONE_COLORS[1];
@@ -284,7 +301,7 @@ function draw() {
   });
 
   // 选中框的 4 个角柄
-  if (S.sel >= 0 && S.blocks[S.sel]) {
+  if (!S.routeOnly && S.sel >= 0 && S.blocks[S.sel]) {
     const b = S.blocks[S.sel], c = W2S(b.x, b.z);
     const hw = (b.w * S.view.s) / 2, hh = (b.d * S.view.s) / 2;
     ctx.fillStyle = "#fff"; ctx.strokeStyle = "#3f5286"; ctx.lineWidth = 2;
@@ -294,7 +311,7 @@ function draw() {
   }
 
   // 起点标记 + 比例尺
-  if ($("showOrigin").checked) {
+  if ($("showOrigin").checked && !S.routeOnly) {
     if (S.road.length) {
       const p0 = W2S(S.road[0].x, S.road[0].z), pn = W2S(S.road[S.road.length - 1].x, S.road[S.road.length - 1].z);
       ctx.fillStyle = "#2f7a4d"; ctx.beginPath(); ctx.arc(p0.x, p0.y, 6, 0, 7); ctx.fill();
@@ -530,6 +547,11 @@ $("backLeg").onclick = () => {
 };
 $("snap").onchange = () => { S.snap = $("snap").checked; syncLegInfo(); };
 $("half").onchange = () => { S.half = $("half").checked; syncLegInfo(); };
+$("routeOnly").onchange = () => {
+  S.routeOnly = $("routeOnly").checked;
+  if (S.routeOnly) { $("showRoad").checked = true; S.sel = -1; syncSidebar(); }
+  zoomFit();
+};
 $("grid").onchange = () => {
   S.grid = Math.max(0.25, +$("grid").value || 1);
   syncLegInfo(); draw();
@@ -713,7 +735,7 @@ $("expSvg").onclick = () => {
   let x0 = 0, x1 = 0, z0 = 0, z1 = 0;
   const acc = (x, z) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); };
   S.road.forEach((p) => acc(p.x, p.z));
-  S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
+  if (!S.routeOnly) S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
   const m = 6;
   x0 -= m; z0 -= m; x1 += m; z1 += m;
   const sc = 8;                                  // 8 px / m
@@ -724,15 +746,20 @@ $("expSvg").onclick = () => {
   const o = [];
   o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" font-family="'Noto Sans SC','Microsoft YaHei',sans-serif">`);
   o.push(`<rect width="${W}" height="${H}" fill="#faf8f2"/>`);
-  o.push(`<text x="${pad}" y="${pad + 16}" font-size="22" font-weight="700" fill="#1e2740">俯视草图（手绘）</text>`);
-  for (const b of S.blocks) {
+  o.push(`<text x="${pad}" y="${pad + 16}" font-size="22" font-weight="700" fill="#1e2740">${S.routeOnly ? "路线（虚线）" : "俯视草图（手绘）"}</text>`);
+  if (!S.routeOnly) for (const b of S.blocks) {
     const w = (b.w * sc).toFixed(1), d = (b.d * sc).toFixed(1);
     o.push(`<rect x="${(X(b.x) - w / 2)}" y="${(Y(b.z) - d / 2)}" width="${w}" height="${d}" fill="${TONE_COLORS[b.tone] || TONE_COLORS[1]}" stroke="#2b3550" stroke-width="1.2"/>`);
   }
   if (S.road.length) {
     const pts = S.road.map((p) => `${X(p.x)},${Y(p.z)}`).join(" ");
-    o.push(`<polyline points="${pts}" fill="none" stroke="#b9c6de" stroke-width="${(S.roadWidth * sc).toFixed(1)}" stroke-linejoin="miter"/>`);
-    o.push(`<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="${(0.3 * sc).toFixed(1)}" stroke-dasharray="${(0.6 * sc).toFixed(1)} ${(0.45 * sc).toFixed(1)}"/>`);
+    if (S.routeOnly) {
+      o.push(`<polyline points="${pts}" fill="none" stroke="#3a4763" stroke-width="2.5" stroke-dasharray="12 8" stroke-linejoin="miter"/>`);
+      for (const p of S.road) o.push(`<rect x="${(X(p.x) - 3)}" y="${(Y(p.z) - 3)}" width="6" height="6" fill="#a3452f"/>`);
+    } else {
+      o.push(`<polyline points="${pts}" fill="none" stroke="#b9c6de" stroke-width="${(S.roadWidth * sc).toFixed(1)}" stroke-linejoin="miter"/>`);
+      o.push(`<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="${(0.3 * sc).toFixed(1)}" stroke-dasharray="${(0.6 * sc).toFixed(1)} ${(0.45 * sc).toFixed(1)}"/>`);
+    }
   }
   o.push(`<line x1="${pad}" y1="${H - pad - 14}" x2="${pad + 10 * sc}" y2="${H - pad - 14}" stroke="#1e2740" stroke-width="3"/>`);
   o.push(`<text x="${pad + 10 * sc + 8}" y="${H - pad - 8}" font-size="14" fill="#1e2740">10 m</text>`);
@@ -754,9 +781,9 @@ function zoomFit() {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   const acc = (x, z) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); };
   S.road.forEach((p) => acc(p.x, p.z));
-  S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
+  if (!S.routeOnly) S.blocks.forEach((b) => { acc(b.x - b.w / 2, b.z - b.d / 2); acc(b.x + b.w / 2, b.z + b.d / 2); });
   if (isFinite(x0)) {                     // 把路带自身的宽度也算进包围盒，免得贴边被裁
-    const m = S.roadWidth / 2 + 1;
+    const m = (S.routeOnly ? 1 : S.roadWidth / 2) + 1;
     x0 -= m; x1 += m; z0 -= m; z1 += m;
   }
   if (!isFinite(x0)) { S.view = { x: 0, z: 0, s: 9 }; draw(); return; }
@@ -791,6 +818,9 @@ function demo() {
 setTool("select");
 resize();
 if (location.search.includes("demo")) { try { demo(); } catch (err) { window.__err = String((err && err.stack) || err); } }
+if (location.search.includes("route")) {          // ?route=1 直接用"只要路线"模式打开
+  $("routeOnly").checked = true; S.routeOnly = true; S.sel = -1; zoomFit();
+}
 
 // ?sketch=<url>：用网址打开时直接载入一份底稿（在 http:// 下有效；file:// 会被浏览器禁止 fetch）
 const _q = new URLSearchParams(location.search);
