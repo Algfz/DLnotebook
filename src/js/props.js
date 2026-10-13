@@ -988,13 +988,17 @@ export function buildPlaced(level, verts, opts = {}) {
   const out = [];                       // {x,y,z,rotY,w,h,d,color,rise:[t0,t1]|null}
 
   // 时间 + 横向偏移 → 世界坐标 / 朝向（局部 +Z 沿路，+X 沿右法线）
+  // ★ 朝向一律**吸附到坐标轴**：这一关的路是 +x/+z 的阶梯，每段本身就走在一个轴上，
+  //   所以任何长方体都能严格朝 +x/−x/+z/−z —— 对应 ETW29 里"没有一个方块是斜的"。
+  const SNAP = Math.PI / 2;
+  const snapYaw = (y) => Math.round(y / SNAP) * SNAP;
   const put = (t, off) => {
     const s = timeToArc(pl, verts, t);
     const p = atArc(pl, s);
     const tx = -p.nz, tz = p.nx;                 // 切线
     return {
       x: p.x + p.nx * off, z: p.z + p.nz * off, y: p.y,
-      yaw: Math.atan2(tx, tz),
+      yaw: snapYaw(Math.atan2(tx, tz)),
       gy: p.y - 0.06 - groundDropAt(level, t),   // 该处地面高度
     };
   };
@@ -1005,7 +1009,7 @@ export function buildPlaced(level, verts, opts = {}) {
     const h = it.h == null ? 1 : it.h;
     const tone = it.tone || 0;                   // 0/1/2 → 三档蓝
     out.push({
-      x: a.x, z: a.z, y: a.gy + h / 2, rotY: a.yaw + (it.rot || 0),
+      x: a.x, z: a.z, y: a.gy + h / 2, rotY: snapYaw(a.yaw + (it.rot || 0)),
       w: it.w, h, d: it.d,
       color: blues[tone] || blues[0],
       rise: it.rise === false ? null : [it.t - (it.lead == null ? 2.2 : it.lead),
@@ -1024,12 +1028,58 @@ export function buildPlaced(level, verts, opts = {}) {
     const offW = roadW / 2 + wallW / 2 + (B.wallGap || 0);
     const deckTh = B.deckTh == null ? 1.0 : B.deckTh;
     const drop = groundDropAt(level, B.from);
-    const chunk = B.chunk || 4;                 // 每 chunk 个折点合成一段护栏（≈10m）
-    let acc = 0, lastPillar = -1e9, ci = 0;
+    const chunk = B.chunk || 1;                 // 默认 1 = 每个折线段一件（每段都是直的、轴对齐）
+    const winStep = B.step || 0;                // >0：改用"粗粒度长墙"（见下），本关用这个
+    let acc = 0, lastPillar = -1e9, ci = 0, i0 = 1, acc2 = 0;
     for (let i = 1; i < verts.length; i++) {
       const L = Math.hypot(verts[i].x - verts[i - 1].x, verts[i].z - verts[i - 1].z);
-      if (L > 1e-6) acc += L;
+      if (L > 1e-6) { acc += L; acc2 += L; }
       ci++;
+      if (winStep > 0) {
+        // ── 粗粒度：每 winStep 米合成**一道长护栏**，只按主轴方向摆放 ──
+        // 本关的路每 3.4m 折一次，如果护栏跟着每个折点走就变成一排小齿（很难看）；
+        // ETW29 的做法是让墙比路"粗"：墙走一条大直线，路在墙之间自己折。
+        if (acc2 < winStep && i < verts.length - 1) continue;
+        const a = verts[i0 - 1], b = verts[i];
+        i0 = i + 1; acc2 = 0;
+        if (b.t < B.from || a.t > to) continue;
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (let j = i0 - 1; j <= i; j++) {
+          x0 = Math.min(x0, verts[j].x); x1 = Math.max(x1, verts[j].x);
+          z0 = Math.min(z0, verts[j].z); z1 = Math.max(z1, verts[j].z);
+        }
+        const alongX = (x1 - x0) >= (z1 - z0);
+        const cy = (a.y + b.y) / 2;
+        const t0 = Math.min(a.t, b.t) - lead, t1 = Math.min(a.t, b.t) - lead + dur;
+        const marg = B.margin == null ? 1.6 : B.margin;
+        const half = (alongX ? (z1 - z0) : (x1 - x0)) / 2 + offW;
+        const len = (alongX ? (x1 - x0) : (z1 - z0)) + marg * 2;
+        const yaw = alongX ? SNAP : 0;
+        const cxm = (x0 + x1) / 2, czm = (z0 + z1) / 2;
+        for (const side of [1, -1]) {
+          out.push({
+            x: alongX ? cxm : cxm + side * half,
+            z: alongX ? czm + side * half : czm,
+            y: cy + wallH / 2, rotY: yaw, w: wallW, h: wallH, d: len,
+            color: side > 0 ? blues[0] : blues[1], rise: [t0, t1],
+          });
+        }
+        out.push({
+          x: cxm, z: czm, y: cy - 0.6 - deckTh / 2 + 0.02, rotY: yaw,
+          w: roadW + 2 * offW, h: deckTh, d: len, color: blues[2], rise: [t0 - 0.3, t1 - 0.3],
+        });
+        const pe = B.pillarEvery || 12;
+        if (acc - lastPillar >= pe) {
+          lastPillar = acc;
+          const ph = Math.max(0.6, cy - 0.6 - deckTh - (cy - 0.06 - drop));
+          const pw = B.pillarW || 1.7;
+          out.push({
+            x: cxm, z: czm, y: cy - 0.6 - deckTh - ph / 2 + 0.02, rotY: yaw,
+            w: pw, h: ph, d: pw, color: blues[2], rise: [t0 + 0.25, t1 + 0.25],
+          });
+        }
+        continue;
+      }
       if (ci < chunk && i < verts.length - 1) continue;
       const a = verts[Math.max(0, i - ci)], b = verts[i];
       ci = 0;
@@ -1037,22 +1087,25 @@ export function buildPlaced(level, verts, opts = {}) {
       const dx = b.x - a.x, dz = b.z - a.z;
       const len = Math.hypot(dx, dz);
       if (len < 1e-6) continue;
-      const yaw = Math.atan2(dx, dz);
+      const yaw = snapYaw(Math.atan2(dx, dz));           // ★ 吸附到坐标轴：没有斜着的护栏
       const cx = (a.x + b.x) / 2, cz = (a.z + b.z) / 2, cy = (a.y + b.y) / 2;
       const nx = dz / len, nz = -dx / len;                 // 右法线
       const t0 = Math.min(a.t, b.t) - lead, t1 = Math.min(a.t, b.t) - lead + dur;
+      // 往两头各探出半段：本关的路每 3.4m 就折一次，相邻两段互相垂直，
+      // 只有让它们重叠才连成一道**连续的阶梯墙**，而不是一排孤立的板。
+      const ext = Math.max(wallW * 0.9, len * 0.5);
       // 两侧护栏
       for (const side of [1, -1]) {
         out.push({
           x: cx + nx * side * offW, z: cz + nz * side * offW, y: cy + wallH / 2,
-          rotY: yaw, w: wallW, h: wallH, d: len + 0.16,
+          rotY: yaw, w: wallW, h: wallH, d: len + ext,
           color: side > 0 ? blues[0] : blues[1], rise: [t0, t1],
         });
       }
       // 桥面（托在路面下方的一道梁）
       out.push({
         x: cx, z: cz, y: cy - 0.6 - deckTh / 2 + 0.02,
-        rotY: yaw, w: roadW + 2 * (offW - roadW / 2), h: deckTh, d: len + 0.16,
+        rotY: yaw, w: roadW + 2 * (offW - roadW / 2), h: deckTh, d: len + ext,
         color: blues[2], rise: [t0 - 0.3, t1 - 0.3],
       });
       // 桥墩：每 pillarEvery 米一根，从地面顶到桥面底
