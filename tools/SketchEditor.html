@@ -808,7 +808,7 @@ $("impJson").onclick = () => {
     rd.onload = () => {
       try {
         const j = JSON.parse(rd.result);
-        loadProject(j); $("ioMsg").textContent = "已导入草图 JSON";
+        loadProject(j, "导入的 " + (f.name || "JSON"));
       } catch (err) { $("ioMsg").textContent = "导入失败：" + err.message; }
     };
     rd.readAsText(f);
@@ -828,8 +828,7 @@ $("impLevel").onclick = () => {
         // ① 底稿 / 编辑器自己的草图（有 road + blocks 的世界坐标）→ 直接当项目打开
         if (Array.isArray(lv.road) && Array.isArray(lv.blocks) && lv.blocks.length
             && lv.blocks.every((b) => b && b.x !== undefined && b.w !== undefined)) {
-          loadProject(lv);
-          $("ioMsg").textContent = `已载入底稿：路 ${S.road.length} 点 + 方块 ${S.blocks.length} 件`;
+          loadProject(lv, "载入的关卡 level.json（只有路）");
           return;
         }
         // ② 关卡 level.json：只能拿到真路（place[] 里只有 t/off，没有世界 x/z）
@@ -863,21 +862,28 @@ $("impSketch").onclick = () => {
   $("ioMsg").textContent = "正在载入底稿 …";
   fetch(encodeURI(URL_SKETCH))
     .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-    .then((j) => { loadProject(j); $("ioMsg").textContent = `已载入底稿：路 ${S.road.length} 点 + 方块 ${S.blocks.length} 件（世界坐标）`; })
+    .then((j) => loadProject(j, "一键载入：关卡目录里的 level-sketch.json"))
     .catch((e) => {
       $("ioMsg").textContent = `自动载入失败（${e.message}）。这一键需要从 http:// 打开的页面（本页是 file:// 时浏览器禁止读取本地文件）——`
         + `请改用上面【载入关卡 / 底稿 JSON】手动选 levels/ring a bell-灰澈/level-sketch.json。`;
     });
 };
 
-function loadProject(j) {
+function loadProject(j, srcName) {
   snapshot();
   S.road = (j.road || []).map((p) => ({ x: +p[0], z: +p[1] }));
   S.blocks = (j.blocks || []).map((b) => ({ x: +b.x, z: +b.z, w: +b.w, d: +b.d, h: +b.h ?? 1, tone: +b.tone ?? 1 }));
   S.roadWidth = +j.roadWidth || S.roadWidth;
   $("rw").value = S.roadWidth;
   if (j.leg) $("leg").value = j.leg;
-  S.sel = -1; zoomFit(); syncSidebar(); draw();
+  // 载入后把"这份文件到底是谁"写在侧栏：份数 + 首末点 —— 万一手滑选了旧副本，一眼能看出来
+  const r0 = S.road[0], rn = S.road[S.road.length - 1];
+  const stamp = r0 ? `路 ${S.road.length} 点（首 (${r0.x}, ${r0.z}) → 末 (${rn.x}, ${rn.z})）+ 方块 ${S.blocks.length} 件` : "（没有路数据）";
+  const KNOWN = "路 683 点（首 (0, 0) → 末 (1194.91, 1250.42)）+ 方块 655 件";
+  const stale = S.road.length && S.road.length !== 683;
+  $("ioMsg").innerHTML = `已载入 <b>${srcName || (j.level ? j.level + "/level-sketch.json" : "JSON")}</b>：${stamp}`
+    + (stale ? `<br>⚠️ 点数不是最新的 683 —— 你选的可能是旧副本（最新应为：${KNOWN}）` : "");
+  S.sel = -1; zoomFit(); syncSidebar(); draw(); saveView();
 }
 
 /* SVG 导出：和屏幕完全同一套坐标（y 轴向下，所以 z 取负）。
@@ -1004,9 +1010,42 @@ function demo() {
   zoomFit(); syncSidebar(); draw();
 }
 
+/* ── 显示设置记忆（localStorage）────────────────────────────────────────
+   发起人问："为什么网址打开是我想要的、在编辑器里载入 level-sketch.json 就还是以前的残留？"
+   —— 因为 pure / 只要路线 / 轨迹 / 网格 这些**只是显示设置**：URL 参数才带得进来，
+      而载入文件只换**数据**、不动显示设置。
+   所以把显示设置记在浏览器里：勾过一次【纯净】，以后直接双击打开编辑器也是纯净视图。 */
+const LS_KEY = "SketchEditor.view.v1";
+function saveView() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      pure: S.pure, routeOnly: S.routeOnly, trail: S.trail,
+      grid: S.grid, snap: S.snap, half: S.half,
+      showGrid: $("showGrid").checked, showRoad: $("showRoad").checked, showOrigin: $("showOrigin").checked,
+    }));
+  } catch (e) { /* file:// 或隐私模式下写不了就算了 */ }
+}
+function restoreView() {
+  let j = null;
+  try { j = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (e) { return; }
+  if (!j) return;
+  S.pure = !!j.pure; S.routeOnly = !!j.routeOnly;
+  S.grid = +j.grid || 1; S.snap = j.snap !== false; S.half = !!j.half;
+  if (j.trail) S.trail = Object.assign(S.trail, j.trail);
+  $("pure").checked = S.pure; $("routeOnly").checked = S.routeOnly;
+  $("trailOn").checked = !!S.trail.on; $("trailDots").checked = S.trail.dots !== false;
+  $("grid").value = S.grid; $("snap").checked = S.snap; $("half").checked = S.half;
+  $("showGrid").checked = j.showGrid !== false;
+  $("showRoad").checked = j.showRoad !== false;
+  $("showOrigin").checked = j.showOrigin !== false;
+  $("lw").value = S.trail.lw; $("spd").value = S.trail.speed; $("tickPer").value = S.trail.tick;
+}
+
 /* ── 启动 ─────────────────────────────────────────────────────────── */
 setTool("select");
 resize();
+restoreView();                                    // 先恢复上次的显示设置，URL 参数再覆盖它
+document.addEventListener("change", saveView);    // 任何控件变动都记下来
 if (location.search.includes("demo")) { try { demo(); } catch (err) { window.__err = String((err && err.stack) || err); } }
 if (location.search.includes("route")) {          // ?route=1 直接用"只要路线"模式打开
   $("routeOnly").checked = true; S.routeOnly = true; S.sel = -1; zoomFit();
@@ -1025,6 +1064,7 @@ if (location.search.includes("pure")) {           // ?pure=1 纯净模式：画�
 if (location.search.includes("dots=0")) {         // ?dots=0 连时间点也不要：只剩网格 + 轨迹带 + 路线虚线
   S.trail.dots = false; $("trailDots").checked = false; draw();
 }
+if (/[?&](pure|route|trail|dots)=/.test(location.search)) saveView();   // 用网址开过一次就记住这套显示设置
 if (location.search.includes("svg")) {            // ?svg=1 自检：把导出的 SVG 放进 window.__svg
   try { window.__svg = buildSvg(); window.__svgLen = window.__svg.length; }
   catch (e) { window.__svgErr = String(e && e.message || e); }
@@ -1049,7 +1089,7 @@ function applyViewQ() {
 if (_q.has("sketch")) {
   fetch(_q.get("sketch"))
     .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-    .then((j) => { loadProject(j); $("ioMsg").textContent = `已载入底稿：${_q.get("sketch")}（路 ${S.road.length} 点 + 方块 ${S.blocks.length} 件）`; applyViewQ(); })
+    .then((j) => { loadProject(j, _q.get("sketch")); applyViewQ(); })
     .catch((e) => { $("ioMsg").textContent = `底稿载入失败（${e.message}）—— file:// 下浏览器禁止读取本地文件，请改用【导入我的 JSON】选文件，或从 http:// 打开本页。`; });
 }
 syncSidebar();
