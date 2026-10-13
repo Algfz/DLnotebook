@@ -61,7 +61,7 @@
     </div>
 
     <div class="grp">
-      <label class="field" title="只画一条虚线路线：不出路带、不画方块"><input id="routeOnly" type="checkbox"> <b>只要路线</b></label>
+      <label class="field" title="只画一条虚线路线：不出路带、不画方块"><input id="routeOnly" type="checkbox" checked> <b>只要路线</b></label>
     <label class="field" title="画布上只留两样：路线虚线 + 舞线轨迹带（不出网格、路带、方块、顶点方块、起终标记、比例尺）"><input id="pure" type="checkbox"> <b>纯净：只留路线 + 轨迹</b></label>
       <label class="field">每段 <input id="leg" type="number" value="3.4" step="0.1" min="0.5"> m</label>
       <label class="field">路宽 <input id="rw" type="number" value="3" step="0.5" min="1"> m</label>
@@ -187,7 +187,8 @@ let S = {
   grid: 1,
   half: false,              // true＝路的中线落在半格上（格宽为奇数时，路带正好盖住整格）
   trail: { on: false, lw: 1, speed: 14, tick: 0, dots: true },   // 舞线轨迹参考（线宽 1 m / 14 m/s / 打点间隔 0＝自动 / 打不打时间点）
-  routeOnly: false,         // true＝只要一条虚线路线：不出路带、不画方块
+  routeOnly: true,          // true＝只要一条虚线路线：不出路带、不画方块（**默认开**：发起人只要"路线虚线 + 舞线轨迹"，
+                            //   那条 3 m 宽的浅蓝路带不是他要的东西 —— 他为此问过"这个蓝色的是什么"。要看路带再取消勾选）
   pure: false,              // true＝画布上只留两样：路线虚线 + 舞线轨迹带
   sel: -1,
   view: { x: 0, z: 0, s: 9 },      // 视口：世界中心 (x,z)，缩放 px/m
@@ -280,7 +281,9 @@ function draw() {
       for (let i = 1; i < pts.length; i++) sum += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
       spacing = sum / (pts.length - 1);
     }
-    const showVerts = spacing >= 7;
+    // 顶点方块只在"看得清"的时候画，而且【只要路线】模式下**根本不画** ——
+    // 发起人只要"一条虚线 + 舞线轨迹"，角上那些小方块是多余的（681 个顶点挤在一起还会糊成一条红链把轨迹盖掉）
+    const showVerts = !S.routeOnly && spacing >= 7;
 
     if (S.routeOnly) {
       // 只要路线：一条虚线 + 每个顶点一个小方块（方便核对是否压在网格交点上）
@@ -847,7 +850,11 @@ $("impLevel").onclick = () => {
         $("rw").value = S.roadWidth;
         S.blocks = [];
         S.sel = -1;
-        zoomFit(); syncSidebar(); draw();
+        // 从关卡 level.json 载入也只有路线：同样切到【只要路线】+【舞线轨迹】
+        // （否则画出来是 3 m 宽的浅蓝路带 —— 发起人看到那条带子会问"这个蓝色的是什么"）
+        S.routeOnly = true; $("routeOnly").checked = true;
+        S.trail.on = true; $("trailOn").checked = true;
+        zoomFit(); syncSidebar(); draw(); saveView();
         $("ioMsg").textContent = `已载入关卡的路：${S.road.length} 个顶点。`
           + (lv.place && lv.place.length
               ? `（这 ${lv.place.length} 件布景存的是 t/off＝沿路距离 + 横向偏移，没有世界坐标；本关的路线文件是 levels/ring a bell-灰澈/route-only.json，那里也只有路线、没有方块。）`
@@ -1026,7 +1033,7 @@ function demo() {
    —— 因为 pure / 只要路线 / 轨迹 / 网格 这些**只是显示设置**：URL 参数才带得进来，
       而载入文件只换**数据**、不动显示设置。
    所以把显示设置记在浏览器里：勾过一次【纯净】，以后直接双击打开编辑器也是纯净视图。 */
-const LS_KEY = "SketchEditor.view.v1";
+const LS_KEY = "SketchEditor.view.v2";   // v2：默认改成"只要路线"（旧 v1 里存的 routeOnly=false 会让人又看到那条 3 m 路带）
 function saveView() {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({
