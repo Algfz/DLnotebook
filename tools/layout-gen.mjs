@@ -112,6 +112,8 @@ const nearestBeat = (t) => {
   for (let i = 0; i < beats.length; i++) { const d = Math.abs(beats[i] - t); if (d < bd) { bd = d; bi = i; } }
   return beats[bi];
 };
+// 平均拍长（本曲 0.4518s ≈132.8 BPM，但真人弹奏有波动 —— 只用来定"反复弹"的周期）
+const BEATPER = beats.length > 1 ? (beats[beats.length - 1] - beats[0]) / (beats.length - 1) : 0.4518;
 // 下标哈希（稳定、不用 Math.random）
 const hash = (n) => { let x = (n * 2654435761) >>> 0; x ^= x >>> 15; x = (x * 2246822519) >>> 0; x ^= x >>> 13; return (x >>> 0) / 4294967296; };
 
@@ -172,9 +174,10 @@ if (sketch) {
     const h = near ? H_NEAR : (b.h == null ? 1 : b.h);
     const beat = near ? nearestBeat(spot.t) : null;
     out.push({ t: +spot.t.toFixed(3), off: +spot.off.toFixed(2), w, h, d, tone: b.tone == null ? 1 : b.tone,
-               rot: 0, rise: false, exact: true, clr: +spot.clear.toFixed(3),
+               rot: 0, rise: false, exact: true, clr: +spot.clear.toFixed(3), g: 1,
                anim: near ? "pop" : "breath",
-               ...(near ? { beat: +beat.toFixed(3) } : { phase: +hash(out.length).toFixed(3) }) });
+               ...(near ? { beat: +beat.toFixed(3), beatPeriod: +BEATPER.toFixed(4), every: 1 + (out.length % 3) }
+                      : { phase: +hash(out.length).toFixed(3) }) });
     stat.tidyFront++; near ? stat.pop++ : stat.breath++;
   }
 }
@@ -190,9 +193,14 @@ for (let s = S0; s < TOTAL; s += LEGM, vi++) {
   const add = (spot, w, h, kind, extra) => {
     if (!spot) { stat.dropped++; return; }
     const near = Math.abs(spot.off) < NEAR_OFF;
-    const it = { t: +spot.t.toFixed(3), off: +spot.off.toFixed(2), w, h, d: w, clr: +spot.clear.toFixed(3),
+    const it = { t: +spot.t.toFixed(3), off: +spot.off.toFixed(2), w, h, d: w, clr: +spot.clear.toFixed(3), g: 1,
                  tone: extra.tone == null ? (vi % 2 ? 0 : 2) : extra.tone, rot: 0, rise: false, exact: true };
-    if (kind === "pop") { const b = nearestBeat(spot.t); it.anim = "pop"; it.beat = +((b == null ? spot.t : b)).toFixed(3); stat.pop++; }
+    if (kind === "pop") {
+      const b = nearestBeat(spot.t);
+      it.anim = "pop"; it.beat = +((b == null ? spot.t : b)).toFixed(3);
+      it.beatPeriod = +BEATPER.toFixed(4); it.every = 1 + (vi % 3);       // 每 1/2/3 拍弹一下 → 错落，不是整排一起跳
+      stat.pop++;
+    }
     else { it.anim = "breath"; it.phase = +hash(vi * 7 + Math.round(spot.off * 10)).toFixed(3);
            it.amp = extra.amp; it.period = extra.period; stat.breath++; }
     stat[near ? "near" : (Math.abs(spot.off) < 16 ? "mid" : "far")]++;
@@ -285,7 +293,7 @@ if (APPLY) {
   const bak = path.join(ROOT, "out", "bak", `level-${LEVEL_DIR.replace(/[^\w\u4e00-\u9fa5]+/g, "_")}-${Date.now()}.json`);
   fs.mkdirSync(path.dirname(bak), { recursive: true });
   fs.writeFileSync(bak, JSON.stringify(level, null, 2));
-  const keep = (level.place || []).filter((p) => p.t > 29.9 && p.t < 46 && (p.h || 1) > 1.6);   // 保留既有"立起来"那批
+  const keep = (level.place || []).filter((p) => !p.g && p.t > 29.9 && p.t < 46 && (p.h || 1) > 1.6);   // 保留"不是本工具生成的"老摆件（带 g:1 的都是上一轮产物，重跑时丢掉，免得越跑越多）
   level.place = out.concat(keep);
   fs.writeFileSync(path.join(dir, "level.json"), JSON.stringify(level, null, 2));
   console.log(`  已写回 level.json：place[] = ${out.length} 新 + ${keep.length} 保留（备份 ${path.relative(ROOT, bak)}）`);

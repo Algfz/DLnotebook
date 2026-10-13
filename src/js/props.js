@@ -1206,10 +1206,13 @@ export function applyPlacedAnim(group, anim, t) {
       if (a.kind === "breath") {
         const amp = a.amp == null ? 0.5 : a.amp, per = a.period == null ? 3.4 : a.period;
         dy = amp * Math.sin(2 * Math.PI * (t / per) + (a.phase || 0) * 6.2832);
-      } else {                                        // pop：以拍子为中心的一条短脉冲（0.11s 顶上去、0.31s 落回）
+      } else {                                        // pop：跟着拍子**反复**弹（不是只弹一次）
+        // beat = 它对齐的那一拍（相位基准）、beatPeriod = 平均拍长、every = 每几拍弹一下
         const span = 0.42, up = 0.11, lift = 0.55;
-        const dt = t - (a.beat == null ? 0 : a.beat);
-        if (dt >= 0 && dt <= span) {
+        const per = (a.beatPeriod || 0.4518) * (a.every || 1);
+        let dt = (t - (a.beat == null ? 0 : a.beat)) % per;
+        if (dt < 0) dt += per;
+        if (dt <= span) {
           const k = dt < up ? dt / up : 1 - (dt - up) / (span - up);
           dy = Math.sin(Math.max(0, Math.min(1, k)) * Math.PI / 2) * lift;
         }
