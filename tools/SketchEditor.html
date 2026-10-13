@@ -62,6 +62,7 @@
 
     <div class="grp">
       <label class="field" title="只画一条虚线路线：不出路带、不画方块"><input id="routeOnly" type="checkbox"> <b>只要路线</b></label>
+    <label class="field" title="画布上只留两样：路线虚线 + 舞线轨迹带（不出网格、路带、方块、顶点方块、起终标记、比例尺）"><input id="pure" type="checkbox"> <b>纯净：只留路线 + 轨迹</b></label>
       <label class="field">每段 <input id="leg" type="number" value="3.4" step="0.1" min="0.5"> m</label>
       <label class="field">路宽 <input id="rw" type="number" value="3" step="0.5" min="1"> m</label>
       <button id="revDir" class="ghost" title="切换第一段的朝向">先 +x / 先 +z</button>
@@ -186,6 +187,7 @@ let S = {
   half: false,              // true＝路的中线落在半格上（格宽为奇数时，路带正好盖住整格）
   trail: { on: false, lw: 1, speed: 14, tick: 0 },   // 舞线轨迹参考（线宽 1 m / 14 m/s / 打点间隔 0＝自动）
   routeOnly: false,         // true＝只要一条虚线路线：不出路带、不画方块
+  pure: false,              // true＝画布上只留两样：路线虚线 + 舞线轨迹带
   sel: -1,
   view: { x: 0, z: 0, s: 9 },      // 视口：世界中心 (x,z)，缩放 px/m
   bg: null,                 // {img, alpha, scale, x, z}
@@ -246,7 +248,7 @@ function draw() {
   drawBackground(r);
 
   const g = S.grid * S.view.s;
-  if ($("showGrid").checked && g >= 3) {
+  if ($("showGrid").checked && !S.pure && g >= 3) {
     // 细格
     ctx.lineWidth = 1; ctx.strokeStyle = "#eee8da";
     ctx.beginPath();
@@ -289,7 +291,7 @@ function draw() {
       for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
       ctx.stroke();
       ctx.restore();
-      if (showVerts) {
+      if (showVerts && !S.pure) {
         ctx.fillStyle = "#a3452f";
         for (const p of pts) ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
       }
@@ -317,8 +319,8 @@ function draw() {
     }
   }
 
-  // 方块（只要路线模式下整层不画）
-  if (!S.routeOnly) S.blocks.forEach((b, i) => {
+  // 方块（只要路线 / 纯净模式下整层不画）
+  if (!S.routeOnly && !S.pure) S.blocks.forEach((b, i) => {
     const c = W2S(b.x, b.z);
     const pw = b.w * S.view.s, ph = b.d * S.view.s;
     ctx.fillStyle = TONE_COLORS[b.tone] || TONE_COLORS[1];
@@ -328,7 +330,7 @@ function draw() {
   });
 
   // 选中框的 4 个角柄
-  if (!S.routeOnly && S.sel >= 0 && S.blocks[S.sel]) {
+  if (!S.routeOnly && !S.pure && S.sel >= 0 && S.blocks[S.sel]) {
     const b = S.blocks[S.sel], c = W2S(b.x, b.z);
     const hw = (b.w * S.view.s) / 2, hh = (b.d * S.view.s) / 2;
     ctx.fillStyle = "#fff"; ctx.strokeStyle = "#3f5286"; ctx.lineWidth = 2;
@@ -338,7 +340,7 @@ function draw() {
   }
 
   // 起点标记 + 比例尺
-  if ($("showOrigin").checked && !S.routeOnly) {
+  if ($("showOrigin").checked && !S.routeOnly && !S.pure) {
     if (S.road.length) {
       const p0 = W2S(S.road[0].x, S.road[0].z), pn = W2S(S.road[S.road.length - 1].x, S.road[S.road.length - 1].z);
       ctx.fillStyle = "#2f7a4d"; ctx.beginPath(); ctx.arc(p0.x, p0.y, 6, 0, 7); ctx.fill();
@@ -372,10 +374,11 @@ function draw() {
     }
   }
 
-  // 比例尺文字
+  // 比例尺文字（纯净模式下画布上什么都不留，只留路线虚线 + 舞线轨迹）
   const px100 = 100 * S.view.s;
-  $("scalebar").innerHTML = `1 格 = ${S.grid} m　｜　比例尺 <b>${Math.round(S.view.s * 10)}px = 10m</b>`
+  $("scalebar").innerHTML = S.pure ? "" : `1 格 = ${S.grid} m　｜　比例尺 <b>${Math.round(S.view.s * 10)}px = 10m</b>`
     + (S.bg ? "　｜　<b>背景参考图已加载</b>" : "");
+  document.getElementById("hint").style.display = S.pure ? "none" : "";
   updateHint();
 }
 
@@ -656,6 +659,17 @@ $("routeOnly").onchange = () => {
   if (S.routeOnly) { $("showRoad").checked = true; S.sel = -1; syncSidebar(); }
   zoomFit();
 };
+$("pure").onchange = () => {
+  S.pure = $("pure").checked;
+  if (S.pure) {                       // 纯净＝连"只要路线"也一并接管，且轨迹默认打开
+    $("routeOnly").checked = true; S.routeOnly = true;
+    $("trailOn").checked = true; S.trail.on = true;
+    $("showGrid").checked = false;
+    S.sel = -1; $("showRoad").checked = true; syncSidebar();
+  }
+  zoomFit();
+  draw();
+};
 $("trailOn").onchange = () => { S.trail.on = $("trailOn").checked; syncSidebar(); draw(); };
 $("lw").onchange = () => { S.trail.lw = Math.max(0.25, +$("lw").value || 1); draw(); };
 $("spd").onchange = () => { S.trail.speed = Math.max(0.5, +$("spd").value || 14); syncSidebar(); draw(); };
@@ -875,8 +889,8 @@ function buildSvg() {
   const o = [];
   o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" font-family="'Noto Sans SC','Microsoft YaHei',sans-serif">`);
   o.push(`<rect width="${W}" height="${H}" fill="#faf8f2"/>`);
-  o.push(`<text x="${pad}" y="${pad + 16}" font-size="22" font-weight="700" fill="#1e2740">${S.routeOnly ? "路线（虚线）" : "俯视草图（手绘）"}</text>`);
-  if (!S.routeOnly) for (const b of S.blocks) {
+  if (!S.pure) o.push(`<text x="${pad}" y="${pad + 16}" font-size="22" font-weight="700" fill="#1e2740">${S.routeOnly ? "路线（虚线）" : "俯视草图（手绘）"}</text>`);
+  if (!S.routeOnly && !S.pure) for (const b of S.blocks) {
     const w = (b.w * sc).toFixed(1), d = (b.d * sc).toFixed(1);
     o.push(`<rect x="${(X(b.x) - w / 2)}" y="${(Y(b.z) - d / 2)}" width="${w}" height="${d}" fill="${TONE_COLORS[b.tone] || TONE_COLORS[1]}" stroke="#2b3550" stroke-width="1.2"/>`);
   }
@@ -889,7 +903,7 @@ function buildSvg() {
     }
     if (S.routeOnly) {
       o.push(`<polyline points="${pts}" fill="none" stroke="#3a4763" stroke-width="2.5" stroke-dasharray="12 8" stroke-linejoin="miter"/>`);
-      for (const p of S.road) o.push(`<rect x="${(X(p.x) - 3)}" y="${(Y(p.z) - 3)}" width="6" height="6" fill="#a3452f"/>`);
+      if (!S.pure) for (const p of S.road) o.push(`<rect x="${(X(p.x) - 3)}" y="${(Y(p.z) - 3)}" width="6" height="6" fill="#a3452f"/>`);
     } else {
       o.push(`<polyline points="${pts}" fill="none" stroke="#b9c6de" stroke-width="${(S.roadWidth * sc).toFixed(1)}" stroke-linejoin="miter"/>`);
       o.push(`<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="${(0.3 * sc).toFixed(1)}" stroke-dasharray="${(0.6 * sc).toFixed(1)} ${(0.45 * sc).toFixed(1)}"/>`);
@@ -907,8 +921,10 @@ function buildSvg() {
       }
     }
   }
-  o.push(`<line x1="${pad}" y1="${H - pad - 14}" x2="${pad + 10 * sc}" y2="${H - pad - 14}" stroke="#1e2740" stroke-width="3"/>`);
-  o.push(`<text x="${pad + 10 * sc + 8}" y="${H - pad - 8}" font-size="14" fill="#1e2740">10 m</text>`);
+  if (!S.pure) {
+    o.push(`<line x1="${pad}" y1="${H - pad - 14}" x2="${pad + 10 * sc}" y2="${H - pad - 14}" stroke="#1e2740" stroke-width="3"/>`);
+    o.push(`<text x="${pad + 10 * sc + 8}" y="${H - pad - 8}" font-size="14" fill="#1e2740">10 m</text>`);
+  }
   o.push(`</svg>`);
   return o.join("\n");
 }
@@ -970,6 +986,14 @@ if (location.search.includes("route")) {          // ?route=1 直接用"只要�
 }
 if (location.search.includes("trail")) {          // ?trail=1 同时叠上舞线轨迹参考
   $("trailOn").checked = true; S.trail.on = true; syncSidebar(); draw();
+}
+if (location.search.includes("pure")) {           // ?pure=1 纯净模式：画布上只剩路线虚线 + 舞线轨迹带
+  $("pure").checked = true; S.pure = true;
+  $("routeOnly").checked = true; S.routeOnly = true;
+  $("trailOn").checked = true; S.trail.on = true;
+  $("showGrid").checked = false;
+  S.sel = -1;
+  zoomFit(); syncSidebar(); draw();
 }
 if (location.search.includes("svg")) {            // ?svg=1 自检：把导出的 SVG 放进 window.__svg
   try { window.__svg = buildSvg(); window.__svgLen = window.__svg.length; }
