@@ -2,15 +2,14 @@
 /*
  * route-sheet.mjs —— 出一张**空白底稿**：只有网格 + 路线虚线 + 舞线轨迹带（+ 每 15 s 一个时间点）
  *
- * 为什么单独做这张图：发起人要的是"一个只有路线和舞线轨迹的空白草图"，
- * 而草图编辑器是个功能齐全的工具（默认会把 655 件方块全画出来），
- * 不该让他每次打开再手动关一堆图层。这张图**打开就是最终样子**。
+ * 为什么单独做这张图：发起人要的是"一个只有路线和舞线轨迹的文件"，
+ * 而草图编辑器是个功能齐全的工具，不该让他每次打开再手动关一堆图层。这张图**打开就是最终样子**。
  *
  * 用法：node tools/route-sheet.mjs [每米像素=4] [关卡目录] [打点间隔秒=15]
  * 产物：levels/<关卡目录>/route-sheet.svg   ← 跟着关卡走、进 git，双击就能看
  *       out/route-sheet.png                ← 同上内容的位图预览（out/ 不进 git）
  *
- * 数据源：levels/<关卡>/level-sketch.json 的 road[]（整条舞线，683 点）
+ * 数据源：levels/<关卡>/route-only.json 的 road[]（整条舞线，683 点；该文件**不含方块**）
  *         时间轴按 motion.speedMps 恒速（本关 speedMode="mps"：2445.3 m ÷ 14 = 174.666 s，与曲子 174.667 s 差 1 ms）
  */
 import fs from "node:fs";
@@ -21,14 +20,14 @@ const S = Number(process.argv[2] || 4);                  // 每米像素
 const LEVEL_DIR = process.argv[3] || "ring a bell-灰澈";
 const STEP_T = Number(process.argv[4] || 15);            // 打点间隔（秒）
 
-const SKETCH = path.join(ROOT, "levels", LEVEL_DIR, "level-sketch.json");
+const ROUTE = path.join(ROOT, "levels", LEVEL_DIR, "route-only.json");
 const LV = path.join(ROOT, "levels", LEVEL_DIR, "level.json");
-const j = JSON.parse(fs.readFileSync(SKETCH, "utf8"));
+const j = JSON.parse(fs.readFileSync(ROUTE, "utf8"));
 const lv = JSON.parse(fs.readFileSync(LV, "utf8"));
-const SPEED = (lv.motion && lv.motion.speedMps) || 14;
+const SPEED = (j.trail && j.trail.speedMps) || (lv.motion && lv.motion.speedMps) || 14;
 const GRID = 1;                                          // 网格 1 m
 const ROAD = j.road || [];
-if (ROAD.length < 2) { console.error("level-sketch.json 里没有 road[]"); process.exit(1); }
+if (ROAD.length < 2) { console.error("route-only.json 里没有 road[]"); process.exit(1); }
 
 /* ── 画布：世界坐标 → 图上坐标（z 向上 = 起点在左下、终点在右上） ── */
 const pad = 90, TOP = 190;                               // 左边/下边留白 + 顶部留给说明
@@ -92,9 +91,9 @@ for (let t = STEP_T; t * SPEED <= total; t += STEP_T) {
 }
 
 /* ⑤ 说明（顶部一条，尽量不占地方）+ 比例尺 */
-o.push(`<text x="${pad}" y="52" font-size="30" font-weight="700" fill="#1e2740">${LEVEL_DIR}　舞线底稿（只有路线虚线 + 舞线轨迹）</text>`);
-o.push(`<text x="${pad}" y="90" font-size="19" fill="#6b6a63">路线 ${total.toFixed(1)} m　｜　按 ${SPEED} m/s ＝ ${dur.toFixed(1)} s（曲子 ${lv.music && lv.music.duration ? lv.music.duration.toFixed(1) : "174.7"} s）　｜　网格 1 m（每 10 m 一条粗线）　｜　时间点每 ${STEP_T} s 一个　｜　轨迹带宽 1 m＝游戏内线宽</text>`);
-o.push(`<text x="${pad}" y="120" font-size="19" fill="#6b6a63">单位：米　｜　右 = +x　上 = +z　｜　起点左下角 → 终点右上角　｜　生成：node tools/route-sheet.mjs</text>`);
+o.push(`<text x="${pad}" y="52" font-size="30" font-weight="700" fill="#1e2740">${LEVEL_DIR}　舞线底稿（只有网格 + 路线虚线 + 舞线轨迹）</text>`);
+o.push(`<text x="${pad}" y="90" font-size="19" fill="#6b6a63">路线 ${total.toFixed(1)} m　｜　按 ${SPEED} m/s ＝ ${dur.toFixed(1)} s　｜　网格 1 m（每 10 m 一条粗线）　｜　时间点每 ${STEP_T} s 一个　｜　轨迹带宽 1 m＝游戏内线宽</text>`);
+o.push(`<text x="${pad}" y="120" font-size="19" fill="#6b6a63">单位：米　｜　右 = +x　上 = +z　｜　起点左下角 → 终点右上角　｜　生成：node tools/route-sheet.mjs（数据源 route-only.json，不含布景方块）</text>`);
 {
   const y = H - 42, len = 50 * S;                          // 50 m 比例尺
   o.push(`<line x1="${pad}" y1="${y}" x2="${pad + len}" y2="${y}" stroke="#1e2740" stroke-width="3"/>`);

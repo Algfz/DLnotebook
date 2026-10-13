@@ -250,22 +250,25 @@ for (const p of tailPts) {
   const last = roadPts[roadPts.length - 1];
   if (Math.abs(p[0] - last[0]) > 1e-6 || Math.abs(p[1] - last[1]) > 1e-6) roadPts.push(p);
 }
-// ★ 底稿落在**关卡自己的目录**里，不是 out/：
+// ★ 路线文件落在**关卡自己的目录**里，不是 out/：
 //   out/ 是"跑命令就能重生成的产物堆料场"（6 万多个文件、不进 git），发起人要手动打开的东西不该放那儿。
-//   放到 levels/<关卡目录>/ 后跟关卡同名同目录、一眼找到，而且纳入 git（删关时随关卡一起走，不留孤儿）。
-const SKETCH = path.join(ROOT, "levels", LEVEL_DIR, "level-sketch.json");
-fs.writeFileSync(SKETCH, JSON.stringify({
+//   ⚠️ 2026-10-13 发起人明确要求：**不要再导出带方块的底稿**（"为什么我打开还是看到有这么多方块？"）。
+//   这里只导**路线**；布景方块的数据仍然在关卡里（level.json 的 place[]），本脚本画总平面图时自己算，
+//   但**不写进给发起人打开的文件**。
+const ROUTE = path.join(ROOT, "levels", LEVEL_DIR, "route-only.json");
+fs.writeFileSync(ROUTE, JSON.stringify({
   v: 1,
-  note: "由 tools/plan-level.mjs 从关卡运行时真实几何导出（世界坐标，x 向右 z 向上）"
-      + "；直接拖进 tools/SketchEditor.html，或在编辑器里点【载入底稿】/用【载入关卡 / 底稿 JSON】选本文件。"
+  note: "只有路线，没有布景方块。由 tools/plan-level.mjs 从关卡运行时真实几何导出（世界坐标：x 向右、z 向上）；"
+      + "直接拖进 tools/SketchEditor.html，或在编辑器里点【一键载入本关底稿】。"
+      + "沿线的时间/轨迹参考见同目录 route-sheet.svg。"
       + "⚠️ 这是生成物：改完关卡重跑 node tools/plan-level.mjs 会覆盖它。",
   level: LEVEL_DIR,
   roadWidth: level.roadWidth || 3,
   road: roadPts,
-  blocks: raw.map((b) => ({
-    x: +b.x.toFixed(2), z: +b.z.toFixed(2),
-    w: +b.w.toFixed(2), d: +b.d.toFixed(2), h: +b.h.toFixed(2),
-    tone: SHADE_TONE(b.hex),
-  })),
+  trail: {
+    lineWidth: 1,                                   // 舞线在游戏里 1 m 宽
+    speedMode: (level.motion && level.motion.speedMode) || "mps",
+    speedMps: (level.motion && level.motion.speedMps) || 14,
+  },
 }, null, 1));
-console.log(`已写出 levels/${LEVEL_DIR}/level-sketch.json（路 ${roadPts.length} 点 + 方块 ${raw.length} 件，供 SketchEditor 导入）`);
+console.log(`已写出 levels/${LEVEL_DIR}/route-only.json（只有路线：${roadPts.length} 点，不含方块）`);

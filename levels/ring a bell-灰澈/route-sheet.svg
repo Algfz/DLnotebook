@@ -27,9 +27,9 @@
 <text x="4335.7" y="1117.7" font-size="13" font-weight="700" fill="#3a4763" text-anchor="middle">150s</text>
 <circle cx="4807.2" cy="758.9" r="4.4" fill="#a3452f" stroke="#ffffff" stroke-width="1.8"/>
 <text x="4807.2" y="749.2" font-size="13" font-weight="700" fill="#3a4763" text-anchor="middle">165s</text>
-<text x="90" y="52" font-size="30" font-weight="700" fill="#1e2740">ring a bell-灰澈　舞线底稿（只有路线虚线 + 舞线轨迹）</text>
-<text x="90" y="90" font-size="19" fill="#6b6a63">路线 2445.3 m　｜　按 14 m/s ＝ 174.7 s（曲子 174.7 s）　｜　网格 1 m（每 10 m 一条粗线）　｜　时间点每 15 s 一个　｜　轨迹带宽 1 m＝游戏内线宽</text>
-<text x="90" y="120" font-size="19" fill="#6b6a63">单位：米　｜　右 = +x　上 = +z　｜　起点左下角 → 终点右上角　｜　生成：node tools/route-sheet.mjs</text>
+<text x="90" y="52" font-size="30" font-weight="700" fill="#1e2740">ring a bell-灰澈　舞线底稿（只有网格 + 路线虚线 + 舞线轨迹）</text>
+<text x="90" y="90" font-size="19" fill="#6b6a63">路线 2445.3 m　｜　按 14 m/s ＝ 174.7 s　｜　网格 1 m（每 10 m 一条粗线）　｜　时间点每 15 s 一个　｜　轨迹带宽 1 m＝游戏内线宽</text>
+<text x="90" y="120" font-size="19" fill="#6b6a63">单位：米　｜　右 = +x　上 = +z　｜　起点左下角 → 终点右上角　｜　生成：node tools/route-sheet.mjs（数据源 route-only.json，不含布景方块）</text>
 <line x1="90" y1="5330" x2="290" y2="5330" stroke="#1e2740" stroke-width="3"/>
 <line x1="90" y1="5323" x2="90" y2="5337" stroke="#1e2740" stroke-width="3"/>
 <line x1="290" y1="5323" x2="290" y2="5337" stroke="#1e2740" stroke-width="3"/>
