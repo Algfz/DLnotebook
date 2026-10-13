@@ -70,6 +70,9 @@
     <div class="grp">
       <label class="field"><input id="snap" type="checkbox" checked> 吸附网格</label>
       <label class="field">格 <input id="grid" type="number" value="1" step="0.5" min="0.25"> m</label>
+      <label class="field" title="路的中线落在半格上（格宽为奇数时，路带正好盖住整格）"><input id="half" type="checkbox"> 半格</label>
+      <span class="sub" id="legInfo"></span>
+      <button id="snapAll" class="ghost" title="把已经画好的路顶点与方块全部吸附到网格">对齐网格</button>
       <button id="zoomFit" class="ghost">适应窗口</button>
     </div>
 
@@ -170,6 +173,7 @@ let S = {
   roadWidth: 3,
   snap: true,
   grid: 1,
+  half: false,              // true＝路的中线落在半格上（格宽为奇数时，路带正好盖住整格）
   sel: -1,
   view: { x: 0, z: 0, s: 9 },      // 视口：世界中心 (x,z)，缩放 px/m
   bg: null,                 // {img, alpha, scale, x, z}
@@ -200,6 +204,12 @@ function S2W(px, py) {                    // 屏幕 → 世界
            z: -(py - r.height / 2) / S.view.s + S.view.z };
 }
 function snapV(v) { return S.snap ? Math.round(v / S.grid) * S.grid : Math.round(v * 100) / 100; }
+// 路的顶点用这个：吸附到网格（+可选的半格偏移），保证每一段都是网格的整数倍
+function snapRoad(v) {
+  const g = S.grid;
+  const base = S.snap ? Math.round(v / g) * g : Math.round(v * 100) / 100;
+  return S.half ? base + g / 2 : base;
+}
 
 /* ── 画布尺寸 ─────────────────────────────────────────────────────── */
 function resize() {
@@ -360,11 +370,13 @@ cv.addEventListener("pointerdown", (e) => {
     snapshot();
     const leg = Math.max(0.5, +$("leg").value || 3.4);
     if (!S.road.length) {
-      S.road.push({ x: snapV(wpt.x), z: snapV(wpt.z) });
+      S.road.push({ x: snapRoad(wpt.x), z: snapRoad(wpt.z) });
       draw(); syncSidebar(); return;
     }
     const last = S.road[S.road.length - 1];
-    const p = S.nextDir === "+x" ? { x: last.x + leg, z: last.z } : { x: last.x, z: last.z + leg };
+    // 目标位置先按 leg 推一格，再整体吸附回网格 → 每段长度都是网格的整数倍
+    const p = S.nextDir === "+x" ? { x: snapRoad(last.x + leg), z: last.z }
+                                 : { x: last.x, z: snapRoad(last.z + leg) };
     S.road.push(p);
     S.nextDir = S.nextDir === "+x" ? "+z" : "+x";
     draw(); syncSidebar(); return;
@@ -516,8 +528,34 @@ $("revDir").onclick = () => { S.nextDir = S.nextDir === "+x" ? "+z" : "+x"; draw
 $("backLeg").onclick = () => {
   if (S.road.length > 1) { snapshot(); S.road.pop(); S.nextDir = S.nextDir === "+x" ? "+z" : "+x"; draw(); syncSidebar(); }
 };
-$("snap").onchange = () => { S.snap = $("snap").checked; };
-$("grid").onchange = () => { S.grid = Math.max(0.25, +$("grid").value || 1); draw(); };
+$("snap").onchange = () => { S.snap = $("snap").checked; syncLegInfo(); };
+$("half").onchange = () => { S.half = $("half").checked; syncLegInfo(); };
+$("grid").onchange = () => {
+  S.grid = Math.max(0.25, +$("grid").value || 1);
+  syncLegInfo(); draw();
+};
+// 把已经画好的东西全部吸附到网格（改格宽之后特别有用）
+$("snapAll").onclick = () => {
+  snapshot();
+  S.road = S.road.map((p) => ({ x: snapRoad(p.x), z: snapRoad(p.z) }));
+  S.blocks = S.blocks.map((b) => ({
+    ...b,
+    w: Math.max(S.grid, Math.round(b.w / S.grid) * S.grid),
+    d: Math.max(S.grid, Math.round(b.d / S.grid) * S.grid),
+    x: snapV(b.x), z: snapV(b.z),
+  }));
+  S.blocks.forEach((b) => { b.x = snapV(b.x); b.z = snapV(b.z); });
+  syncLegInfo(); syncSidebar(); draw();
+};
+// 顶栏显示"实际每段多长"（吸附之后可能不是输入的那个数）
+function syncLegInfo() {
+  const leg = Math.max(0.5, +$("leg").value || 3.4);
+  if (!S.snap) { $("legInfo").textContent = ""; return; }
+  const g = S.grid;
+  const eff = Math.round(leg / g) * g || g;
+  $("legInfo").innerHTML = `实际每段 <b>${eff} m</b>` + (S.half ? `（中线在半格上）` : "");
+}
+$("leg").addEventListener("input", syncLegInfo);
 $("undo").onclick = undo;
 $("demo").onclick = () => { snapshot(); demo(); };
 $("clear").onclick = () => {
@@ -736,12 +774,13 @@ function demo() {
   const leg = 3.4;
   for (let i = 0; i < 10; i++) {
     const last = S.road[S.road.length - 1];
-    S.road.push(S.nextDir === "+x" ? { x: last.x + leg, z: last.z } : { x: last.x, z: last.z + leg });
+    S.road.push(S.nextDir === "+x" ? { x: snapRoad(last.x + leg), z: last.z }
+                                   : { x: last.x, z: snapRoad(last.z + leg) });
     S.nextDir = S.nextDir === "+x" ? "+z" : "+x";
   }
   S.blocks = [
-    { x: 8.5, z: 3.4, w: 4, d: 2, h: 1, tone: 1 },
-    { x: 5.1, z: 8.5, w: 2, d: 4, h: 1, tone: 0 },
+    { x: 7, z: 3, w: 4, d: 2, h: 1, tone: 1 },
+    { x: 5, z: 8, w: 2, d: 4, h: 1, tone: 0 },
     { x: 12, z: 12, w: 6, d: 6, h: 0.9, tone: 2 },
     { x: 2, z: 14, w: 3, d: 3, h: 8, tone: 0 },
   ];
@@ -763,6 +802,7 @@ if (_q.has("sketch")) {
 }
 syncSidebar();
 if (location.search.includes("dbg")) draw();   // ?dbg 时再画一遍，确保读数在图上
+syncLegInfo();
 </script>
 </body>
 </html>
