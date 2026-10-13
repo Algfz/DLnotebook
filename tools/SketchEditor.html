@@ -269,6 +269,14 @@ function draw() {
   // 路带
   if ($("showRoad").checked && S.road.length) {
     const pts = S.road.map((p) => W2S(p.x, p.z));
+    // 顶点方块只在"看得清"的时候画：681 个顶点挤在一起时会糊成一条红链（把轨迹带盖掉）
+    let spacing = 999;
+    if (pts.length > 1) {
+      let sum = 0;
+      for (let i = 1; i < pts.length; i++) sum += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      spacing = sum / (pts.length - 1);
+    }
+    const showVerts = spacing >= 7;
 
     if (S.routeOnly) {
       // 只要路线：一条虚线 + 每个顶点一个小方块（方便核对是否压在网格交点上）
@@ -280,8 +288,10 @@ function draw() {
       for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
       ctx.stroke();
       ctx.restore();
-      ctx.fillStyle = "#a3452f";
-      for (const p of pts) ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
+      if (showVerts) {
+        ctx.fillStyle = "#a3452f";
+        for (const p of pts) ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
+      }
     } else {
       ctx.lineJoin = "miter"; ctx.lineCap = "butt";
       ctx.strokeStyle = "#b9c6de";
@@ -296,9 +306,11 @@ function draw() {
       ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
       for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
       ctx.stroke(); ctx.restore();
-      // 顶点小方块
-      ctx.fillStyle = "#5b6f9c";
-      for (const p of pts) ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
+      // 顶点小方块（同样只在看得清时画）
+      if (showVerts) {
+        ctx.fillStyle = "#5b6f9c";
+        for (const p of pts) ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5);
+      }
     }
   }
 
@@ -349,6 +361,7 @@ function draw() {
     ctx.fillStyle = "#a3452f"; ctx.font = "bold 22px monospace"; ctx.textAlign = "left";
     ctx.fillText(`s=${S.view.s.toFixed(2)} road=${S.road.length} blocks=${S.blocks.length}`, 20, h - 70);
     ctx.fillText(`cv=${Math.round(r2.width)}x${Math.round(r2.height)}  view=(${S.view.x.toFixed(1)},${S.view.z.toFixed(1)})`, 20, h - 40);
+    ctx.fillText(`trail=${S.trail.on ? 1 : 0} lw=${(S.trail.lw * S.view.s).toFixed(1)}px spd=${S.trail.speed} tick=${S.trail.tick}`, 20, h - 170);
     if (window.__err) { ctx.font = "bold 18px monospace"; ctx.fillText("ERR " + String(window.__err).slice(0, 140), 20, h - 100); }
     if (window.__svgLen || window.__svgErr) {
       ctx.font = "bold 18px monospace";
@@ -411,12 +424,14 @@ function drawTrail() {
   const pts = S.road.map((p) => W2S(p.x, p.z));
   ctx.save();
   ctx.lineJoin = "miter"; ctx.lineCap = "butt";
-  ctx.strokeStyle = "#fdfdfb"; ctx.lineWidth = lw;      // 线体（白）
-  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.stroke();
-  ctx.strokeStyle = "#c9cfe0"; ctx.lineWidth = Math.max(1, lw * 0.08);
-  ctx.stroke();                                          // 描边
+  const path = () => {
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+  };
+  // 先描一圈深一号的边（否则白线在近白的画布上看不见），再填白 —— 顺序反了就成了中线不是边
+  ctx.strokeStyle = "#9aa7c2"; ctx.lineWidth = lw + Math.max(2.5, lw * 0.16); path();
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = lw; path();
   ctx.restore();
 
   // 头部每 N 秒的位置（N=0 时自动：让整条路上大约出现 12 个点）
@@ -953,7 +968,21 @@ if (_q.has("sketch")) {
     .then((j) => { loadProject(j); $("ioMsg").textContent = `已载入底稿：${_q.get("sketch")}（路 ${S.road.length} 点 + 方块 ${S.blocks.length} 件）`; })
     .catch((e) => { $("ioMsg").textContent = `底稿载入失败（${e.message}）—— file:// 下浏览器禁止读取本地文件，请改用【导入我的 JSON】选文件，或从 http:// 打开本页。`; });
 }
+// ?z=<px/m>&c=<x>,<z>：强制比例与中心（截图取证用）。注意 fetch 载入底稿后还会 zoomFit，所以要再调一次。
+function applyViewQ() {
+  const _z = +_q.get("z"), _c = (_q.get("c") || "").split(",").map(Number);
+  if (_z > 0) S.view.s = _z;
+  if (_c.length === 2 && _c.every((v) => isFinite(v))) { S.view.x = _c[0]; S.view.z = _c[1]; }
+  if (_z > 0 || _c.length === 2) draw();
+}
+if (_q.has("sketch")) {
+  fetch(_q.get("sketch"))
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then((j) => { loadProject(j); $("ioMsg").textContent = `已载入底稿：${_q.get("sketch")}（路 ${S.road.length} 点 + 方块 ${S.blocks.length} 件）`; applyViewQ(); })
+    .catch((e) => { $("ioMsg").textContent = `底稿载入失败（${e.message}）—— file:// 下浏览器禁止读取本地文件，请改用【导入我的 JSON】选文件，或从 http:// 打开本页。`; });
+}
 syncSidebar();
+applyViewQ();
 if (location.search.includes("dbg")) draw();   // ?dbg 时再画一遍，确保读数在图上
 syncLegInfo();
 </script>
