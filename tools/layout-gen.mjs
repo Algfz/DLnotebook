@@ -83,13 +83,42 @@ const distToPath = (x, z) => {
   }
   return Math.sqrt(m);
 };
-// 矩形到路径中心线的最小距离（按网格取样，够用）
+// ★ 矩形到路径的**精确**最小距离（轴对齐线段 vs 轴对齐矩形，O(1) 一段）。
+//   之前用"在矩形里打网格取样"是错的：24m 的大方块按 w/6 取样，格距 3.5m，
+//   而路是每 3.418m 折 90° 的腿 —— 一条腿正好能从采样格之间穿过去，
+//   于是大块被判"安全"，实际压在轨迹上（发起人 2026-10-13 抓到的硬伤）。
+function segRectDist(ax, az, bx, bz, cx, cz, w, d) {
+  const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2;
+  if (ax === bx) {                                    // 竖段（沿 z）
+    if (ax >= x0 && ax <= x1 && Math.max(Math.min(az, bz), z0) <= Math.min(Math.max(az, bz), z1)) return 0;
+  } else if (az === bz) {                             // 横段（沿 x）
+    if (az >= z0 && az <= z1 && Math.max(Math.min(ax, bx), x0) <= Math.min(Math.max(ax, bx), x1)) return 0;
+  } else {                                            // 一般段：Liang-Barsky 裁剪判交
+    const dx = bx - ax, dz = bz - az;
+    let t0 = 0, t1 = 1;
+    const clip = (p, q) => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+      else { if (r < t0) return false; if (r < t1) t1 = r; }
+      return true;
+    };
+    if (clip(-dx, ax - x0) && clip(dx, x1 - ax) && clip(-dz, az - z0) && clip(dz, z1 - az) && t0 <= t1) return 0;
+  }
+  const px = (v) => Math.max(x0, Math.min(x1, v)), pz = (v) => Math.max(z0, Math.min(z1, v));
+  const d2 = (x, z) => (x - px(x)) ** 2 + (z - pz(z)) ** 2;
+  const seg2 = (x, z) => {                            // 点到线段
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+    let k = ((x - ax) * dx + (z - az) * dz) / L2; k = Math.max(0, Math.min(1, k));
+    return (x - (ax + dx * k)) ** 2 + (z - (az + dz * k)) ** 2;
+  };
+  let m = Math.min(d2(ax, az), d2(bx, bz));           // 端点 → 矩形
+  for (const [cx2, cz2] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) m = Math.min(m, seg2(cx2, cz2));  // 四角 → 线段
+  return Math.sqrt(m);
+}
 function distToPathR(cx, cz, w, d) {
   let m = Infinity;
-  const sx = Math.max(0.3, w / 6), sz = Math.max(0.3, d / 6);
-  for (let dx = -w / 2; dx <= w / 2 + 1e-6; dx += sx)
-    for (let dz = -d / 2; dz <= d / 2 + 1e-6; dz += sz)
-      m = Math.min(m, distToPath(cx + dx, cz + dz));
+  for (const g of seg) { const v = segRectDist(g.a.x, g.a.z, g.b.x, g.b.z, cx, cz, w, d); if (v < m) m = v; }
   return m;
 }
 // 世界点 → (s, off)：粗扫 + refine
@@ -121,7 +150,8 @@ const MODULE = [1.2, 2.4, 3.0, 4.5, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0];
 const snapSize = (v) => MODULE.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a), MODULE[0]);
 const NEAR_OFF = 6.0;            // |off| 小于它 = "紧挨路线" → 压低 + 踩音弹出
 const H_NEAR = 0.5;              // 紧邻路线的高度（发起人：低一点，方便看路）
-const CLEAR_MIN = 0.75;          // 方块边缘到路径中心的最小净空（发起人草图实测 0.70）
+const CLEAR_MIN = 0.85;          // 方块边缘到路径中心的净空下限：舞线半宽 0.5 ⇒ 留 0.35m 视觉余量
+const TRAIL_HALF = 0.5;          // 舞线宽 1m ⇒ 半宽 0.5m：方块边缘离中心线必须 > 它，否则就是"压在轨迹上"
 
 const out = [];
 const stat = { tidyFront: 0, dropped: 0, near: 0, mid: 0, far: 0, pop: 0, breath: 0 };
@@ -165,11 +195,19 @@ if (sketch) {
     // ★ 只在 (弧长 s, 横向 off) 这套"路的坐标"里对齐：
     //   off 吸到 0.5m、s 吸到 0.25m —— 同一条腿旁边的方块就落在与路平行的直线上（阶梯上就是整齐的行列）。
     //   不能去吸世界 x/z 网格：那样方块会沿路方向平移，(t, off) 表达不出来，摆回去会挪位甚至压线。
-    const offS = Math.round(off / 0.5) * 0.5;
-    const sS = Math.round(s / 0.25) * 0.25;
-    const spot = tryPlace(sS, growCands(offS === 0 ? 2.0 : offS), w, d)
-              || tryPlace(sS, growCands(offS >= 0 ? -2.0 : 2.0), w, d);
-    if (!spot) { stat.dropped++; continue; }
+    // ★ 前段**不挪你的方块**（2026-10-13 的教训：把作者摆的东西"对齐"到别处 = 改了设计）。
+    //   位置（弧长、横向 off）原样保留；只有**真的会压到 1m 舞线**（净空 < 0.56m）的那几件，
+    //   才沿法线往外挪最小量（每次 0.25m）。尺寸吸附统一模数、近路的压低、加 pop/breath 照旧。
+    const tUse = +atArc(s).t.toFixed(3);
+    let offUse = +off.toFixed(2), clrF = 0, okF = false;
+    for (let g = 0; g <= 40 && !okF; g++) {
+      const o2 = g === 0 ? offUse : (Math.sign(offUse) || 1) * (Math.abs(offUse) + g * 0.25);
+      const q = ptAt(arcOfT(tUse), +o2.toFixed(2));
+      clrF = distToPathR(q.x, q.z, w, d);
+      if (clrF >= CLEAR_MIN) { offUse = +o2.toFixed(2); okF = true; }
+    }
+    if (!okF) { stat.dropped++; continue; }
+    const spot = { t: tUse, off: offUse, clear: clrF };
     const near = Math.abs(spot.off) < NEAR_OFF;
     const h = near ? H_NEAR : (b.h == null ? 1 : b.h);
     const beat = near ? nearestBeat(spot.t) : null;
@@ -206,14 +244,15 @@ for (let s = S0; s < TOTAL; s += LEGM, vi++) {
     stat[near ? "near" : (Math.abs(spot.off) < 16 ? "mid" : "far")]++;
     out.push(it);
   };
-  // 近排：贴着路线两侧、压得很低（发起人：方便看路），**隔一腿一件**（不是每腿都塞，否则成串珠）→ 踩音弹出
-  if (vi % 2 === 0) {
-    const wN = [3.0, 4.5, 3.0, 6.0][vi % 4];
-    const sg = vi % 4 === 2 ? -1 : 1;
-    add(tryPlace(s, growCands(sg * 2.5, 0.5, 10), wN, wN), wN, H_NEAR, "pop", {});
-  } else if (vi % 6 === 3) {                              // 偶尔两侧都来一件，节奏上有个顿点
-    const wN = 3.0;
-    add(tryPlace(s, growCands(-2.5, 0.5, 10), wN, wN), wN, H_NEAR, "pop", {});
+  // 近排：**两侧连续密排的护栏**（发起人 2026-10-13：
+  //   "紧贴路线两侧的那些方块非常重要的作用就是让玩家知道哪些地方是路线……
+  //     如果路线两侧没有排列足够多的方块那游戏就没难度了"）——
+  //   所以每一腿、左右都放；净空就是发起人草图实测的那个量级（0.7m 上下），矮（0.5m）不挡视线，踩拍弹出。
+  {
+    const wN = vi % 3 === 0 ? 3.0 : 2.4;
+    add(tryPlace(s, growCands(wN / 2 + CLEAR_MIN, 0.5, 10), wN, wN), wN, H_NEAR, "pop", {});
+    const wN2 = vi % 4 === 1 ? 3.0 : 2.4;
+    add(tryPlace(s + 0.9, growCands(-(wN2 / 2 + CLEAR_MIN), 0.5, 10), wN2, wN2), wN2, H_NEAR, "pop", {});
   }
   // 中排：每一腿一对（同一侧挨着放，成"簇"），② 段立起来，其余矮矮地呼吸
   {
@@ -288,12 +327,34 @@ console.log(`  分段：${Object.entries(bySec).map(([k, v]) => k + " " + v + " 
   console.log(`  预览：out/layout-gen-preview.svg（红＝踩音弹出、深蓝＝立起来、浅蓝＝呼吸）`);
 }
 
+/* ── 4b) 保留的老摆件也要过一遍"压轨迹"检查 ────────────────────────────────
+   发起人 2026-10-13："整个关卡都出现了障碍物直接放在舞线轨迹上" ——
+   我这轮生成的全部走 CLEAR_MIN（0.85m）自检，但**保留的老摆件**（浮空段那些"云朵"高柱，
+   他明确说要）还是老数据，必须一起验；真压线的沿法线往外挪最小量（0.25m 一档），不删。 */
+const keepOld = (level.place || []).filter((p) => !p.g && p.t > 29.9 && p.t < 46 && (p.h || 1) > 1.6);
+{
+  let badN = 0, movedN = 0;
+  for (const p of keepOld) {
+    const w = p.w || 1, d = p.d || 1, o0 = p.off || 0;
+    const at = (o) => { const q = ptAt(arcOfT(p.t), o); return distToPathR(q.x, q.z, w, d); };
+    if (at(o0) >= CLEAR_MIN) continue;
+    badN++;
+    let done = false;
+    for (let g = 1; g <= 40 && !done; g++) {
+      const o2 = +((Math.sign(o0) || 1) * (Math.abs(o0) + g * 0.25)).toFixed(2);
+      if (at(o2) >= CLEAR_MIN) { p.off = o2; movedN++; done = true; }
+    }
+    if (!done) console.log(`      ⚠ 老摆件挪不开：t=${(+p.t).toFixed(1)} off=${o0} w=${w} d=${d}`);
+  }
+  console.log(`  ⚠ 保留的老摆件${keepOld.length} 件：压线 ${badN} 件 → 挪开 ${movedN} 件`);
+}
+
 /* ── 5) 写回 ──────────────────────────────────────────────────────────── */
 if (APPLY) {
   const bak = path.join(ROOT, "out", "bak", `level-${LEVEL_DIR.replace(/[^\w\u4e00-\u9fa5]+/g, "_")}-${Date.now()}.json`);
   fs.mkdirSync(path.dirname(bak), { recursive: true });
   fs.writeFileSync(bak, JSON.stringify(level, null, 2));
-  const keep = (level.place || []).filter((p) => !p.g && p.t > 29.9 && p.t < 46 && (p.h || 1) > 1.6);   // 保留"不是本工具生成的"老摆件（带 g:1 的都是上一轮产物，重跑时丢掉，免得越跑越多）
+  const keep = keepOld;   // 保留"不是本工具生成的"老摆件（带 g:1 的是上一轮产物，重跑时丢掉，免得越跑越多）
   level.place = out.concat(keep);
   fs.writeFileSync(path.join(dir, "level.json"), JSON.stringify(level, null, 2));
   console.log(`  已写回 level.json：place[] = ${out.length} 新 + ${keep.length} 保留（备份 ${path.relative(ROOT, bak)}）`);
