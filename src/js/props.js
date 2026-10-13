@@ -1206,12 +1206,12 @@ export function applyPlacedAnim(group, anim, t) {
       if (a.kind === "breath") {
         const amp = a.amp == null ? 0.5 : a.amp, per = a.period == null ? 3.4 : a.period;
         dy = amp * Math.sin(2 * Math.PI * (t / per) + (a.phase || 0) * 6.2832);
-      } else {                                        // pop：以拍子为中心的一条短脉冲
-        const span = 0.42, up = 1.1;                  // 一拍里：0.11s 顶上、0.31s 落回
+      } else {                                        // pop：以拍子为中心的一条短脉冲（0.11s 顶上去、0.31s 落回）
+        const span = 0.42, up = 0.11, lift = 0.55;
         const dt = t - (a.beat == null ? 0 : a.beat);
         if (dt >= 0 && dt <= span) {
           const k = dt < up ? dt / up : 1 - (dt - up) / (span - up);
-          dy = Math.sin(Math.max(0, Math.min(1, k)) * Math.PI / 2) * 0.55;
+          dy = Math.sin(Math.max(0, Math.min(1, k)) * Math.PI / 2) * lift;
         }
       }
       e.set(0, a.rotY, 0); q.setFromEuler(e);
