@@ -276,6 +276,60 @@ export const PROPS = {
     return [{ geo: "box", color: "stone", pos: [0, h / 2, 0], scale: [w, h, d], rotY: R() * Math.PI }];
   },
 
+  /* ── ETW29「驻足的宁静」的摆件：**只有长方体** ──────────────────────────
+     报告原话："只改 position/rotation/scale 就能从『散落石板』变成『柱林』"。
+     所以这里不做圆的、不做树、不做结构件——只有 平躺板 / 斜板 / 竖柱 三种姿态，
+     加上两件纯点缀（白色小方块、蓝色小点）。这就是那一关**全部的道具**。 */
+
+  // 平躺石板：宽而薄；35% 会**悬浮**在板面上方（那一关段 1 的标志画面）
+  slabB(R) {
+    const w = 2.2 + R() * 7.0, d = 1.8 + R() * 5.0, t = 0.5 + R() * 1.1;
+    const lift = R() < 0.35 ? t * (0.9 + R() * 1.8) : 0;
+    return [{
+      geo: "box", color: ["blue0", "blue1", "blue2"][(R() * 3) | 0],
+      pos: [(R() - 0.5) * 1.4, lift + t / 2, (R() - 0.5) * 1.4],
+      scale: [w, t, d], rotY: R() * Math.PI,
+    }];
+  },
+
+  // 斜板：立起来但歪 15~40°，制造"整块板被切碎"的体量（段 2 的一半靠它）
+  wallB(R) {
+    const w = 2.6 + R() * 6.0, h = 3.0 + R() * 8.0, t = 0.5 + R() * 0.9;
+    const tilt = (0.26 + R() * 0.44) * (R() < 0.5 ? 1 : -1);
+    return [{
+      geo: "box", color: R() < 0.5 ? "blue1" : "blue2",
+      pos: [(R() - 0.5) * 0.8, (h / 2) * Math.cos(tilt) + 0.25, (R() - 0.5) * 0.8],
+      scale: [w, h, t], rotY: R() * Math.PI, rotX: tilt,
+    }];
+  },
+
+  // 竖柱：柱林用（段 2 的主景）。高 5~21m＝1.7~7 倍路宽，40% 顶端再叠一小块（断柱感）
+  pillarB(R) {
+    const w = 1.4 + R() * 2.6, h = 5.0 + R() * 16.0;
+    const out = [{
+      geo: "box", color: R() < 0.5 ? "blue1" : "blue2",
+      pos: [0, h / 2, 0], scale: [w, h, w * (0.7 + R() * 0.6)], rotY: R() * Math.PI,
+    }];
+    if (R() < 0.4) out.push({
+      geo: "box", color: "blue0",
+      pos: [(R() - 0.5) * w * 0.5, h + 0.4, (R() - 0.5) * w * 0.5],
+      scale: [w * 0.8, 0.8, w * 0.8], rotY: R() * Math.PI,
+    });
+    return out;
+  },
+
+  // 白色小方块（一屏 0~8 个）：纯粹用来打破板面的空旷
+  cubeW(R) {
+    const s = 0.5 + R() * 1.1;
+    return [{ geo: "box", color: "white", pos: [0, s / 2, 0], scale: [s, s, s], rotY: R() * Math.PI }];
+  },
+
+  // 蓝色小点（一屏 0~8 个）
+  dotB(R) {
+    const s = 0.5 + R() * 0.9;
+    return [{ geo: "ball8", color: "blue1", pos: [0, s * 0.4, 0], scale: [s, s * 0.8, s] }];
+  },
+
   // 草丛：**3~9 片细长三角面片**从一点向外发散（官方草簇就是面片，不是圆锥尖刺）
   grass(R) {
     const out = [];
@@ -432,6 +486,10 @@ export const PROPS = {
    道具配色：跟着地形色卡走（关卡里同样只写色卡名字）
    --------------------------------------------------------------------------- */
 export const PROP_COLORS = {
+  // ETW29「驻足的宁静」：米黄板上只有三档蓝的方块 + 纯白小方块。
+  // 三档蓝用的是那一关的实测值（#7F95CF L58 / #657CBE L49 / #3F5286 L32）。
+  board: { blue0: 0x7f95cf, blue1: 0x657cbe, blue2: 0x3f5286, white: 0xfdfdfb,
+           ground: 0xd1d0bb, shade: 0xbcc0c9 },
   rose:  { foliage: 0x4f8f5f, wood: 0x7a5230, stone: 0xc9c2bb, bloom: 0xf3a7c6, accent: 0xf7e08a, ground: 0xd08aa8, shade: 0xa45f80 },
   plum:  { foliage: 0x4a7f6a, wood: 0x5c4030, stone: 0xb9b0b6, bloom: 0xd98bb4, accent: 0xf2d98a, ground: 0x8a6480, shade: 0x5f3f5a },
   sand:  { foliage: 0x6f8c46, wood: 0x7a5a34, stone: 0xd8c9a8, bloom: 0xe8a06a, accent: 0xf6e2a8, ground: 0xe4d0a4, shade: 0xa8905c },
@@ -448,6 +506,7 @@ export const PROP_COLORS = {
 const SHADOW_R = {
   tree: 1.5, pine: 1.5, appleTree: 1.5, bush: 0.95, rock: 1.1,
   column: 0.6, lamp: 0.35, lantern: 0.55, arch: 2.9, giant: 5.6, mushroom: 0.4,
+  slabB: 0.85, wallB: 0.75, pillarB: 0.62, cubeW: 0.18, dotB: 0.12,
 };
 
 // 「底座色块」的边长（米）：官方秋天做法 —— 树/石脚下垫一块**比地面略亮**的薄方块
@@ -538,6 +597,8 @@ const PROP_R = {
   flower: 0.32, grass: 0.28, mushroom: 0.36, cloudlet: 1.3, block: 0.7,
   fence: 0.32, column: 0.5, lamp: 0.32, note: 0.35, arch: 2.0,
   patch: 0.2, giant: 4.0,
+  // ETW29 的四件摆件（石板/斜板/竖柱/白方/蓝点）
+  slabB: 1.6, wallB: 1.6, pillarB: 1.1, cubeW: 0.4, dotB: 0.25,
 };
 
 /**
@@ -579,6 +640,9 @@ export function buildProps(level, verts, opts = {}) {
   // 否则会飘在空中（地面早就在这一侧退台/掉下去了）——这是最早踩过的坑，
   // 现在改成**由地形参数自己算出来**，不再靠人工在关卡里试数字。
   const FLAT_OF = {
+    // 无限厚板（ETW29）：整块板都能摆，"平地半径"就是板半宽（只留一点边）
+    board:     (P) => P.half - 2,
+    boardSlot: (P) => P.half - 2,
     deck:     (P) => P.walk / 2 + P.shelf,      // 台面 + 一圈矮台
     canyon:   (P) => P.plateauW - 1.2,          // 两侧高台顶面（配 dy = hi）
     terraces: () => 6.0,                        // ⚠️ 主台是"一串圆盘"，gap 必须 < 2*最小半径

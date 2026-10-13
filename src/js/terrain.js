@@ -362,7 +362,36 @@ function motifCloud(pts, W, M, surf) {
   return out;
 }
 
-// E 结尾：**中间截开的金字塔**——一座四棱锥被"过顶点与底面一条对角线"的竖直面切成两半，
+// E 无限厚板（ETW29「驻足的宁静」）——整关**只有一块板**：顶面米黄、断面蓝灰。
+//   这是那个关卡最该抄的第 1 条："一种材质造一座世界"：
+//   一个平面 + 两种面（顶面/断面）+ 摆放方块，就能同时表达「平地 / 悬崖 / 峡谷 / 碎片 / 柱林」，
+//   地形变化全靠**在这块板上切槽**（减法），而不是往空中搭东西（加法）。
+//   板面要"无限延伸"：半宽给到 100m 以上，再配合**很近的雾**（见 game.js 的 fogRange），
+//   远处板面直接溶进天空同色 → 画面里根本不存在地平线，留白就是主角。
+function motifBoard(pts, W, M, surf) {
+  const w = W.walk / 2, out = [];
+  const sm1 = smoothCoords(pts, 1), sm2 = smoothCoords(pts, 3);
+  const half = W.half, th = W.th;
+  if (W.slot > 0) {
+    // 板上切出折线槽：**槽底与台面同色（米黄），露出来的槽壁断面是蓝灰**。
+    // 路走槽底，于是"峡谷"是挖出来的，不是搭出来的。
+    const rim = w + W.slot, top = surf + W.hi;
+    out.push(flatBand(sm2, -half, sm2, -rim, top, M.mid, "board-l"));
+    out.push(flatBand(sm1, rim, sm2, half, top, M.mid, "board-r"));
+    out.push(flatBand(sm1, -rim, sm1, rim, surf, M.mid, "board-slot"));
+    out.push(vertBand(sm1, +rim, surf - th, top, M.near, "board-wall-r"));
+    out.push(vertBand(sm1, -rim, surf - th, top, M.near, "board-wall-l"));
+    out.push(vertBand(sm2, +half, top - th, top, M.near, "board-edge-r"));
+    out.push(vertBand(sm2, -half, top - th, top, M.near, "board-edge-l"));
+  } else {
+    out.push(flatBand(sm2, -half, sm2, half, surf, M.mid, "board-top"));
+    out.push(vertBand(sm2, +half, surf - th, surf, M.near, "board-edge-r"));
+    out.push(vertBand(sm2, -half, surf - th, surf, M.near, "board-edge-l"));
+  }
+  return out;
+}
+
+// F 结尾：**中间截开的金字塔**——一座四棱锥被"过顶点与底面一条对角线"的竖直面切成两半，
 //    两半各自向左右让开 slotW/2，中间留出一条缝，线从缝里进去（真实关卡收尾的常见做法）。
 //    底面做成菱形（两条对角线分别沿行进方向与左右方向），于是那条缝正好顺着路走。
 //    ⚠️ 别做成"三角形截面挤出"——挤出来是一道长长的屋脊，从正面看就是两块竖墙（踩过）。
@@ -404,10 +433,16 @@ function endPyramid(pts, W, M, surf) {
   return out;
 }
 
-const MOTIFS = { deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, islands: motifTerraces, cloud: motifCloud };
+// ⚠️ splitRuns 把"母题名 + 色卡都相同"的相邻段并成一段（段内 params 取第一段的），
+//    所以"平板上切了槽"的那一段必须用**另一个母题名**，否则槽不会出现。
+const MOTIFS = { board: motifBoard, boardSlot: motifBoard, deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, islands: motifTerraces, cloud: motifCloud };
 
 // 每种母题缺省的尺寸参数（关卡里可以逐个覆盖）
 export const DEFAULT_PARAMS = {
+  // 无限厚板（ETW29）：half 是"板有多宽"（要远到看不见边），slot/hi 是"板上切多深的槽"
+  board: { walk: 3.0, half: 150, th: 9.0, slot: 0, hi: 0 },
+  // 同一块板，但中间切了一条槽（ETW29 段 3 的"折线峡谷"）：路走槽底、槽壁露出蓝灰断面
+  boardSlot: { walk: 3.0, half: 150, th: 9.0, slot: 4.2, hi: 5.5 },
   deck: { walk: 13.0, shelf: 2.4, th: 3.2, step: 1.6 },
   canyon: { walk: 4.4, slot: 2.2, hi: 4.0, floorW: 12, plateauW: 30, th: 3.0 },
   // ⚠️ 主台是"一串圆盘"：gap 必须 < 2*rx*0.82（最小半径），否则两块台子之间会有洞，
@@ -430,6 +465,8 @@ export const DEFAULT_PARAMS = {
 
 /* 地形色卡：关卡里只写**名字**，颜色仍然不进关卡文件（和主题色一个道理） */
 export const PALETTES = {
+  // ETW29「驻足的宁静」的两面：米黄顶面 L81 + 蓝灰断面 L60（同一块板）
+  board: { near: 0x9199ac, mid: 0xd1d0bb, far: 0xa8b8d8 },
   rose:  { near: 0x8e2a57, mid: 0xc06a95, far: 0xf0d2e0 },   // 和 pink 主题同色
   plum:  { near: 0x452838, mid: 0x6b3f63, far: 0xbe9cba },   // 深紫：裂谷（near 只留给槽底阴影，不再黑成洞）
   sand:  { near: 0x8a5a2b, mid: 0xc9a86f, far: 0xf2e4c4 },   // 暖沙：层叠平台

@@ -6171,739 +6171,323 @@
     "teleports": [],
     "props": [
         {
-            "kind": "fence",
+            "kind": "slabB",
             "t": [
-                1,
+                2,
+                40
+            ],
+            "off": [
+                7,
                 12
             ],
-            "off": [
-                4.6,
-                4.6
-            ],
-            "every": 1.6,
-            "lanes": 1,
-            "row": true
-        },
-        {
-            "kind": "fence",
-            "t": [
-                18,
-                27
-            ],
-            "off": [
-                4.6,
-                4.6
-            ],
-            "every": 1.6,
-            "lanes": 1,
-            "row": true
-        },
-        {
-            "kind": "fence",
-            "t": [
-                33,
-                40
-            ],
-            "off": [
-                4.6,
-                4.6
-            ],
-            "every": 1.6,
-            "lanes": 1,
-            "row": true
-        },
-        {
-            "kind": "tree",
-            "t": [
-                0,
-                40
-            ],
-            "off": [
-                6.9,
-                11.5
-            ],
-            "every": 18,
-            "lanes": 2,
-            "cluster": [
-                2,
-                3
-            ],
-            "scale": [
-                0.95,
-                1.25
-            ],
-            "spread": 2.4
-        },
-        {
-            "kind": "flower",
-            "t": [
-                0,
-                40
-            ],
-            "off": [
-                3.1,
-                4.4
-            ],
-            "every": 2.6,
-            "lanes": 2,
-            "scale": [
-                0.8,
-                1.1
-            ]
-        },
-        {
-            "kind": "patch",
-            "t": [
-                0,
-                40
-            ],
-            "off": [
-                5.4,
-                9.5
-            ],
-            "every": 18,
-            "lanes": 3,
-            "slot": "ground",
-            "scale": [
-                0.45,
-                0.6
-            ]
-        },
-        {
-            "kind": "column",
-            "t": [
-                40,
-                75
-            ],
-            "off": [
-                7.6,
-                7.6
-            ],
-            "every": 6.5,
-            "lanes": 1,
-            "row": true,
-            "dy": 4
-        },
-        {
-            "kind": "pine",
-            "t": [
-                40,
-                75
-            ],
-            "off": [
-                11,
-                18
-            ],
-            "every": 11,
-            "lanes": 2,
-            "cluster": [
-                2,
-                3
-            ],
-            "dy": 4,
-            "scale": [
-                0.9,
-                1.3
-            ],
-            "spread": 2.6
-        },
-        {
-            "kind": "mushroom",
-            "t": [
-                40,
-                75
-            ],
-            "off": [
-                4.4,
-                5.6
-            ],
-            "every": 5,
-            "lanes": 2,
-            "scale": [
-                0.8,
-                1.2
-            ],
+            "every": 5.5,
             "cluster": [
                 1,
                 2
             ],
-            "spread": 1.4
+            "spread": 2,
+            "scale": 0.55
         },
         {
-            "kind": "patch",
+            "kind": "slabB",
             "t": [
-                40,
-                75
-            ],
-            "off": [
-                9,
-                12
-            ],
-            "every": 30,
-            "lanes": 2,
-            "slot": "ground",
-            "dy": 4,
-            "scale": [
-                0.45,
-                0.6
-            ]
-        },
-        {
-            "kind": "rock",
-            "t": [
-                75,
-                98
-            ],
-            "off": [
-                5.2,
-                7.6
-            ],
-            "every": 9,
-            "lanes": 2,
-            "cluster": [
                 2,
-                3
-            ],
-            "scale": [
-                0.9,
-                1.35
-            ],
-            "spread": 2
-        },
-        {
-            "kind": "crystal",
-            "t": [
-                98,
-                120
-            ],
-            "off": [
-                5,
-                5
-            ],
-            "every": 12,
-            "lanes": 1,
-            "scale": [
-                0.75,
-                1.1
-            ]
-        },
-        {
-            "kind": "flower",
-            "t": [
-                75,
-                120
-            ],
-            "off": [
-                3.4,
-                4.2
-            ],
-            "every": 4,
-            "lanes": 2,
-            "scale": [
-                0.75,
-                1.05
-            ]
-        },
-        {
-            "kind": "block",
-            "t": [
-                120,
-                150
-            ],
-            "off": [
-                9.4,
-                9.4
-            ],
-            "every": 5,
-            "lanes": 1,
-            "row": true,
-            "scale": [
-                0.7,
-                1.05
-            ]
-        },
-        {
-            "kind": "cloudlet",
-            "t": [
-                120,
-                150
+                40
             ],
             "off": [
                 14,
-                24
+                26
             ],
-            "every": 20,
-            "lanes": 2,
+            "every": 6.5,
+            "cluster": [
+                2,
+                3
+            ],
+            "spread": 3,
+            "scale": [
+                0.7,
+                1
+            ]
+        },
+        {
+            "kind": "slabB",
+            "t": [
+                4,
+                40
+            ],
+            "off": [
+                28,
+                48
+            ],
+            "every": 9,
+            "cluster": [
+                2,
+                3
+            ],
+            "spread": 4,
+            "scale": [
+                1,
+                1.5
+            ]
+        },
+        {
+            "kind": "cubeW",
+            "t": [
+                3,
+                40
+            ],
+            "off": [
+                7,
+                26
+            ],
+            "every": 11
+        },
+        {
+            "kind": "dotB",
+            "t": [
+                3,
+                40
+            ],
+            "off": [
+                5,
+                20
+            ],
+            "every": 13
+        },
+        {
+            "kind": "pillarB",
+            "t": [
+                41,
+                74
+            ],
+            "off": [
+                11,
+                19
+            ],
+            "every": 6.5,
             "cluster": [
                 1,
                 2
             ],
-            "dy": 2.5
+            "spread": 2.6,
+            "scale": [
+                0.55,
+                0.8
+            ]
         },
         {
-            "kind": "crystal",
+            "kind": "pillarB",
             "t": [
-                120,
+                41,
+                74
+            ],
+            "off": [
+                23,
+                36
+            ],
+            "every": 6,
+            "cluster": [
+                2,
+                3
+            ],
+            "spread": 3.6,
+            "scale": [
+                0.9,
+                1.5
+            ]
+        },
+        {
+            "kind": "wallB",
+            "t": [
+                42,
+                74
+            ],
+            "off": [
+                12,
+                26
+            ],
+            "every": 9,
+            "cluster": [
+                1,
+                2
+            ],
+            "spread": 3
+        },
+        {
+            "kind": "slabB",
+            "t": [
+                41,
+                74
+            ],
+            "off": [
+                7,
+                11
+            ],
+            "every": 7,
+            "scale": 0.6
+        },
+        {
+            "kind": "cubeW",
+            "t": [
+                42,
+                74
+            ],
+            "off": [
+                8,
+                26
+            ],
+            "every": 12
+        },
+        {
+            "kind": "slabB",
+            "t": [
+                76,
+                119
+            ],
+            "off": [
+                9,
+                17
+            ],
+            "every": 7,
+            "cluster": [
+                1,
+                2
+            ],
+            "spread": 3,
+            "scale": [
+                0.6,
+                0.9
+            ]
+        },
+        {
+            "kind": "pillarB",
+            "t": [
+                76,
+                119
+            ],
+            "off": [
+                20,
+                36
+            ],
+            "every": 9,
+            "cluster": [
+                1,
+                2
+            ],
+            "spread": 4,
+            "scale": [
+                0.8,
+                1.2
+            ]
+        },
+        {
+            "kind": "wallB",
+            "t": [
+                76,
+                119
+            ],
+            "off": [
+                12,
+                28
+            ],
+            "every": 11
+        },
+        {
+            "kind": "cubeW",
+            "t": [
+                77,
+                119
+            ],
+            "off": [
+                9,
+                28
+            ],
+            "every": 14
+        },
+        {
+            "kind": "dotB",
+            "t": [
+                77,
+                119
+            ],
+            "off": [
+                8,
+                22
+            ],
+            "every": 16
+        },
+        {
+            "kind": "slabB",
+            "t": [
+                121,
                 150
             ],
             "off": [
-                4.6,
-                6.4
+                11,
+                26
             ],
-            "every": 12,
-            "lanes": 2,
-            "scale": [
-                0.7,
-                1.05
-            ],
-            "cluster": [
-                2,
-                3
-            ],
-            "spread": 1.8
+            "every": 13,
+            "scale": 0.8
         },
         {
-            "kind": "lamp",
+            "kind": "cubeW",
+            "t": [
+                121,
+                150
+            ],
+            "off": [
+                10,
+                30
+            ],
+            "every": 17
+        },
+        {
+            "kind": "pillarB",
             "t": [
                 150,
-                158
+                172
             ],
             "off": [
-                4.8,
-                4.8
-            ],
-            "every": 7,
-            "lanes": 1,
-            "row": true
-        },
-        {
-            "kind": "lamp",
-            "t": [
-                161,
-                167
-            ],
-            "off": [
-                4.8,
-                4.8
-            ],
-            "every": 7,
-            "lanes": 1,
-            "row": true
-        },
-        {
-            "kind": "tree",
-            "t": [
-                150,
-                167
-            ],
-            "off": [
-                6.9,
-                11
-            ],
-            "every": 20,
-            "lanes": 2,
-            "cluster": [
-                2,
-                3
-            ],
-            "scale": [
-                0.95,
-                1.25
-            ],
-            "spread": 2.2
-        },
-        {
-            "kind": "flower",
-            "t": [
-                150,
-                167
-            ],
-            "off": [
-                3.1,
-                4.4
-            ],
-            "every": 3.2,
-            "lanes": 2,
-            "scale": [
-                0.8,
-                1.1
-            ]
-        },
-        {
-            "kind": "patch",
-            "t": [
-                150,
-                167
-            ],
-            "off": [
-                5.4,
-                9
-            ],
-            "every": 20,
-            "lanes": 3,
-            "slot": "ground",
-            "scale": [
-                0.45,
-                0.6
-            ]
-        },
-        {
-            "kind": "lamp",
-            "t": [
-                162,
-                174.667
-            ],
-            "off": [
-                4.4,
-                4.4
+                14,
+                32
             ],
             "every": 8,
-            "lanes": 1,
-            "row": true
-        },
-        {
-            "kind": "note",
-            "t": [
-                162,
-                174.667
-            ],
-            "off": [
-                5.6,
-                7.2
-            ],
-            "every": 9,
-            "lanes": 2,
             "scale": [
-                0.9,
-                1.2
+                1.6,
+                2.2
             ]
         },
         {
-            "t": [
-                36,
-                38
-            ],
-            "kind": "arch",
-            "row": true,
-            "every": 40,
-            "off": [
-                0,
-                0
-            ],
-            "center": true,
-            "skipCorner": true,
-            "scale": [
-                1,
-                1.12
-            ]
-        },
-        {
-            "t": [
-                72,
-                74
-            ],
-            "kind": "arch",
-            "row": true,
-            "every": 40,
-            "off": [
-                0,
-                0
-            ],
-            "center": true,
-            "skipCorner": true,
-            "scale": [
-                1,
-                1.12
-            ]
-        },
-        {
-            "t": [
-                98,
-                100
-            ],
-            "kind": "arch",
-            "row": true,
-            "every": 40,
-            "off": [
-                0,
-                0
-            ],
-            "center": true,
-            "skipCorner": true,
-            "scale": [
-                1,
-                1.12
-            ]
-        },
-        {
-            "t": [
-                116,
-                118
-            ],
-            "kind": "arch",
-            "row": true,
-            "every": 40,
-            "off": [
-                0,
-                0
-            ],
-            "center": true,
-            "skipCorner": true,
-            "scale": [
-                1,
-                1.12
-            ]
-        },
-        {
-            "t": [
-                146,
-                148
-            ],
-            "kind": "arch",
-            "row": true,
-            "every": 40,
-            "off": [
-                0,
-                0
-            ],
-            "center": true,
-            "skipCorner": true,
-            "scale": [
-                1,
-                1.12
-            ]
-        },
-        {
-            "t": [
-                160,
-                162
-            ],
-            "kind": "arch",
-            "row": true,
-            "every": 40,
-            "off": [
-                0,
-                0
-            ],
-            "center": true,
-            "skipCorner": true,
-            "scale": [
-                1,
-                1.12
-            ]
-        },
-        {
-            "kind": "giant",
-            "t": [
-                134,
-                136
-            ],
-            "off": [
-                34,
-                34
-            ],
-            "every": 40,
-            "row": true,
-            "dy": -8,
-            "scale": [
-                1.15,
-                1.15
-            ]
-        },
-        {
-            "kind": "grass",
-            "t": [
-                0,
-                40
-            ],
-            "off": [
-                3.1,
-                4.6
-            ],
-            "every": 5,
-            "lanes": 2,
-            "scale": [
-                0.8,
-                1.3
-            ]
-        },
-        {
-            "kind": "grass",
+            "kind": "slabB",
             "t": [
                 150,
-                167
+                172
             ],
             "off": [
-                3.1,
-                4.6
+                10,
+                22
             ],
-            "every": 6,
-            "lanes": 2,
+            "every": 7,
             "scale": [
-                0.8,
-                1.3
-            ]
-        },
-        {
-            "kind": "bush",
-            "t": [
-                0,
-                40
-            ],
-            "off": [
-                5.6,
-                8.4
-            ],
-            "every": 14,
-            "lanes": 2,
-            "cluster": [
-                2,
-                3
-            ],
-            "spread": 2,
-            "scale": [
-                0.9,
-                1.2
-            ]
-        },
-        {
-            "kind": "bush",
-            "t": [
-                150,
-                167
-            ],
-            "off": [
-                5.6,
-                8.4
-            ],
-            "every": 16,
-            "lanes": 2,
-            "cluster": [
-                2,
-                3
-            ],
-            "spread": 2,
-            "scale": [
-                0.9,
-                1.2
-            ]
-        },
-        {
-            "kind": "rock",
-            "t": [
-                0,
-                40
-            ],
-            "off": [
-                7.6,
-                10.6
-            ],
-            "every": 22,
-            "lanes": 2,
-            "cluster": [
-                1,
-                2
-            ],
-            "spread": 1.6,
-            "scale": [
-                0.8,
-                1.1
-            ]
-        },
-        {
-            "kind": "mushroom",
-            "t": [
-                0,
-                40
-            ],
-            "off": [
-                3.2,
-                4.6
-            ],
-            "every": 24,
-            "lanes": 2,
-            "scale": [
-                0.9,
-                1.2
+                1.2,
+                1.8
             ]
         }
     ],
     "terrain": {
         "v": 1,
         "base": {
-            "motif": "deck",
-            "params": {
-                "walk": 10,
-                "shelf": 2.4,
-                "th": 3.2,
-                "step": 1.6
-            }
+            "motif": "board",
+            "palette": "board"
         },
         "spans": [
-            {
-                "t": [
-                    40,
-                    75
-                ],
-                "motif": "canyon",
-                "palette": "plum",
-                "params": {
-                    "walk": 4.4,
-                    "slot": 2.2,
-                    "hi": 4,
-                    "floorW": 12,
-                    "plateauW": 13,
-                    "th": 3
-                },
-                "env": {
-                    "sky": 4860485,
-                    "fog": 7028579,
-                    "road": 15882139,
-                    "trim": 15782624
-                }
-            },
             {
                 "t": [
                     75,
                     120
                 ],
-                "motif": "terraces",
-                "palette": "sand",
-                "params": {
-                    "gap": 18,
-                    "rx": 8.5,
-                    "ry": 6.5,
-                    "th": 2
-                },
-                "env": {
-                    "sky": 16179112,
-                    "fog": 15918276,
-                    "road": 15882139,
-                    "trim": 16774370
-                }
-            },
-            {
-                "t": [
-                    120,
-                    150
-                ],
-                "motif": "cloud",
-                "palette": "ice",
-                "params": {
-                    "plateW": 14,
-                    "gap": 9,
-                    "off0": 12,
-                    "offSpan": 14,
-                    "low": -4.5,
-                    "hSpan": 3,
-                    "r": 3.4
-                },
-                "env": {
-                    "sky": 10471136,
-                    "fog": 13624044,
-                    "road": 15882139,
-                    "trim": 16645110
-                }
+                "motif": "boardSlot",
+                "palette": "board"
             }
         ],
         "endcap": {
@@ -6912,7 +6496,7 @@
             "h": 110,
             "enter": -66,
             "sink": 3,
-            "palette": "cream"
+            "palette": "board"
         }
     },
     "scenes": [
@@ -6924,12 +6508,11 @@
                 174.667
             ],
             "height": 0,
-            "theme": "pink",
+            "theme": "board",
             "enter": {
                 "type": "start"
             },
-            "palette": "pink",
-            "decor": [],
+            "palette": "board",
             "camera": [
                 {
                     "t": 0,
@@ -7022,7 +6605,11 @@
                     "yaw": -45
                 }
             ],
-            "fx": []
+            "fx": [],
+            "fogRange": [
+                26,
+                118
+            ]
         }
     ]
 }

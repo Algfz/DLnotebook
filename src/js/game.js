@@ -40,6 +40,12 @@ const THEME = {
   // 路面是**比地面亮一大截**的淡粉（0xf7a8cb L≈196 vs 地面 0xc06a95 L≈127，差 69），
   // 描边反而比两者都**深**（0xc4709e）——这是官方「田野」的做法：
   // 「淡色带 + 深描边」比「饱和带 + 白描边」更像地形，也不会散成一堆白元素。
+  // ETW29「驻足的宁静」：**一块米黄厚板 + 蓝灰方块**。
+  // 天空/雾都取"板面的浅版"，于是远处板面直接溶进天空 → 画面里没有地平线，板是无限的。
+  // 路是**蓝灰立体折线带**（`#a8b8d8` / 断面 `#7c8aa6`），线保持 DL 的白（白压蓝灰差 32%，
+  // 不会重犯那一关"线只比地面暗 6%"的错——报告第 8 节明确列为"不该抄"）。
+  board:    { sky: 0xe9e7db, fog: 0xebe9dd, road: 0xa8b8d8, trim: 0x7c8aa6,
+              scenNear: 0x9199ac, scenMid: 0xd1d0bb, scenFar: 0xe9e7db },
   pink:     { sky: 0xffd4e6, fog: 0xffe4f0, road: 0xf7a8cb, trim: 0xc4709e,
               scenNear: 0x8e2a57, scenMid: 0xc06a95, scenFar: 0xf0d2e0 },
   // 全灰色（双线实验关用）：天空/雾是浅灰，路面是中灰——
@@ -293,7 +299,10 @@ export class Game {
        相机在 CAM_OFF 上：它到自己的高度是 CAM_OFF.y=21，水平离线只有
        hypot(17,17)≈24m，所以雾的近端要比 21m 大一点，才不会把脚下的路也雾掉。
        → 45m 起雾、420m 全遮：近景依然实色，中/远景逐级融进天空。 */
-    this.scene.fog = new THREE.Fog(this.fogColor.clone(), 45, 420);
+    // 关卡可以在 scenes[0].fogRange 里覆盖它。ETW29 式的"无限厚板"必须用**很近的雾**
+    // （板面 150m 宽，要让它溶进天空而不是露出一条边），所以那一关写 [26, 118]。
+    const fr = (this.level.scenes && this.level.scenes[0] && this.level.scenes[0].fogRange) || null;
+    this.scene.fog = new THREE.Fog(this.fogColor.clone(), fr ? fr[0] : 45, fr ? fr[1] : 420);
     // 布景三层的当前颜色：跟着主题逐帧插值（见 renderFrame）
     this.sceneryColor = {
       scenNear: new THREE.Color(th.scenNear || th.road),
