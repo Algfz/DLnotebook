@@ -125,6 +125,7 @@
       <div class="row"><button id="expPng">导出 PNG</button><button id="expSvg">导出 SVG</button></div>
       <div class="row"><button id="expJson">导出 JSON</button><button id="impJson">导入我的 JSON</button></div>
       <div class="row"><button id="impLevel">载入关卡 / 底稿 JSON</button></div>
+      <div class="row"><button id="impSketch">一键载入底稿 out/level-sketch.json</button></div>
       <div class="tiny">选 <code>out/level-sketch.json</code> = <b>真路 + 真方块</b>的完整底稿；<br>
         选 <code>levels/…/level.json</code> = 只有真路（布景在那儿只存了"沿路距离+偏移"，浏览器读不出坐标）。<br>
         用网址打开时也可以直接带参数：<code>?sketch=../out/level-sketch.json</code>。</div>
@@ -828,6 +829,17 @@ $("impLevel").onclick = () => {
     rd.readAsText(f);
   };
   inp.click();
+};
+
+$("impSketch").onclick = () => {
+  $("ioMsg").textContent = "正在载入 out/level-sketch.json …";
+  fetch("../out/level-sketch.json")
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then((j) => { loadProject(j); $("ioMsg").textContent = `已载入底稿：路 ${S.road.length} 点 + 方块 ${S.blocks.length} 件（世界坐标）`; })
+    .catch((e) => {
+      $("ioMsg").textContent = `自动载入失败（${e.message}）。这一键需要从 http:// 打开的页面（本页是 file:// 时浏览器禁止读取本地文件）——`
+        + `请改用上面【载入关卡 / 底稿 JSON】手动选 out/level-sketch.json。`;
+    });
 };
 
 function loadProject(j) {
