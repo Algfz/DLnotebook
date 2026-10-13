@@ -822,7 +822,7 @@ $("impLevel").onclick = () => {
         zoomFit(); syncSidebar(); draw();
         $("ioMsg").textContent = `已载入关卡的路：${S.road.length} 个顶点。`
           + (lv.place && lv.place.length
-              ? `⚠️ 这 ${lv.place.length} 件布景存的是 t/off（沿路距离 + 横向偏移），没有世界坐标 —— 想要"路 + 方块"的完整底稿，请选 out/level-sketch.json（或用左边【导入我的 JSON】）。`
+              ? `⚠️ 这 ${lv.place.length} 件布景存的是 t/off（沿路距离 + 横向偏移），没有世界坐标 —— 想要"路 + 方块"的完整底稿，请选 levels/ring a bell-灰澈/level-sketch.json（或用左边【导入我的 JSON】）。`
               : "");
       } catch (err) { $("ioMsg").textContent = "载入失败：" + err.message; }
     };

@@ -627,6 +627,8 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 - [x] **俯视图把"交叉斜格"照出来了**（发起人在平面图上圈出）→ 根因与修法见 §6 的最后一条 ⚠️
 - [x] **两张俯视图工具**：`tools/plan-level.mjs`（本关总平面图）、`tools/etw-layout.py`（ETW29 读图），
   以及两条硬规则（两方向、一角到对角）。详见 §7「两张俯视图」
+- [x] **关卡底稿搬出 `out/`**（发起人问"为什么放在 out 文件夹下"后定的）：`out/` 是 gitignore 的产物堆料场
+  （6 万多个文件 / 6.3 GB），要人手动打开的文件不该放那儿 → `levels/<关卡目录>/level-sketch.json`，跟关卡同名同目录、纳入 git（删关时一起走，不留孤儿）。提交 `b9c50ed`
 
 ### 📋 待办
 - [ ] Electron 打包（输出与目录同名的 exe，遵循社区"解压即玩"惯例）
