@@ -1173,6 +1173,11 @@ export function buildPlaced(level, verts, opts = {}) {
     im.setMatrixAt(k, m4);
     im.setColorAt(k, col.setHex(o.color));
     if (o.rise) anim.push({ ix: k, x: o.x, z: o.z, y0: o.y, h: o.h, rotY: o.rotY, w: o.w, d: o.d, t0: o.rise[0], t1: o.rise[1] });
+    // 常态动画（place[] 里的 anim 字段）：
+    //   pop   —— 紧挨路线的矮方块，**踩在拍子上弹一下**（发起人："根据节奏让紧挨路线的方块弹出，增加灵动性"）
+    //   breath—— 其余方块**错落有致的呼吸式上下起伏**（《驻足的宁静》的做法）
+    if (o.anim) anim.push({ ix: k, x: o.x, y0: o.y, z: o.z, rotY: o.rotY, w: o.w, h: o.h, d: o.d,
+                            kind: o.anim, beat: o.beat, phase: o.phase, amp: o.amp, period: o.period });
   });
   im.instanceMatrix.needsUpdate = true;
   if (im.instanceColor) im.instanceColor.needsUpdate = true;
@@ -1183,6 +1188,9 @@ export function buildPlaced(level, verts, opts = {}) {
 }
 
 // 把"正在升起来"的那几件推上去（升到位之后每帧都是空转，代价为零）
+// 另外两种**常态**动画（开关在 place[] 的 anim 字段上）：
+//   pop    —— 紧挨路线的矮方块踩拍弹一下：t 到拍子时快速顶起再落回（一拍 ≈ 0.45s）
+//   breath —— 其余方块错落呼吸：y = y0 + amp·sin(2π(t/period) + phase)（phase 由下标哈希定，永不整齐划一）
 export function applyPlacedAnim(group, anim, t) {
   if (!group || !anim || !anim.length) return false;
   const im = group.children[0];
@@ -1191,6 +1199,30 @@ export function applyPlacedAnim(group, anim, t) {
   const vp = new THREE.Vector3(), vs = new THREE.Vector3();
   let touched = false;
   for (const a of anim) {
+    // ── 常态动画 ────────────────────────────────────────────────────────
+    if (a.kind) {
+      const base = a.y0 - a.h / 2;                    // 方块中心：贴着地面时是 y0-h/2
+      let dy = 0;
+      if (a.kind === "breath") {
+        const amp = a.amp == null ? 0.5 : a.amp, per = a.period == null ? 3.4 : a.period;
+        dy = amp * Math.sin(2 * Math.PI * (t / per) + (a.phase || 0) * 6.2832);
+      } else {                                        // pop：以拍子为中心的一条短脉冲
+        const span = 0.42, up = 1.1;                  // 一拍里：0.11s 顶上、0.31s 落回
+        const dt = t - (a.beat == null ? 0 : a.beat);
+        if (dt >= 0 && dt <= span) {
+          const k = dt < up ? dt / up : 1 - (dt - up) / (span - up);
+          dy = Math.sin(Math.max(0, Math.min(1, k)) * Math.PI / 2) * 0.55;
+        }
+      }
+      e.set(0, a.rotY, 0); q.setFromEuler(e);
+      vp.set(a.x, base + a.h / 2 + dy, a.z);
+      vs.set(a.w, a.h, a.d);
+      m4.compose(vp, q, vs);
+      im.setMatrixAt(a.ix, m4);
+      touched = true;
+      continue;
+    }
+    // ── 升起来（老逻辑）─────────────────────────────────────────────────
     if (t >= a.t1) { if (a.done) continue; a.done = true; }
     const k = Math.max(0, Math.min(1, (t - a.t0) / Math.max(1e-3, a.t1 - a.t0)));
     const ease = 1 - Math.pow(1 - k, 3);            // 缓出：升起是"慢慢顶上来、最后停稳"
