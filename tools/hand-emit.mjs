@@ -69,7 +69,11 @@ for (let i = 1; i < verts.length - 1; i++) {
   const u = { x: d1.x / l1, z: d1.z / l1 }, w2 = { x: d2.x / l2, z: d2.z / l2 };
   if (Math.abs(u.x * w2.z - u.z * w2.x) < 0.5) continue;    // 非直角弯
   const typeA = Math.abs(u.x) > 0.5 && Math.abs(w2.z) > 0.5;
-  elbows.push({ b, typeA, longLeg: Math.max(l1, l2) >= 5.5 });
+  // 尺寸跟**相邻两条腿里较短的那条**挂钩：小转角给小件、大转角给大件
+  // （发起人 m13660："还是刚才那个小缺口那个地方，你放的方块太大太远了"）
+  const shortLeg = Math.min(l1, l2);
+  const size = Math.max(1.1, Math.min(3.6, shortLeg * 0.9));
+  elbows.push({ b, typeA, size, h: Math.max(1.0, Math.min(2.8, size * 0.8)), shortLeg });
 }
 /* ④ 难度：长腿伸入路面（**先于贴边件生成**，否则会被占位挡掉） */
 const narrowPlan = [];
@@ -105,21 +109,21 @@ for (const seg of narrowPlan) {
 
 let skipped = 0;
 elbows.forEach((e, k) => {
-  const base = e.longLeg ? 3.6 : 2.6, baseH = e.longLeg ? 2.8 : 2.2;
-  for (const gap of [0.35, 0.9, 1.5, 2.2]) {
-    for (const s of [base, base * 0.72, base * 0.55, 1.4]) {
+  const base = e.size, baseH = e.h;
+  for (const gap of [0.2, 0.6, 1.1, 1.8]) {
+    for (const s of [base, base * 0.75, base * 0.58, 1.2]) {
       const half = s / 2;
       const bx = e.typeA ? e.b.x - ROAD_HALF - gap - half : e.b.x + ROAD_HALF + gap + half;
       const bz = e.typeA ? e.b.z + ROAD_HALF + gap + half : e.b.z - ROAD_HALF - gap - half;
       const sx = e.typeA ? -1 : 1, sz = e.typeA ? 1 : -1;      // 口袋所在的两个方向（沿腿）
-      for (const [ux, uz] of [[0, 0], [0, 1], [1, 0], [0, 2], [2, 0], [0, 3]]) {
+      for (const [ux, uz] of [[0, 0], [0, 1], [1, 0], [0, 2], [1, 1], [2, 0], [0, 3], [2, 2]]) {
         const cx = bx + sx * ux * 1.2, cz = bz + sz * uz * 1.2;
         if (clearance(cx, cz, s, s) < ROAD_HALF + SAFE) continue;
         if (!sepOk(cx, cz, s, s)) continue;
         push({ at: [r2(cx), r2(cz)], w: +s.toFixed(2), d: +s.toFixed(2), h: baseH, tone: 1, sol: 1,
-               note: "贴边 " + (e.typeA ? "A" : "B") + " t=" + e.b.t.toFixed(2) + " gap" + gap + (ux || uz ? " 移" + (ux * 1.2) + "/" + (uz * 1.2) : "") });
-        // ③ 每 4 个弯补第二排
-        if (k % 4 === 3) {
+               note: "贴边 " + (e.typeA ? "A" : "B") + " t=" + e.b.t.toFixed(2) + " 腿" + e.shortLeg.toFixed(1) + " gap" + gap + (ux || uz ? " 移" + (ux * 1.2) + "/" + (uz * 1.2) : "") });
+        // ③ 每 4 个弯补第二排（小转角段不补，避免又出现"又大又远"的块）
+        if (k % 4 === 3 && e.shortLeg >= 2.6) {
           for (const [vx, vz] of [[3.1, 3.1], [2.2, 2.2]]) {
             const dx2 = cx + sx * vx, dz2 = cz + sz * vz;
             if (clearance(dx2, dz2, 4.2, 4.2) >= ROAD_HALF + 2.5 && sepOk(dx2, dz2, 4.2, 4.2)) {
@@ -132,7 +136,7 @@ elbows.forEach((e, k) => {
     }
   }
   skipped++;
-  console.log("  跳过弯 t=" + e.b.t.toFixed(2) + "（口袋放不下）");
+  console.log("  跳过弯 t=" + e.b.t.toFixed(2) + "（腿" + e.shortLeg.toFixed(1) + "m 口袋放不下）");
 });
 
 /* ⑤ 远景 */

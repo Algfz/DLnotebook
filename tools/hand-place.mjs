@@ -39,7 +39,14 @@ if (fs.existsSync(SECDIR)) {
   }
 }
 if (!sections.length) { console.error("tools/hand-sections/ 里没有分段文件，先跑 tools/hand-emit.mjs"); process.exit(1); }
-const HAND = sections.flatMap((s) => s.items);
+/* 各段里"远景"是同一批固定坐标 ⇒ 合并时按坐标去重，避免同一位置摆两件 */
+const seen = new Set();
+const HAND = sections.flatMap((s) => s.items).filter((it) => {
+  const k = it.at[0] + "," + it.at[1];
+  if (seen.has(k)) return false;
+  seen.add(k);
+  return true;
+});
 
 /* ================= 引擎映射的复刻（与 src/js/props.js 同源，逐行照抄） ================= */
 function polyline(verts) {
@@ -153,7 +160,11 @@ if (!APPLY) { console.log("（--dry：没有写任何文件）"); process.exit(0
 /* ================= 写回：按各段窗口删旧的、加我手工的 ================= */
 const abs = path.join(ROOT, LEVEL);
 const bak = path.join(ROOT, "out", "bak", "level-hand-" + Date.now() + ".json");
-const keep = level.place.filter((it) => !sections.some((s) => it.t != null && it.t >= s.t0 && it.t < s.t1));
+const keep = level.place.filter((it) => {
+  if (sections.some((s) => it.t != null && it.t >= s.t0 && it.t < s.t1)) return false;   // 窗口内的旧件全部删掉
+  if (it.hand && it.hid != null) return false;   // 早前批次残留的手工件（不在任何窗口内）也删掉，否则 hid 串号会让复核失真
+  return true;
+});
 let removed = level.place.length - keep.length;
 const added = rows.map((r, k) => ({
   t: +r.t.toFixed(3), off: +r.off.toFixed(3),
