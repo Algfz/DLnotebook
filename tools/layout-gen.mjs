@@ -287,8 +287,8 @@ for (let s = S0; s < TOTAL; s += LEGM, vi++) {
   const farStep = SP ? 8 : 2;
   if (vi % farStep === 0) {
     const k = vi / farStep | 0;
-    const far = SP ? [40, 55, 70, 90][k % 4] : [20, 28, 38, 55][k % 4];
-    const w = SP ? 30 + (k % 3) * 15 : 9 + (k % 3) * 4.5;
+    const far = SP ? [70, 95, 120, 150][k % 4] : [20, 28, 38, 55][k % 4];
+    const w = SP ? 26 + (k % 3) * 10 : 9 + (k % 3) * 4.5;
     const hF = SP ? (rising ? 30 + (k % 3) * 10 : 18 + (k % 3) * 8)
                   : (rising ? 5 + (k % 3) * 2 : 1.4 + (k % 3) * 0.6);
     add(tryPlace(s, growCands(k % 8 < 4 ? far : -far, 0.5, 140), w, w), w, hF, "breath",
@@ -304,7 +304,7 @@ for (let s = S0; s < TOTAL; s += LEGM, vi++) {
   if (SP && vi > 0 && vi % 96 === 0) {
     const g3 = (vi / 96) % 3 | 0;
     const w = 55 + g3 * 15;
-    const off = ((vi / 96) % 2 ? 1 : -1) * (115 + g3 * 25);
+    const off = ((vi / 96) % 2 ? 1 : -1) * (130 + g3 * 20);
     add(tryPlace(s, growCands(off, 1.0, 200), w, w), w, 30 + (g3 % 2) * 10, "breath",
         { amp: 1.4, period: 6.0, tone: 1 });
   }
