@@ -421,6 +421,7 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --end 5         
 node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --w 1920 --h 1080   # 1080p
 node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --hud               # 保留 HUD（默认隐藏）
 node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --start 100 --end 105   # 只抽一段看效果
+node tools/render-demo.js --level "ring a bell-灰澈" --top 60                     # 俯视审阅视频（正上方 60m、自动关雾）
 node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 3840 --h 2160 \
      --encoder hevc_nvenc --jobs 6                       # 4K120，6 进程并行（推荐）
 ```

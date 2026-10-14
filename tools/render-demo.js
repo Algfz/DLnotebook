@@ -76,6 +76,7 @@ const O = {
   jobs: Math.max(1, parseInt(A.jobs, 10) || 1),           // 并行渲染进程数（每个一个 Chrome）
   worker: A.worker != null ? parseInt(A.worker, 10) : -1, // 内部用：第几个分片（-1 = 主进程）
   chunks: Math.max(1, parseInt(A.chunks, 10) || 1),
+  top: A.top === true ? 60 : (A.top != null ? parseFloat(A.top) : 0),   // 俯视高度（米），0 = 正常跟车视角
 };
 if (!O.level) {
   console.error("缺少 --level（关卡目录名或标题关键字）");
@@ -290,6 +291,7 @@ async function main() {
       if (O.end != null) cargs.push("--end", String(O.end));
       if (O.hud) cargs.push("--hud");
       if (O.headless) cargs.push("--headless");
+      if (O.top) cargs.push("--top", String(O.top));      // 俯视高度必须转发给分片进程，否则分片还是跟车视角
       const c = spawn(process.execPath, [__filename, ...cargs], { cwd: ROOT, stdio: "inherit" });
       kids.push(new Promise((res) => c.on("exit", (code) => res(code))));
       await sleep(500);                                  // 错开启动，别同时抢 CPU
@@ -451,6 +453,18 @@ async function main() {
     // 关键：设置时间、走一帧、读像素，三段必须在同一个 JS 任务里
     const dataUrl = await cdp.eval(`(() => {
       window.__setTime(${t});
+      ${O.top ? `(() => {   // --top[=米]：正上方俯视（关掉雾，否则几十米高度上全是雾）—— 和 tools/shot.js --top 同一套
+        const g = window.__game, cam = g.camera;
+        g.scene.fog = null;
+        const L = (g.lines || [])[0];
+        const tx = L && L.pos ? L.pos.x : cam.position.x;
+        const ty = L && L.pos ? L.pos.y : cam.position.y;
+        const tz = L && L.pos ? L.pos.z : cam.position.z;
+        cam.position.set(tx + 0.001, ty + ${+O.top || 60}, tz);
+        cam.up.set(0, 0, -1);
+        cam.lookAt(tx, ty, tz);
+        g.renderer.render(g.scene, cam);
+      })();` : ""}
       return document.getElementById("gameCanvas").toDataURL("image/jpeg", ${O.q});
     })()`);
     if (typeof dataUrl !== "string" || dataUrl.indexOf("data:image/jpeg") !== 0) {
