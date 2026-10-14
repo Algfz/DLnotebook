@@ -135,7 +135,7 @@ const rnd = (() => { let s = 20261014; return () => (s = (s * 1103515245 + 12345
 const R = (a, b) => a + rnd() * (b - a);
 const FARN = +arg("far", 45);       // 每侧铺到多宽（米）
 const BAND = [
-  { d: 3.0, size: [1.4, 2.4], h: [1.0, 1.5], skip: 0.04, tone: 0 },
+  { d: 5.5, size: [2.0, 3.4], h: [1.2, 2.0], skip: 0.10, tone: 0 },
   { d: 6.0, size: [2.0, 3.4], h: [1.5, 2.5], skip: 0.18, tone: 0 },
   { d: 10.0, size: [2.8, 5.0], h: [2.0, 3.5], skip: 0.34, tone: 1 },
   { d: 18.0, size: [4.0, 7.5], h: [2.5, 4.5], skip: 0.46, tone: 1 },
@@ -163,12 +163,77 @@ function nearestOnPath(x, z) {
 const made = [];
 let anchors = 0, skips = 0, tries = 0, fClr = 0, fHit = 0;
 
+// ---- 近排链条：先铺"障碍物勾勒出路线"的那条主线，再让外圈随机铺 ----
+// 发起人 2026-10-14 在截图上用红圈圈出"这些地方没有放置障碍物"。近排必须连续：
+// 按固定弧长步距、两侧各一件，只有几何上真的放不下才跳过（不随机）。外圈从 BELT1 起铺，
+// 这样随机留空只会影响远处景深，不会把近排打出洞。
+const NEAR_STEP = +arg("nearstep", 2.8);               // 必须 ≥ 方块宽 + GAPMIN，否则相邻两件自己就撞上
+const BELT1 = +arg("belt1", 5.5);
+let chain = 0, nearFail = 0;
+for (let s = 0; s <= total; s += NEAR_STEP) {
+  const ct = tAt(s);
+  if (ct < T0 || ct > T1) continue;
+  const cg = ptAt(s);
+  for (const side of [1, -1]) {
+    let placed = false;
+    // 拐角处只能塞小件（路带 ±1.5m 加 3.4m 一折的锯齿，大件在转角处会咬到另一条腿）：
+    // 由大到小试，取第一个几何上放得下的尺寸 ⇒ 直段是大墙、转角是小块，整条线不断。
+    for (const w0 of [2.4, 1.8, 1.3, 0.9]) {
+      if (placed) break;
+      const w = +(w0 * R(0.92, 1.08)).toFixed(2);
+      const dd = +(w * R(0.85, 1.15)).toFixed(2);
+      for (const extra of [0, 0.7, 1.5]) {             // 近排被占就往外挪一格再试
+        const d = roadHalf + EDGEMIN + extra;
+        if (d + dd > BELT1) break;
+        const cx = cg.x + cg.nx * side * (d + dd / 2);
+        const cz = cg.z + cg.nz * side * (d + dd / 2);
+        tries++;
+        const clr = clrToRoad(cx, cz, w, dd);
+        if (clr < INNER - 1e-6) { fClr++; continue; }
+        if (near(cx, cz, w, dd).some((b) => overlap({ x: cx, z: cz, w, d: dd }, b, GAPMIN))) { fHit++; continue; }
+        const offS = (cx - cg.x) * cg.nx + (cz - cg.z) * cg.nz;
+        made.push({
+          t: +ct.toFixed(3), off: +offS.toFixed(2), w, h: +R(1.0, 1.8).toFixed(2), d: dd,
+          tone: 0, rot: 0, rise: false, exact: true,
+          clr: +clr.toFixed(3), g: 1, anim: "breath", phase: +rnd().toFixed(3),
+        });
+        add({ x: cx, z: cz, w, d: dd });
+        chain++; placed = true; break;
+      }
+    }
+    // 兜底：连 0.9m 都放不下（起点、极窄转角）时塞一块 0.6m 的小方块，保证这条线不断
+    if (!placed) {
+      for (const extra of [0.35, 1.0, 1.8]) {
+        if (placed) break;
+        const w = 0.6, dd = 0.6;
+        const d = roadHalf + extra;
+        if (d + dd > BELT1) break;
+        const cx = cg.x + cg.nx * side * (d + dd / 2);
+        const cz = cg.z + cg.nz * side * (d + dd / 2);
+        const clr = clrToRoad(cx, cz, w, dd);
+        if (clr < INNER - 1e-6) continue;
+        if (near(cx, cz, w, dd).some((b) => overlap({ x: cx, z: cz, w, d: dd }, b, GAPMIN))) continue;
+        const offS = (cx - cg.x) * cg.nx + (cz - cg.z) * cg.nz;
+        made.push({
+          t: +ct.toFixed(3), off: +offS.toFixed(2), w, h: +R(0.8, 1.2).toFixed(2), d: dd,
+          tone: 0, rot: 0, rise: false, exact: true,
+          clr: +clr.toFixed(3), g: 1, anim: "breath", phase: +rnd().toFixed(3),
+        });
+        add({ x: cx, z: cz, w, d: dd });
+        chain++; placed = true;
+      }
+    }
+    if (!placed) nearFail++;
+  }
+}
+console.log("  近排链条 " + chain + " 件（" + NEAR_STEP + "m 步距；放不下 " + nearFail + " 处）");
+
 for (let s = 0; s <= total; s += STEP) {
   const t = tAt(s);
   if (t < T0 || t > T1) continue;
   const g = ptAt(s);
   for (const side of [1, -1]) {
-    let d = roadHalf + EDGEMIN;                       // 本排"内边缘离路中心线"的距离
+    let d = BELT1;                                    // 近排已由链条铺好，外圈从这里起
     while (d < FARN) {
       const bd = bandOf(d);
       if (rnd() < bd.skip) { skips++; d += R(0.9, 2.4); continue; }   // 随机留空：别铺成一整片地板
