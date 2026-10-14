@@ -1047,6 +1047,10 @@ export function buildPlaced(level, verts, opts = {}) {
       // it.dy ＝ 相对"贴地高度"的垂直偏移（Breeze 的浮空云用；不写就是贴在路面上）
       x: a.x, z: a.z, y: a.gy + h / 2 + (it.dy || 0), rotY: snapYaw(a.yaw + (it.rot || 0)),
       w: it.w, h, d: it.d,
+      // it.sol ＝ 判定物（吃碰撞、线头撞上即死）；不写 / 0 ＝ 普通景物（纯视觉，允许穿模）。
+      // 依据 docs/dl-elements.md §5 与 AGENT.md ADR-27：**判定体积 ⊆ 外观体积**。
+      sol: it.sol ? 1 : 0,
+      pi: level.place.indexOf(it),   // 反查用：判定盒 → place[] 下标（tools/fix-solids.mjs）
       color: blues[tone] || blues[0],
       rise: it.rise === false ? null : [it.t - (it.lead == null ? 2.2 : it.lead),
                                         it.t - (it.lead == null ? 2.2 : it.lead) + (it.riseDur || 1.1)],
@@ -1170,7 +1174,21 @@ export function buildPlaced(level, verts, opts = {}) {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
   const vp = new THREE.Vector3(), vs = new THREE.Vector3(), col = new THREE.Color();
   const anim = [];
+  // 判定物（place[] 里 sol:1 的件）：给游戏留一份**世界轴对齐盒**。
+  // rotY 经 snapYaw 吸附到 0/±90°，所以 AABB 就是精确体；判定盒比外观**瘦** SOL_SHRINK（官方容错，§3）。
+  const solids = [];
+  const SOL_SHRINK = 0.15;
   out.forEach((o, k) => {
+    if (o.sol) {
+      const ex = Math.abs(Math.cos(o.rotY)) > 0.5 ? o.w : o.d;
+      const ez = Math.abs(Math.cos(o.rotY)) > 0.5 ? o.d : o.w;
+      solids.push({
+        x: o.x, z: o.z,
+        hw: (ex / 2) * (1 - SOL_SHRINK), hd: (ez / 2) * (1 - SOL_SHRINK),
+        y0: o.y - o.h / 2 - 0.2, y1: o.y + o.h / 2,
+        pi: o.pi,                       // place[] 下标（引擎生成的护栏件没有 pi）
+      });
+    }
     e.set(0, o.rotY, 0);
     q.setFromEuler(e);
     const y = o.rise ? o.y - o.h : o.y;            // 还没升起来 → 埋在地里
@@ -1191,7 +1209,8 @@ export function buildPlaced(level, verts, opts = {}) {
   group.add(im);
   group.userData.count = out.length;
   group.userData.anim = anim;
-  return { group, anim };
+  group.userData.solids = solids;
+  return { group, anim, solids };
 }
 
 // 把"正在升起来"的那几件推上去（升到位之后每帧都是空转，代价为零）

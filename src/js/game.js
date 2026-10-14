@@ -447,6 +447,7 @@ export class Game {
     });
     this.placedGroup = pl.group;
     this.placedAnim = pl.anim;
+    this.solids = pl.solids || [];   // 判定物（place[] 里 sol:1 的件）：撞上即死，见 docs/dl-elements.md §3
     this.scene.add(pl.group);
   }
 
@@ -1010,6 +1011,25 @@ export class Game {
         if (!L.falling && off > this.roadW / 2 + this.lineW / 2) {
           L.falling = true;
           L.vy = 0;
+        }
+
+        // 碰撞死亡（dl-elements.md §3 的第 1 类，官方只有三类判定）：线头与"判定物"重叠 → 判死。
+        //   ① 只用 x/z 的轴对齐盒：place[] 的 rotY 被 snapYaw 吸附到 0/±90°，所以 AABB 就是精确体；
+        //   ② 判定盒已由 props.js 缩了 15%（SOL_SHRINK）——"看似擦墙却没死"是官方**有意**的容错，必须复刻；
+        //   ③ 还要高度重叠：桥下的景物（y 差好几米）、浮空摆件不会误杀。
+        // 撞了之后复用"下坠 → 判死"这条既有管线（官方是碎裂成粒子，粒子效果以后补）。
+        if (!L.falling && this.solids && this.solids.length) {
+          const hw = this.lineW * 0.5;
+          for (let i = 0; i < this.solids.length; i++) {
+            const s = this.solids[i];
+            if (L.pos.y < s.y0 || L.pos.y > s.y1) continue;
+            if (Math.abs(L.pos.x - s.x) > s.hw + hw) continue;
+            if (Math.abs(L.pos.z - s.z) > s.hd + hw) continue;
+            L.crashed = true;
+            L.falling = true;
+            L.vy = 0;
+            break;
+          }
         }
         if (L.falling) {
           const g = (this.level.motion && this.level.motion.gravity) || 10;
