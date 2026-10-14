@@ -131,7 +131,10 @@ for (let k = 0; ; k++) {
     const s = base + (b.s - sMin);
     if (s < sA || s > sB) continue;                  // 不加 break：模板内部按 s 排序，但要兼容跨窗口
     if (rnd() < SKIP) { skips++; continue; }
-    const w = b.w * R(0.85, 1.2), dd = b.d * R(0.85, 1.2);
+    let w = b.w * R(0.85, 1.2), dd = b.d * R(0.85, 1.2);
+    // 离路越近、件越小：大板推到 12m 外，免得"工具以为没压线、引擎里复原差半个身位"就盖住路
+    const cap = Math.abs(b.off) < 6 ? 4 : Math.abs(b.off) < 12 ? 9 : 24;
+    w = Math.min(w, cap); dd = Math.min(dd, cap);
     let off = b.off * R(0.94, 1.06) + (rnd() < 0.5 ? -1 : 1) * rnd() * 0.6;
     const g0 = ptAt(s);
     let placed = false;
@@ -141,9 +144,12 @@ for (let k = 0; ; k++) {
       const clr = clrToRoad(cx, cz, w, dd);
       if (clr < INNER) { fClr++; continue; }
       if (nearB(cx, cz, w, dd).some((x) => ov({ x: cx, z: cz, w, d: dd }, x, GAPMIN))) { fHit++; continue; }
-      const n = nearestOnPath(cx, cz);
+      // ⚠️ 必须用**锚点 s 自己的法线**反解 off，不能用 nearestOnPath()：
+      // 后者在 3.4m 一折的锯齿路上会就近吸到**另一条腿**上，写出来的 (t, off) 让引擎复原到别处
+      // （ADR-23 那个坑的真正来源：工具以为净空 1.55m，引擎里方块却压在路中心上）。
+      const offS = (cx - g0.x) * g0.nx + (cz - g0.z) * g0.nz;
       made.push({
-        t: +n.t.toFixed(3), off: +n.off.toFixed(2), w: +w.toFixed(2), h: b.h, d: +dd.toFixed(2),
+        t: +tAt(s).toFixed(3), off: +offS.toFixed(2), w: +w.toFixed(2), h: b.h, d: +dd.toFixed(2),
         tone: Math.abs(off) < 2.2 ? 0 : 1, rot: 0, rise: false, exact: true,
         clr: +clr.toFixed(3), g: 1, anim: "breath", phase: +rnd().toFixed(3),
       });

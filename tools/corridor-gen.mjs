@@ -180,10 +180,11 @@ for (let s = 0; s <= total; s += STEP) {
       const clr = clrToRoad(cx, cz, w, dd);
       if (clr < INNER - 1e-6) { fClr++; d += 0.6; continue; }          // 咬进路带了：往外挪一格再试
       if (near(cx, cz, w, dd).some((b) => overlap({ x: cx, z: cz, w, d: dd }, b, GAPMIN))) { fHit++; d += 0.9; continue; }
-      const np = nearestOnPath(cx, cz);
+      // ⚠️ 用锚点 s 自己的法线反解 off（不要用 nearestOnPath：锯齿路上会吸到别的腿，引擎复原位置会偏）
+      const offS = (cx - g.x) * g.nx + (cz - g.z) * g.nz;
       const h = +R(bd.h[0], bd.h[1]).toFixed(2);
       made.push({
-        t: +np.t.toFixed(3), off: +np.off.toFixed(2), w: +w.toFixed(2), h, d: +dd.toFixed(2),
+        t: +tAt(s).toFixed(3), off: +offS.toFixed(2), w: +w.toFixed(2), h, d: +dd.toFixed(2),
         tone: bd.tone, rot: 0, rise: false, exact: true,
         clr: +clr.toFixed(3), g: 1, anim: "breath", phase: +rnd().toFixed(3),
       });
