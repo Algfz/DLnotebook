@@ -310,6 +310,18 @@ async function main() {
     }
     const dataUrl = await cdp.eval(`(() => {
       window.__setTime(${t});
+      ${O.top ? `(() => {   // --top：正上方俯视（关掉雾，否则 80m 高度下全是雾）
+        const g = window.__game, cam = g.camera, THREE = window.__THREE;
+        g.scene.fog = null;
+        const L = (g.lines || [])[0];
+        const tx = L && L.pos ? L.pos.x : cam.position.x;
+        const ty = L && L.pos ? L.pos.y : cam.position.y;
+        const tz = L && L.pos ? L.pos.z : cam.position.z;
+        cam.position.set(tx + 0.001, ty + ${+O.top || 80}, tz);
+        cam.up.set(0, 0, -1);
+        cam.lookAt(tx, ty, tz);
+        g.renderer.render(g.scene, cam);
+      })();` : ""}
       return document.getElementById("gameCanvas").toDataURL("image/jpeg", ${O.q});
     })()`);
     if (typeof dataUrl !== "string" || dataUrl.indexOf("data:image/jpeg") !== 0)
