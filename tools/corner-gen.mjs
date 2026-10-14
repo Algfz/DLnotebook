@@ -79,10 +79,11 @@ const R = (a, b) => a + (b - a) * rnd();
     corners.push(c);
   }
 
-  /* ---- ① 假墙清场 ---- */
+  /* ---- ① 假墙清场（只动"贴着路却不判定"的装饰件；sol:1 的近排真墙必须留在原地，否则会把一侧墙清空） ---- */
   let pushed = 0;
   for (const it of level.place) {
     if (it.t > PLAIN) continue;
+    if (it.sol) continue;                              // 判定物是真墙：不清场
     const o = Math.abs(it.off || 0);
     if (o > 1.4 && o < 4.0) { it.off = +(Math.sign(it.off || 1) * R(4.6, 6.0)).toFixed(2); it.sol = 0; pushed++; }
     else if (o <= 1.4) it.sol = 0;
