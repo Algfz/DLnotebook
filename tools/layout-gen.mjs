@@ -28,6 +28,13 @@ const arg = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] :
 
 const LEVEL_DIR = arg("--level", "ring a bell-灰澈");
 const APPLY = has("--apply");
+// ── 风格档 ─────────────────────────────────────────────────────────────────
+//   a = 现状：每一条腿都摆（近排护栏 + 中排成簇 + 远排隔腿），件数多、尺寸接近。
+//   b = 按规律表重做中/远排（R12 不多但很大 / R17 三档体量 / R9 一段一主角）：
+//       贴路护栏**照旧连续**（那是读路的线索，发起人 2026-10-13 明确要的），
+//       中排改成每 3 条腿一簇、远排每 8 条腿一件巨件、每 ~23s 再加一件"主角"。
+const STYLE = arg("--style", "a");
+const SP = STYLE === "b";
 const dir = path.join(ROOT, "levels", LEVEL_DIR);
 const level = JSON.parse(fs.readFileSync(path.join(dir, "level.json"), "utf8"));
 const beats = (JSON.parse(fs.readFileSync(path.join(dir, LEVEL_DIR + ".beat.json"), "utf8")).beats || []);
@@ -253,35 +260,53 @@ for (let s = S0; s < TOTAL; s += LEGM, vi++) {
   //   所以每一腿、左右都放；净空就是发起人草图实测的那个量级（0.7m 上下），矮（0.5m）不挡视线，踩拍弹出。
   {
     const wN = vi % 3 === 0 ? 3.0 : 2.4;
-    add(tryPlace(s, growCands(wN / 2 + CLEAR_MIN, 0.5, 10), wN, wN), wN, H_NEAR, "pop", {});
+    const tN = SP ? { tone: 0 } : {};                     // 护栏一律用最浅的一档：它要"读得出路"，不能变暗墙
+    add(tryPlace(s, growCands(wN / 2 + CLEAR_MIN, 0.5, 10), wN, wN), wN, H_NEAR, "pop", tN);
     const wN2 = vi % 4 === 1 ? 3.0 : 2.4;
-    add(tryPlace(s + 0.9, growCands(-(wN2 / 2 + CLEAR_MIN), 0.5, 10), wN2, wN2), wN2, H_NEAR, "pop", {});
+    add(tryPlace(s + 0.9, growCands(-(wN2 / 2 + CLEAR_MIN), 0.5, 10), wN2, wN2), wN2, H_NEAR, "pop", tN);
   }
   // 中排：每一腿一对（同一侧挨着放，成"簇"），② 段立起来，其余矮矮地呼吸
-  {
+  //   风格 b：改成每 3 条腿一簇，而且**立起来**（3~6m）—— 现在这一段是 1.0~1.4m 的薄板，
+  //   远看和近排护栏一个样，整片就成了"铺了一地纸片"（R17 要的是有体量的三档）。
+  if (!SP || vi % 3 === 0) {
     const side = vi % 2 === 0 ? 1 : -1;
-    const base = [9, 11, 13][vi % 3];
-    const hM = rising ? (3 + (vi % 3) * 1.6) : (1.0 + (vi % 2) * 0.4);
-    const w1 = 3.0 + (vi % 3) * 1.5;
-    add(tryPlace(s, growCands(side * base, 0.5, 16), w1, w1), w1, hM, "breath", { amp: 0.5, period: 3.0 });
-    if (vi % 3 !== 2) {
-      const w2 = 3.0 + ((vi + 1) % 3) * 1.5;
-      add(tryPlace(s, growCands(side * (base + w1 / 2 + w2 / 2 + 0.6), 0.5, 16), w2, w2), w2,
-          rising ? hM * 0.7 : 1.0 + ((vi + 1) % 2) * 0.4, "breath", { amp: 0.5, period: 3.4 });
+    const base = SP ? [14, 18, 24][vi % 3] : [9, 11, 13][vi % 3];
+    const hM = SP ? (rising ? 8 + (vi % 3) * 3 : 3.0 + (vi % 3) * 1.5)
+                  : (rising ? (3 + (vi % 3) * 1.6) : (1.0 + (vi % 2) * 0.4));
+    const w1 = SP ? 4.5 + (vi % 3) * 3 : 3.0 + (vi % 3) * 1.5;
+    add(tryPlace(s, growCands(side * base, 0.5, 16), w1, w1), w1, hM, "breath", { amp: 0.5, period: 3.0, tone: SP ? 1 : undefined });
+    if (SP ? vi % 6 === 0 : vi % 3 !== 2) {
+      const w2 = SP ? 6 + (vi % 2) * 3 : 3.0 + ((vi + 1) % 3) * 1.5;
+      add(tryPlace(s, growCands(side * (base + w1 / 2 + w2 / 2 + (SP ? 1.5 : 0.6)), 0.5, 16), w2, w2), w2,
+          SP ? hM * 1.4 : (rising ? hM * 0.7 : 1.0 + ((vi + 1) % 2) * 0.4), "breath",
+          { amp: 0.5, period: 3.4, tone: SP ? 1 : undefined });
     }
   }
   // 远排：隔一腿一次、铺得开（20–55m），平段矮、② 段也立起来，起伏最慢
-  if (vi % 2 === 0) {
-    const k = vi / 2 | 0;
-    const far = [20, 28, 38, 55][k % 4];
-    const w = 9 + (k % 3) * 4.5;
-    const hF = rising ? 5 + (k % 3) * 2 : 1.4 + (k % 3) * 0.6;
-    add(tryPlace(s, growCands(k % 8 < 4 ? far : -far, 0.5, 24), w, w), w, hF, "breath", { amp: 0.9, period: 4.4 });
-    if (k % 3 === 0) {                                    // 远处再来一件小的，破掉"一条线"的感觉
+  //   风格 b：每 8 条腿一件、30~60m 宽、18~34m 高的巨件（R17「每屏 2~6 件 15~30 路宽」）。
+  const farStep = SP ? 8 : 2;
+  if (vi % farStep === 0) {
+    const k = vi / farStep | 0;
+    const far = SP ? [40, 55, 70, 90][k % 4] : [20, 28, 38, 55][k % 4];
+    const w = SP ? 30 + (k % 3) * 15 : 9 + (k % 3) * 4.5;
+    const hF = SP ? (rising ? 30 + (k % 3) * 10 : 18 + (k % 3) * 8)
+                  : (rising ? 5 + (k % 3) * 2 : 1.4 + (k % 3) * 0.6);
+    add(tryPlace(s, growCands(k % 8 < 4 ? far : -far, 0.5, 140), w, w), w, hF, "breath",
+        { amp: 0.9, period: 4.4, tone: SP ? 1 : undefined });   // 大件一律用中档：最深那档是"近黑墙"
+    if (!SP && k % 3 === 0) {                             // 远处再来一件小的，破掉"一条线"的感觉
       const w2 = 6 + (k % 2) * 3;
       add(tryPlace(s, growCands((k % 8 < 4 ? 1 : -1) * (far + w / 2 + w2 / 2 + 1.2), 0.5, 24), w2, w2), w2,
           rising ? 4 + (k % 2) * 2 : 1.2 + (k % 2) * 0.4, "breath", { amp: 0.9, period: 4.4 });
     }
+  }
+  // 主角：每 ~96 条腿（≈330m ≈ 23s）一件 20~30 路宽的巨型剪影（R9「一个道具撑一整段」/ R17）
+  //   位置要**远**（≥110m）、色调取中档 —— 上一版放在 75m 外用最深的色，画面里成了一堵黑墙。
+  if (SP && vi > 0 && vi % 96 === 0) {
+    const g3 = (vi / 96) % 3 | 0;
+    const w = 55 + g3 * 15;
+    const off = ((vi / 96) % 2 ? 1 : -1) * (115 + g3 * 25);
+    add(tryPlace(s, growCands(off, 1.0, 200), w, w), w, 30 + (g3 % 2) * 10, "breath",
+        { amp: 1.4, period: 6.0, tone: 1 });
   }
 }
 
@@ -389,7 +414,7 @@ let fenceN = 0;
       if (!spot) { stat.dropped++; continue; }
       if (tooClose(spot.x, spot.z, 0.3)) continue;          // 那儿已经有方块了，别堆
       const b = nearestBeat(spot.t);
-      out.push({ t: +spot.t.toFixed(3), off: +spot.off.toFixed(2), w, h: H_NEAR, d: w, tone: k % 2,
+      out.push({ t: +spot.t.toFixed(3), off: +spot.off.toFixed(2), w, h: H_NEAR, d: w, tone: SP ? 0 : k % 2,
                  rot: 0, rise: false, exact: true, clr: +spot.clear.toFixed(3), g: 1, fence: 1,
                  anim: "pop", beat: +(b == null ? spot.t : b).toFixed(3),
                  beatPeriod: +BEATPER.toFixed(4), every: 1 + (k % 3) });
@@ -403,7 +428,11 @@ let fenceN = 0;
 /* ── 4d-0) 高度分带：越靠路越矮（发起人 2026-10-13："紧挨路线两边的方块高度调低一点，方便看路"）
    他看游戏截图时说"还是各种遮挡"—— 问题不是压线，是**高块离路太近**：一堵 7m 的墙摆在 9m 外，
    前方的路就全被挡住了。规则：|off| < 6m → 0.5m；< 16m → ≤1.4m；< 26m → ≤3.0m；更远随便立。 */
-const hCap = (off) => { const a = Math.abs(off); return a < 6 ? 0.5 : a < 16 ? 1.4 : a < 26 ? 3.0 : 9.0; };
+const hCap = (off) => {
+  const a = Math.abs(off);
+  if (SP) return a < 6 ? 0.5 : a < 20 ? 6.0 : a < 35 ? 20.0 : 60.0;   // 风格 b：中景就允许立起来，远景放给巨件
+  return a < 6 ? 0.5 : a < 16 ? 1.4 : a < 26 ? 3.0 : 9.0;
+};
 let capped = 0;
 for (const o of out) { const c = hCap(o.off); if (o.h > c) { o.h = c; o.capped = 1; capped++; } }
 console.log(`  📏 高度分带：${capped} 件被压低（近路矮、远端才让"立起来"）`);
