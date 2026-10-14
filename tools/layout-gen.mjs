@@ -128,6 +128,12 @@ function distToPathR(cx, cz, w, d) {
   for (const g of seg) { const v = segRectDist(g.a.x, g.a.z, g.b.x, g.b.z, cx, cz, w, d); if (v < m) m = v; }
   return m;
 }
+/* 摆放时的净空判据：把方块**外扩** PLACE_SAFETY 再量。
+   为什么：这关的路是 90° 阶梯，`arcOfT(t)` 在转角附近差几毫米、法线就翻 90°，工具验过的位置和
+   引擎还原出来的位置能差一米多（引擎侧复核抓到过 6m 大方块被摆到路面中线上）。
+   外扩 = 给这个不确定性留余量；CLEAR_MIN 之外再要这么多。 */
+const PLACE_SAFETY = 1.2;
+const clrOf = (x, z, w, d) => distToPathR(x, z, w + 2 * PLACE_SAFETY, d + 2 * PLACE_SAFETY);
 // 世界点 → (s, off)：粗扫 + refine
 function toArcOff(x, z) {
   let best = Infinity, bs = 0;
@@ -157,11 +163,17 @@ const MODULE = [1.2, 2.4, 3.0, 4.5, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0];
 const snapSize = (v) => MODULE.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a), MODULE[0]);
 const NEAR_OFF = 6.0;            // |off| 小于它 = "紧挨路线" → 压低 + 踩音弹出
 const H_NEAR = 0.5;              // 紧邻路线的高度（发起人：低一点，方便看路）
-const CLEAR_MIN = 0.85;          // 方块边缘到路径中心的净空下限：舞线半宽 0.5 ⇒ 留 0.35m 视觉余量
+const CLEAR_MIN = 0.85 + (level.roadWidth || 3) / 2;
+/* ☠️ 曾经写成 `const CLEAR_MIN = 0.85;` 并注释成"方块边缘到路径中心的净空下限" —— 那样量的是
+   到**路中心线**的距离，漏掉了路带半宽 `roadWidth/2 = 1.5m`，于是护栏/近排每一件的内边缘都落在
+   路带里 0.25~0.65m，发起人一眼就看出"线被东西盖住了"（`tools/road-cover.js` 引擎侧复核：
+   145 个路面中线采样点落进 53 件方块里）。现在这个常量 = **方块边缘到路带边缘**的余量(0.85m)
+   ＋ 路带半宽，全部用法（`tryPlace`/`growCands`/自检）都是"到中心线"的口径，所以一处改齐。 */
+const ROAD_HALF = (level.roadWidth || 3) / 2;   // 路带半宽：3m 路 ⇒ 1.5m（净空一律以它为基准）
 const TRAIL_HALF = 0.5;          // 舞线宽 1m ⇒ 半宽 0.5m：方块边缘离中心线必须 > 它，否则就是"压在轨迹上"
 // 🧱 围墙：先把舞线两侧 ±WALL_OFF 的界限画出来（建的时候看得见），障碍物只许建在外面，建完围墙"拆掉"
-//    （只是施工基准，不进关卡数据）。舞线半宽 0.5m ⇒ 墙设在 1.0m，中间 0.5m 是不许建的缓冲带。
-const WALL_OFF = (() => { const a = process.argv.find((x) => x.startsWith("--wall=")); return a ? +a.split("=")[1] : 1.0; })();
+//    （只是施工基准，不进关卡数据）。基准＝路带半宽（3m 路 ⇒ 1.5m），再往外才是允许建的空当。
+const WALL_OFF = (() => { const a = process.argv.find((x) => x.startsWith("--wall=")); return a ? +a.split("=")[1] : ROAD_HALF; })();
 
 const out = [];
 const stat = { tidyFront: 0, dropped: 0, near: 0, mid: 0, far: 0, pop: 0, breath: 0 };
@@ -183,7 +195,7 @@ function tryPlace(s, cands, w, d, minClear = CLEAR_MIN) {
     //   于是"验过的位置"和"游戏里的位置"能差一米多 —— 必须按**写进 JSON 的那两个数**来验。
     const tW = +p.t.toFixed(3), offW = +off.toFixed(2);
     const q = ptAt(arcOfT(tW), offW);
-    const c = distToPathR(q.x, q.z, w, d);
+    const c = clrOf(q.x, q.z, w, d);
     if (c >= minClear) return { off: offW, x: q.x, z: q.z, t: tW, clear: c, sPlace: s, sBack: arcOfT(tW) };
   }
   return null;
@@ -213,8 +225,10 @@ if (sketch) {
     for (let g = 0; g <= 40 && !okF; g++) {
       const o2 = g === 0 ? offUse : (Math.sign(offUse) || 1) * (Math.abs(offUse) + g * 0.25);
       const q = ptAt(arcOfT(tUse), +o2.toFixed(2));
-      clrF = distToPathR(q.x, q.z, w, d);
-      if (clrF >= CLEAR_MIN) { offUse = +o2.toFixed(2); okF = true; }
+      clrF = clrOf(q.x, q.z, w, d);
+      // 两条判据都要过：①外扩后的精确净空（防转角处"验过 ≠ 游戏里"）②**解析**下限
+      //   |off| ≥ 路带半宽 + 方块半宽 + 0.85 —— 后者不依赖任何时间↔弧长换算，任何情况下都成立
+      if (clrF >= CLEAR_MIN && Math.abs(+o2.toFixed(2)) >= ROAD_HALF + w / 2 + 0.85) { offUse = +o2.toFixed(2); okF = true; }
     }
     if (!okF) { stat.dropped++; continue; }
     const spot = { t: tUse, off: offUse, clear: clrF };
