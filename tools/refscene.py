@@ -105,6 +105,24 @@ def write_ply(path, xyz, rgb):
         f.write(rec.tobytes())
 
 
+def read_ply(path):
+    """读回 write_ply 写出的点云 (binary_little_endian, 固定记录). 返回 (xyz float32, rgb uint8)."""
+    with open(path, "rb") as f:
+        head = b""
+        while b"end_header" not in head:
+            head += f.readline()
+        n = 0
+        for line in head.split(b"\n"):
+            if line.startswith(b"element vertex"):
+                n = int(line.split()[-1])
+        rec = np.fromfile(path, dtype=np.uint8, offset=len(head))
+    rec = rec[:n * 15].view(dtype=[("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
+                                   ("r", "u1"), ("g", "u1"), ("b", "u1")])
+    xyz = np.stack([rec["x"], rec["y"], rec["z"]], -1).astype(np.float32)
+    rgb = np.stack([rec["r"], rec["g"], rec["b"]], -1)
+    return xyz, rgb
+
+
 def splat(path, a, b, c, size=900, pad=40, bg=255):
     """把 (u,v) 点按标量 c 着色画到 PNG (画家算法: 远的先画)."""
     order = np.argsort(-c)
@@ -522,6 +540,77 @@ def write_review(out, tag, img, meta, e1, e2, up, K_px, boxes, ribbons):
     with open(idx_path, "w", encoding="utf-8") as f:
         json.dump(idx, f, ensure_ascii=False, indent=1)
     log("[ref-scene] 审查页数据: %s-review.json (共 %d 项) / index.json" % (tag, len(items)))
+
+
+def full_dump(fr, img, tag, out, no_viz=False):
+    """用已算好的 MoGe 结果写一套完整重建产物 (供 refserve 批量调用).
+
+    fr: refserve.infer_frame() 的返回; img: BGR uint8 原图 (与 fr 同尺寸).
+    返回 meta dict (与单帧 CLI 的 <tag>.json 相同结构).
+    """
+    os.makedirs(out, exist_ok=True)
+    pts, depth, normal, mask = fr["points"], fr["depth"], fr["normal"], fr["mask"]
+    H, W, K_px = fr["H"], fr["W"], fr["K_px"]
+    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    up, up_frac = up_from_normals(normal, mask)
+    e1 = e2 = base = None
+    boxes, ribbons = [], []
+    if up is not None:
+        e1, e2, axis_pts = horizontal_axes(up, normal, mask)
+        h_all = pts @ up
+        nz = np.nan_to_num(normal) if normal is not None else None
+        horiz = np.zeros((H, W), bool)
+        if nz is not None:
+            horiz = mask & (np.abs((nz * up[None, None, :]).sum(-1)) > 0.85)
+        base = lowest_level(h_all, horiz)
+        if base is not None:
+            boxes, ribbons = slabs_from_faces(pts, normal, h_all, up, e1, e2, base)
+            if not boxes and not ribbons:
+                boxes, ribbons = boxes_from_height_map(
+                    pts[mask], h_all[mask], up, e1, e2, base=base)
+        log("[%s] up=(%.3f,%.3f,%.3f) fr=%.1f%% base=%s 平板 %d 细条 %d"
+            % (tag, up[0], up[1], up[2], up_frac * 100,
+               "nan" if base is None else "%.3f" % base, len(boxes), len(ribbons)))
+    else:
+        log("[%s] 找不到水平面主方向" % tag)
+
+    meta = {
+        "image": None, "size": [W, H], "tag": tag,
+        "intrinsics_px": K_px.tolist(),
+        "fov_x_deg": fr["fov_x"], "fov_y_deg": fr["fov_y"],
+        "depth_median_m": float(np.median(depth[mask])) if mask.any() else None,
+        "up": None if up is None else [float(v) for v in up],
+        "up_horizontal_face_ratio": up_frac,
+        "e1": None if e1 is None else [float(v) for v in e1],
+        "e2": None if e2 is None else [float(v) for v in e2],
+        "base_level_m": base,
+        "boxes": boxes,
+        "ribbons": ribbons,
+    }
+    with open(os.path.join(out, "%s.json" % tag), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    if up is not None and e1 is not None:
+        write_review(out, tag, img, meta, e1, e2, up, K_px, boxes, ribbons)
+    if not no_viz:
+        step = 1
+        if int(mask.sum()) > 250000:
+            step = max(1, int(math.sqrt(int(mask.sum()) / 250000)))
+        idx = np.flatnonzero(mask.reshape(-1))[::step]
+        write_ply(os.path.join(out, "%s-points.ply" % tag),
+                  pts.reshape(-1, 3)[idx], rgb.reshape(-1, 3)[idx])
+        imwrite_u(os.path.join(out, "%s-depth.png" % tag), colormap(depth, mask))
+        if normal is not None:
+            imwrite_u(os.path.join(out, "%s-normal.png" % tag), normals_to_rgb(normal, mask))
+        if up is not None and e1 is not None:
+            X, Y = pts @ e1, pts @ e2
+            Z = pts @ up - (base if base is not None else 0.0)
+            ok2 = mask & np.isfinite(X) & np.isfinite(Y) & np.isfinite(Z)
+            splat(os.path.join(out, "%s-top.png" % tag), X[ok2], Y[ok2], Z[ok2])
+            splat(os.path.join(out, "%s-side.png" % tag), X[ok2], Z[ok2], -Y[ok2])
+            if boxes or ribbons:
+                imwrite_u(os.path.join(out, "%s-boxes.png" % tag),
+                          draw_boxes(img, boxes, K_px, e1, e2, up, ribbons))
+    return meta
 
 
 def main():
