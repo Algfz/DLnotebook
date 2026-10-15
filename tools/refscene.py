@@ -476,6 +476,54 @@ def draw_boxes(img, boxes, K_px, e1, e2, up, ribbons=None):
     return vis
 
 
+def review_record(b, e1, e2, up, K_px, kind, idx):
+    """给审查网页用: 把盒子的 8 个角投影回像素坐标."""
+    uv = project(box_corners_world(b, e1, e2, up), K_px)
+    return {
+        "id": "%s-%02d" % (kind, idx),
+        "kind": kind,
+        "size_e1_e2_up": b["size_e1_e2_up"],
+        "level_top_m": b.get("level_top_m", b.get("top_height")),
+        "level_top_rel_m": b.get("level_top_rel_m"),
+        "height_m": b.get("height_m"),
+        "n_points": b["n_points"],
+        "corners2d": [[None if not np.isfinite(v) else round(float(v), 1) for v in row] for row in uv],
+    }
+
+
+def write_review(out, tag, img, meta, e1, e2, up, K_px, boxes, ribbons):
+    """写 <tag>-review.json + <tag>-src.png, 并把目录索引 index.json 更新."""
+    imwrite_u(os.path.join(out, "%s-src.png" % tag), img)
+    items = [review_record(b, e1, e2, up, K_px, "slab", i) for i, b in enumerate(boxes)]
+    items += [review_record(b, e1, e2, up, K_px, "ribbon", i) for i, b in enumerate(ribbons)]
+    rec = {
+        "tag": tag,
+        "src": "%s-src.png" % tag,
+        "size": meta["size"],
+        "fov_x_deg": meta["fov_x_deg"], "fov_y_deg": meta["fov_y_deg"],
+        "up": meta["up"], "base_level_m": meta["base_level_m"],
+        "image": meta["image"],
+        "items": items,
+    }
+    with open(os.path.join(out, "%s-review.json" % tag), "w", encoding="utf-8") as f:
+        json.dump(rec, f, ensure_ascii=False, indent=1)
+    idx_path = os.path.join(out, "index.json")
+    idx = []
+    if os.path.exists(idx_path):
+        try:
+            with open(idx_path, encoding="utf-8") as f:
+                idx = json.load(f)
+        except Exception:
+            idx = []
+    idx = [e for e in idx if e.get("tag") != tag]
+    idx.insert(0, {"tag": tag, "image": meta["image"], "size": meta["size"],
+                   "items": len(items), "fov_y_deg": meta["fov_y_deg"],
+                   "base_level_m": meta["base_level_m"], "review": "%s-review.json" % tag})
+    with open(idx_path, "w", encoding="utf-8") as f:
+        json.dump(idx, f, ensure_ascii=False, indent=1)
+    log("[ref-scene] 审查页数据: %s-review.json (共 %d 项) / index.json" % (tag, len(items)))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", required=True)
@@ -576,6 +624,9 @@ def main():
     }
     with open(os.path.join(out, "%s.json" % tag), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    if up is not None and e1 is not None:
+        write_review(out, tag, img, meta, e1, e2, up, K_px, boxes, ribbons)
 
     if not args.no_viz:
         step = 1

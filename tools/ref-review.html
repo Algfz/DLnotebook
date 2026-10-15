@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>反推结果审查</title>
+<style>
+  :root { --bg:#14161a; --panel:#1d2026; --line:#2c313a; --fg:#e6e9ef; --dim:#98a2b3;
+          --ok:#3fb950; --bad:#f85149; --unsure:#d29922; --slab:#ff4d4f; --ribbon:#c678dd; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+  header { display:flex; gap:12px; align-items:center; padding:10px 16px;
+           border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:15px; margin:0 12px 0 0; font-weight:600; }
+  button, select, input[type=text] { background:#252a32; color:var(--fg); border:1px solid var(--line);
+           border-radius:6px; padding:5px 9px; font:inherit; }
+  button:hover { background:#2f3540; cursor:pointer; }
+  button.primary { background:#1f6feb; border-color:#1f6feb; }
+  .wrap { display:grid; grid-template-columns:1fr 380px; gap:0; height:calc(100vh - 54px); }
+  .left { padding:14px; overflow:auto; }
+  .stage { position:relative; display:inline-block; max-width:100%; line-height:0;
+           border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .stage img { display:block; max-width:100%; }
+  .stage svg { position:absolute; inset:0; width:100%; height:100%; }
+  .edge { stroke-width:1.6; fill:none; vector-effect:non-scaling-stroke; }
+  .hit { stroke-width:12; stroke:transparent; fill:none; cursor:pointer; pointer-events:stroke; }
+  .lbl { font-size:11px; fill:#fff; paint-order:stroke; stroke:#000; stroke-width:3px; pointer-events:none; }
+  .meta { color:var(--dim); font-size:12px; margin:8px 0 12px; }
+  .thumbs { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .thumbs figure { margin:0; }
+  .thumbs img { height:110px; border:1px solid var(--line); border-radius:6px; display:block; }
+  .thumbs figcaption { font-size:11px; color:var(--dim); text-align:center; margin-top:3px; }
+  .right { border-left:1px solid var(--line); background:var(--panel); overflow:auto; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th, td { padding:5px 7px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; }
+  th { position:sticky; top:0; background:var(--panel); color:var(--dim); font-weight:500; z-index:2; }
+  tr.on { background:#1b2836; }
+  tr.hover { background:#243040; }
+  .swatch { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; }
+  .num { font-variant-numeric:tabular-nums; }
+  .markbtn { padding:2px 7px; font-size:12px; }
+  .markbtn.ok { background:var(--ok); border-color:var(--ok); color:#04260c; font-weight:600; }
+  .markbtn.bad { background:var(--bad); border-color:var(--bad); color:#2b0303; font-weight:600; }
+  .markbtn.unsure { background:var(--unsure); border-color:var(--unsure); color:#2b1e00; font-weight:600; }
+  .note { width:100%; }
+  .toolbar { display:flex; gap:8px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--line); }
+  .hint { color:var(--dim); font-size:12px; padding:8px 12px; }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#1f6feb;
+           padding:8px 16px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  #toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>反推结果审查</h1>
+  <select id="frameSel"></select>
+  <button id="toggleAll">显示/隐藏 全部</button>
+  <button id="hideSmall">隐藏 &lt;1500 点</button>
+  <button id="export" class="primary">导出标注 JSON</button>
+  <span id="stat" class="meta" style="margin:0"></span>
+</header>
+
+<div class="wrap">
+  <div class="left">
+    <div class="stage" id="stage">
+      <img id="src" alt="source frame">
+      <svg id="ov" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+    <div class="meta" id="metaLine"></div>
+    <div class="thumbs" id="thumbs"></div>
+    <div class="hint">
+      左栏：<b>红框=平板</b>（疑似方块顶面），<b>紫框=细长条</b>（疑似道路）。线框是从反推的 3D 盒重投影回去的——
+      框得准不准，一眼就能看出来。右栏逐项打标（对/错/存疑 + 备注），
+      标好后点“导出标注 JSON”，把文件发回给我，我按你的标注改算法。
+      快捷键：<b>←/→</b> 切帧，<b>1</b>=对 <b>2</b>=错 <b>3</b>=存疑（作用于鼠标悬停的行）。
+    </div>
+  </div>
+  <div class="right">
+    <div class="toolbar">
+      <span class="meta" style="margin:0" id="countLine"></span>
+      <button id="clearMarks">清空标注</button>
+    </div>
+    <table>
+      <thead><tr><th style="width:26px"></th><th>#</th><th>尺寸 (长×宽×高 m)</th>
+      <th>顶面(相对最低面)</th><th>点</th><th>标注</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="hint" id="noteHint"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const ROOT = location.pathname.replace(/\/tools\/[^/]*$/, '');
+const DIR = new URLSearchParams(location.search).get('dir') || '/out/tmp/ref-scene';
+const BASE = DIR.startsWith('http') ? DIR : ROOT + DIR;
+const CLR = { slab:'#ff4d4f', ribbon:'#c678dd' };
+const EDGES = [[0,1],[1,3],[3,2],[2,0],[4,5],[5,7],[7,6],[6,4],[0,4],[1,5],[2,6],[3,7]];
+// corners2d 顺序 = box_corners_world: (i&1)?+ : 沿 e1, (i&2)?+ : 沿 e2, (i&4)?+ : 沿 up
+let state = { index: [], frame: null, items: [], on: {}, marks: {}, hideSmall: false };
+const LS = 'refreview.marks.v1';
+try { state.marks = JSON.parse(localStorage.getItem(LS) || '{}'); } catch (e) { state.marks = {}; }
+
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg;
+  t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1600); }
+function key(tag, id) { return tag + '|' + id; }
+function markOf(tag, id) { return state.marks[key(tag, id)] || { ok:null, note:'' }; }
+function saveMarks() { localStorage.setItem(LS, JSON.stringify(state.marks)); }
+
+async function boot() {
+  let idx = [];
+  try { idx = await (await fetch(BASE + '/index.json')).json(); } catch (e) {
+    document.getElementById('metaLine').textContent = '读不到 index.json：' + e; return; }
+  state.index = idx;
+  const sel = document.getElementById('frameSel');
+  sel.innerHTML = idx.map((e,i) => `<option value="${i}">${e.tag} — ${e.items} 项 · fov_y ${e.fov_y_deg?.toFixed(1)}°</option>`).join('');
+  sel.onchange = () => load(+sel.value);
+  await load(0);
+}
+
+async function load(i) {
+  const entry = state.index[i]; if (!entry) return;
+  const data = await (await fetch(BASE + '/' + entry.review)).json();
+  state.frame = data; state.items = data.items || [];
+  const tag = data.tag;
+  state.on = {};
+  state.items.forEach(it => { state.on[it.id] = (state.marks[key(tag,it.id)]?.ok !== false); });
+  document.getElementById('src').src = BASE + '/' + data.src;
+  document.getElementById('ov').setAttribute('viewBox', `0 0 ${data.size[0]} ${data.size[1]}`);
+  document.getElementById('metaLine').innerHTML =
+    `帧 <b>${tag}</b> · ${data.size[0]}×${data.size[1]} · fov_x ${data.fov_x_deg.toFixed(1)}° / fov_y ${data.fov_y_deg.toFixed(1)}° · `
+    + `世界up ${data.up.map(v=>v.toFixed(3)).join(', ')} · 最低显著水平面 ${data.base_level_m?.toFixed(2)} m`
+    + `<br>源图 ${data.image}`;
+  const th = [['depth','-depth.png'],['normal','-normal.png'],['top','-top.png'],['side','-side.png']];
+  document.getElementById('thumbs').innerHTML = th.map(([n,s]) =>
+    `<figure><img src="${BASE}/${tag}${s}" loading="lazy"><figcaption>${n}</figcaption></figure>`).join('')
+    + `<figure><img src="${BASE}/${tag}.png" onerror="this.remove()" loading="lazy"><figcaption>原始点数云</figcaption></figure>`;
+  draw(); renderRows();
+}
+
+function draw() {
+  const tag = state.frame.tag, svg = document.getElementById('ov');
+  const fg = state.items.filter(it => state.on[it.id]);
+  let html = '';
+  for (const it of fg) {
+    const c = it.corners2d, col = CLR[it.kind] || '#888';
+    for (const [a,b] of EDGES) {
+      const p = c[a], q = c[b];
+      if (!p || !q || p[0] == null || q[0] == null) continue;
+      html += `<line class="edge" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" stroke="${col}"/>`;
+    }
+    const xs = c.map(p => p[0]).filter(v => v != null), ys = c.map(p => p[1]).filter(v => v != null);
+    if (xs.length) {
+      const cx = (Math.min(...xs)+Math.max(...xs))/2, cy = (Math.min(...ys)+Math.max(...ys))/2;
+      const s = it.size_e1_e2_up;
+      html += `<text class="lbl" x="${cx.toFixed(0)}" y="${cy.toFixed(0)}">${s[0].toFixed(2)}×${s[1].toFixed(2)}×${s[2].toFixed(2)}</text>`;
+    }
+    html += `<polyline class="hit" points="${c.filter(p=>p[0]!=null).map(p=>p.join(',')).join(' ')}" data-id="${it.id}"></polyline>`;
+  }
+  svg.innerHTML = html;
+  svg.querySelectorAll('.hit').forEach(el => {
+    el.addEventListener('mouseenter', () => highlight(el.dataset.id, true));
+    el.addEventListener('mouseleave', () => highlight(el.dataset.id, false));
+  });
+  document.getElementById('stat').textContent =
+    `${fg.length}/${state.items.length} 显示`;
+}
+
+function highlight(id, on) {
+  document.querySelectorAll(`tr[data-id="${id}"]`).forEach(tr => tr.classList.toggle('hover', on));
+}
+
+function renderRows() {
+  const tag = state.frame.tag, tb = document.getElementById('rows');
+  const items = [...state.items].sort((a,b) => b.n_points - a.n_points);
+  tb.innerHTML = items.map(it => {
+    const m = markOf(tag, it.id), s = it.size_e1_e2_up;
+    const hidden = state.hideSmall && it.n_points < 1500;
+    if (hidden) return '';
+    const cls = [state.on[it.id] ? 'on' : '', m.ok === true ? 'ok' : '', m.ok === false ? 'bad' : ''].join(' ');
+    return `<tr data-id="${it.id}" class="${cls}">
+      <td><input type="checkbox" data-chk="${it.id}" ${state.on[it.id] ? 'checked':''}></td>
+      <td><span class="swatch" style="background:${CLR[it.kind]||'#888'}"></span>${it.id.replace(/^slab-/,'')}</td>
+      <td class="num">${s[0].toFixed(2)}×${s[1].toFixed(2)}×${s[2].toFixed(2)}</td>
+      <td class="num">${(it.level_top_rel_m ?? it.level_top_m ?? 0).toFixed(2)}</td>
+      <td class="num">${it.n_points}</td>
+      <td style="white-space:nowrap">
+        <button class="markbtn ok ${m.ok===true?'ok':''}" data-mk="ok" data-id="${it.id}">对</button>
+        <button class="markbtn bad ${m.ok===false?'bad':''}" data-mk="bad" data-id="${it.id}">错</button>
+        <button class="markbtn unsure ${m.ok==='unsure'?'unsure':''}" data-mk="unsure" data-id="${it.id}">存疑</button>
+      </td></tr>
+      <tr data-id="${it.id}"><td colspan="6" style="padding:2px 7px 6px 30px">
+        <input class="note" type="text" placeholder="备注（这个方块哪里不对：太大/太小/位置偏/其实是别的形状…）"
+               data-note="${it.id}" value="${(m.note||'').replace(/"/g,'&quot;')}"></td></tr>`;
+  }).join('');
+  tb.querySelectorAll('[data-chk]').forEach(el => el.onchange = () => {
+    state.on[el.dataset.chk] = el.checked; draw(); renderRows(); });
+  tb.querySelectorAll('[data-mk]').forEach(el => el.onclick = () => setMark(el.dataset.id, el.dataset.mk));
+  tb.querySelectorAll('[data-note]').forEach(el => el.onchange = () => {
+    const k = key(tag, el.dataset.note), m = markOf(tag, el.dataset.note);
+    state.marks[k] = { ok: m.ok, note: el.value }; saveMarks(); });
+  const marked = state.items.filter(it => markOf(tag, it.id).ok != null).length;
+  document.getElementById('countLine').textContent =
+    `${state.items.length} 项（已标注 ${marked}）`;
+  document.getElementById('noteHint').innerHTML =
+    `标注存在浏览器本地（localStorage），换帧不丢。当前帧 <b>${tag}</b>。`;
+}
+
+function setMark(id, kind) {
+  const tag = state.frame.tag, k = key(tag, id), m = markOf(tag, id);
+  const val = kind === 'ok' ? true : (kind === 'bad' ? false : 'unsure');
+  state.marks[k] = { ok: m.ok === val ? null : val, note: m.note || '' };
+  saveMarks();
+  state.on[id] = state.marks[k].ok !== false;
+  draw(); renderRows();
+}
+
+document.getElementById('toggleAll').onclick = () => {
+  const anyOff = state.items.some(it => !state.on[it.id]);
+  state.items.forEach(it => state.on[it.id] = anyOff);
+  draw(); renderRows();
+};
+document.getElementById('hideSmall').onclick = () => {
+  state.hideSmall = !state.hideSmall;
+  document.getElementById('hideSmall').textContent = state.hideSmall ? '显示全部' : '隐藏 <1500 点';
+  renderRows();
+};
+document.getElementById('clearMarks').onclick = () => {
+  const tag = state.frame.tag;
+  Object.keys(state.marks).filter(k => k.startsWith(tag + '|')).forEach(k => delete state.marks[k]);
+  saveMarks(); state.items.forEach(it => state.on[it.id] = true); draw(); renderRows(); toast('已清空本帧标注');
+};
+document.getElementById('export').onclick = () => {
+  const tag = state.frame.tag;
+  const out = { tag, image: state.frame.image, size: state.frame.size,
+                up: state.frame.up, base_level_m: state.frame.base_level_m,
+                fov_x_deg: state.frame.fov_x_deg, fov_y_deg: state.frame.fov_y_deg,
+                exported: new Date().toISOString(),
+                marks: state.items.map(it => {
+                  const m = markOf(tag, it.id), s = it.size_e1_e2_up;
+                  return { id: it.id, kind: it.kind, size_e1_e2_up: s, level_top_m: it.level_top_m,
+                           n_points: it.n_points, ok: m.ok, note: m.note || '' };
+                }) };
+  const blob = new Blob([JSON.stringify(out, null, 1)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `review-${tag}.json`; a.click();
+  toast('已导出 review-' + tag + '.json');
+};
+document.addEventListener('keydown', e => {
+  const sel = document.getElementById('frameSel');
+  if (e.key === 'ArrowRight') { sel.selectedIndex = Math.min(sel.length-1, sel.selectedIndex+1); load(sel.selectedIndex); }
+  if (e.key === 'ArrowLeft')  { sel.selectedIndex = Math.max(0, sel.selectedIndex-1); load(sel.selectedIndex); }
+  if (['1','2','3'].includes(e.key)) {
+    const tr = document.querySelector('tr.hover[data-id]');
+    if (tr) setMark(tr.dataset.id, { '1':'ok', '2':'bad', '3':'unsure' }[e.key]);
+  }
+});
+boot();
+</script>
+</body>
+</html>
