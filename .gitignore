@@ -25,3 +25,7 @@ desktop.ini
 
 # AI 会话的本机规则（每台机器不一样）
 .dsh/
+
+# python 工具缓存
+__pycache__/
+*.pyc
