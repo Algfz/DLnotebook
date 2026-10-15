@@ -83,3 +83,46 @@ MoGe-2 / VGGT-Ω / MapAnything 出度量点云 → RANSAC 轴对齐长方体拟�
 上面任一条路线都能补上缺的那一环：**同机位回渲 + 与参考帧并排比对**。
 
 参考：`docs/reference-study-method.md`（现行研究方法）。
+
+## 5. 本机约束（2026-10-15 实测）
+
+**硬件**：RTX 5060 Laptop（8GB 显存，sm_120）、Ryzen 9 8945HX（16C/32T）、31.8GB 内存、
+C 盘剩余 222GB、CUDA Toolkit 13.3、驱动 616.92。
+
+**已就绪的软件栈**（conda 环境，都要用它们的解释器，base 里没有 torch）：
+
+- `comfyui`：torch 2.11.0+cu128（`cuda.is_available()=True`，arch_list 含 `sm_120`）、
+  torchvision、transformers 4.57.6、timm、safetensors、accelerate、diffusers。
+- `QQMoniter`：torch 2.11.0+cu128、**transformers 5.16.1、bitsandbytes 0.50.2、qwen-vl-utils 0.0.14**、modelscope。
+
+**已有本地权重**：`C:\D\QQMoniter\models\Qwen2.5-VL-3B-Instruct`（两片共 7.16GB，完整）、
+Qwen3.8-9B GGUF（LM Studio）、ComfyUI 的 SDXL/Flux-schnell/MiniMax-H3 等。
+
+**网络是硬约束**：只有 `github.com` 与 `codeload.github.com` 通（源码可克隆）；
+`pypi.org`、`files.pythonhosted.org`、`download.pytorch.org`、`huggingface.co`、`hf-mirror.com`、
+`registry.npmjs.org`、国内各镜像**全部不可达**（代理 403 / 连接失败）。
+⇒ **不能 pip 安装任何新包、不能从 HF 下任何权重**。
+
+**由此否决的路线**：第 2 节路线 B 依赖的 VGGT / VGGT-Ω / MapAnything / Depth Anything 3 /
+MoGe-2 / Cube R-CNN 权重**全都拿不到**（HF 被墙、无 pip），本地也训不动（8GB）。
+路线 C 的"照 CAD-Recode 自训"同样超出本机。**路线 A 零依赖，仍是最该先做的。**
+
+## 6. 本地 VLM 当"粗筛"（实测）
+
+本机有完整的 Qwen2.5-VL-3B 环境，已接成 `tools/vlm-review.py`
+（4bit 量化 ≈2.4GB 显存；加载约 5~10s，单图推理 4~11s）：
+
+```powershell
+C:\Users\abc\.conda\envs\QQMoniter\python.exe tools/vlm-review.py --compare a.jpg b.jpg
+C:\Users\abc\.conda\envs\QQMoniter\python.exe tools/vlm-review.py frame.jpg
+```
+
+实测结论（A/B：改造前 `probe-top-t22.jpg` vs 改造后 `sec2-top-t22.jpg`）：
+
+- **能**指出改造前"有些方块明显太大/离路面太远（左下角那组）"，并选改造后
+  （`out/tmp/vlm-compare.txt`）。
+- **不能**在发起人圈过的那张截图上看出问题——它答"每个转弯处都紧贴路边放了方块"，
+  其余"看不清"（`out/tmp/vlm-user.txt`）。
+
+⇒ 定位：**抓大错的粗筛**（太大/太远/明显缺一块），**不能当验收关**。
+真正的细错（"这个转角少了一块""这块偏了 1 米"）仍需发起人把关。
