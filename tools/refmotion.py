@@ -58,7 +58,8 @@ def ground_frame(fr):
     K = np.array([[fr["fx"], 0.0, fr.get("cx", W / 2.0)],
                   [0.0, fr.get("fy", fr["fx"]), fr.get("cy", H / 2.0)],
                   [0.0, 0.0, 1.0]], dtype=np.float64)
-    return {"n": n, "d": d, "r": r, "f": f, "K": K, "W_m": Wm, "rmk": rmk, "agree": agree}
+    return {"n": n, "d": d, "r": r, "f": f, "K": K, "W_m": Wm, "rmk": rmk, "agree": agree,
+            "road_px": int(rmk.sum()) if rmk is not None else 0}
 
 
 def ground_uv(fr, gf, pts_xy):
@@ -87,6 +88,8 @@ def main():
     ap.add_argument("--step", type=int, default=3)
     ap.add_argument("--fps", type=float, default=10.0)
     ap.add_argument("--max-pairs", type=int, default=60)
+    ap.add_argument("--wpx", type=int, default=20000, help="路宽只在路面掩膜 >= 该像素数时采信")
+    ap.add_argument("--min-inl", type=int, default=30, help="光流内点下限(粗过滤离群)")
     ap.add_argument("--num-tokens", type=int, default=3600)
     ap.add_argument("--ckpt", default=rs.DEFAULT_CKPT)
     args = ap.parse_args()
@@ -135,31 +138,48 @@ def main():
         t = M[:, 2]
         ang = math.degrees(math.atan2(M[1, 0], M[0, 0]))
         dist = float(np.hypot(t[0], t[1]))
-        Wm = ga["W_m"] if np.isfinite(ga["W_m"]) else gb["W_m"]
+        # 路宽只在掩膜覆盖足够时才可信(否则掩膜只盖住路带一部分 -> W 偏小 -> 速度虚高)
+        Wm = float("nan")
+        for g, f_ in ((ga, fa), (gb, fb)):
+            if g["road_px"] >= args.wpx and np.isfinite(g["W_m"]):
+                Wm = g["W_m"]
+                break
         rows.append({"i": i, "fa": os.path.basename(fa), "fb": os.path.basename(fb),
                      "n_pts": int(m.sum()), "inl": int(inl.sum()) if inl is not None else 0,
                      "d_m": dist, "yaw_deg": ang, "dt": dt,
                      "speed_Ws": (dist / dt / Wm) if np.isfinite(Wm) and Wm > 1e-6 else None,
                      "yaw_dps": ang / dt,
-                     "W_m": Wm, "cam_h": ga["d"], "up_agree": ga["agree"],
+                     "W_m": Wm, "road_px": int(max(ga["road_px"], gb["road_px"])),
+                     "cam_h": ga["d"], "up_agree": ga["agree"],
                      "t_ax": float(t[0]), "t_ay": float(t[1])})
         if len(rows) >= args.max_pairs:
             break
+    # ---- 稳健化: 先按光流内点数与位移的粗一致性剔离群, 再用"整窗路宽中位"给一个主数字 ----
+    good = [r for r in rows if r["inl"] >= args.min_inl]
+    if len(good) >= 5:
+        dm = np.array([r["d_m"] for r in good], dtype=float)
+        med = float(np.median(dm))
+        good = [r for r in good if 0.15 * med <= r["d_m"] <= 4.0 * med]
+    Ws = [r["W_m"] for r in good if np.isfinite(r["W_m"])]
+    Wwin = float(np.median(Ws)) if len(Ws) >= 4 else float("nan")
+    dmed = float(np.median([r["d_m"] for r in good])) if good else float("nan")
     # 汇总
-    sp = np.array([r["speed_Ws"] for r in rows if r["speed_Ws"]], dtype=float)
-    yw = np.array([r["yaw_dps"] for r in rows], dtype=float)
-    dm = np.array([r["d_m"] for r in rows], dtype=float)
-    Wm = np.array([r["W_m"] for r in rows if np.isfinite(r["W_m"])], dtype=float)
-    summ = {"tag": args.tag, "pairs": len(rows), "step": args.step, "dt": dt,
+    sp = np.array([r["speed_Ws"] for r in good if r["speed_Ws"]], dtype=float)
+    yw = np.array([r["yaw_dps"] for r in good], dtype=float)
+    dm2 = np.array([r["d_m"] for r in good], dtype=float)
+    Wm = np.array(Ws, dtype=float)
+    summ = {"tag": args.tag, "pairs": len(rows), "kept": len(good), "step": args.step, "dt": dt,
+            "W_win_m": Wwin, "d_med_m": dmed,
+            "speed_win_Ws": (dmed / dt / Wwin) if (np.isfinite(Wwin) and Wwin > 1e-6 and np.isfinite(dmed)) else None,
             "speed_Ws": {q: float(np.percentile(sp, q)) for q in (5, 25, 50, 75, 95)} if sp.size else None,
             "yaw_dps": {q: float(np.percentile(yw, q)) for q in (5, 25, 50, 75, 95)} if yw.size else None,
             "yaw_abs_p95": float(np.percentile(np.abs(yw), 95)) if yw.size else None,
-            "d_m": {q: float(np.percentile(dm, q)) for q in (5, 25, 50, 75, 95)} if dm.size else None,
+            "d_m": {q: float(np.percentile(dm2, q)) for q in (5, 25, 50, 75, 95)} if dm2.size else None,
             "W_m": {q: float(np.percentile(Wm, q)) for q in (5, 25, 50, 75, 95)} if Wm.size else None}
     # 折点: |yaw_dps| 的峰, 间距 = 峰间累计行进距离
     spikes, leg = [], 0.0
     thr = max(4.0, 2.5 * float(np.median(np.abs(yw)))) if yw.size else 6.0
-    for r in rows:
+    for r in good:
         leg += r["d_m"]
         if abs(r["yaw_dps"]) > thr:
             spikes.append({**r, "leg_m": leg})
