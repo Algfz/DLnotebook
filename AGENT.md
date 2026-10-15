@@ -1143,12 +1143,23 @@ B) 速度降到 6.68 m/s（形状不动，但整关 346 s 比音乐 174.7 s 长�
 - 搬完仓库目录从 **6.4 GB 降到 120 MB**（`.git` 只有 21.5 MB，历史里没有大文件）。
 
 **发起人的机器**（可用于本地 AI 生成）：
-- GPU：RTX 5060 Laptop **8GB 显存**
-- 内存：**32GB**
+- GPU：RTX 5060 Laptop **8GB 显存**（sm_120；驱动 616.92，CUDA Toolkit 13.3）
+- 内存：**32GB**；CPU：Ryzen 9 8945HX（16C/32T）；C 盘剩余约 220GB
 - 系统：Windows，Shell 为 PowerShell
 - **已装 ComfyUI**：`c:\ComfyUI`（可生成贴图、素材，甚至 3D 模型）
   - ⚠️ **但概念图不要占用它**——ADR-6 明令：视觉概念图**直接用 AI 生图**，不动发起人本机算力
   - 注意：ComfyUI 目录有自己的管理规则（不直接改官方跟踪文件，改动放 `_local/`），操作前先确认
+
+**⚠️ 网络是硬约束（2026-10-15 实测）**：只有 `github.com` / `codeload.github.com` 可达；
+PyPI、`download.pytorch.org`、HuggingFace、hf-mirror、npm、国内镜像**全部不可达**。
+⇒ **不能 `pip install` 任何新包，不能从 HF 下任何权重**。要在本机跑模型，只能用已经装好的东西：
+- conda 环境 `comfyui`：torch 2.11.0+cu128（CUDA 可用）、torchvision、transformers 4.57.6、timm、safetensors、accelerate、diffusers
+- conda 环境 `QQMoniter`：torch 2.11.0+cu128、transformers 5.16.1、bitsandbytes 0.50.2、qwen-vl-utils 0.0.14、modelscope
+- 本地权重：`C:\D\QQMoniter\models\Qwen2.5-VL-3B-Instruct`（完整）、Qwen3.8-9B GGUF、ComfyUI 的 SDXL/Flux/MiniMax-H3
+- **base 环境（`C:\ProgramData\anaconda3`）里没有 torch**，跑 torch 脚本必须用上面两个环境的 `python.exe`
+- 审图工具：`tools/vlm-review.py`（本地 Qwen2.5-VL-3B，4bit≈2.4GB 显存，加载 5~10s / 单图 4~11s）。
+  实测只能抓"方块太大/离路太远"这类**粗错**，看不出人眼圈的细错 ⇒ 当粗筛用，**不能当验收关**。
+  结论与实测记录见 `docs/reference-video-to-scene.md` §5/§6。
 
 **常用命令**
 ```bash
