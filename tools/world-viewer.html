@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0d0f14">
+<title>自由观察 · 反推出的世界</title>
+<style>
+:root{--fg:#eef1f7;--dim:#9aa4ba;--acc:#ffd24b;--panel:#161a22ee}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:#0d0f14;color:var(--fg);
+  font:14px/1.5 -apple-system,"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+  touch-action:none;overscroll-behavior:none}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
+.ui{position:fixed;z-index:5}
+#top{top:0;left:0;right:0;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;
+  background:linear-gradient(#000a,#0000);pointer-events:none}
+#ttl{font-weight:600;font-size:14px;text-shadow:0 1px 3px #000a;max-width:62vw}
+#st{margin-left:auto;text-align:right;font-size:12px;color:var(--dim);
+  font-variant-numeric:tabular-nums;text-shadow:0 1px 3px #000a;white-space:pre-line}
+#btns{top:auto;bottom:calc(12px + env(safe-area-inset-bottom));left:12px;display:flex;gap:8px;flex-wrap:wrap;max-width:60vw}
+button{background:#1d2330d9;color:var(--fg);border:1px solid #2f3746;border-radius:10px;
+  padding:8px 11px;font:inherit;font-size:13px;backdrop-filter:blur(6px)}
+button:active{background:#2a3446}
+button.on{background:var(--acc);color:#12141a;border-color:var(--acc);font-weight:600}
+#panel{position:fixed;z-index:6;right:10px;top:52px;width:min(330px,86vw);max-height:76vh;overflow:auto;
+  background:var(--panel);border:1px solid #2c3442;border-radius:14px;padding:12px;display:none;
+  backdrop-filter:blur(10px)}
+#panel.show{display:block}
+#panel h3{margin:2px 0 8px;font-size:13px;color:var(--acc);letter-spacing:.4px}
+#pHead{display:flex;align-items:center;gap:8px}
+#pHead h3{flex:1}
+#pClose{padding:4px 9px;font-size:12px}
+.scn{display:block;width:100%;text-align:left;margin-bottom:6px;padding:9px 10px;border-radius:10px}
+.scn small{display:block;color:var(--dim);font-size:11px;margin-top:2px;white-space:normal}
+.scn.on small{color:#4a3d10}
+.row{display:flex;align-items:center;gap:8px;margin:9px 0;font-size:12px;color:var(--dim)}
+.row input[type=range]{flex:1;accent-color:var(--acc)}
+.row b{color:var(--fg);font-weight:600;min-width:44px;text-align:right;font-variant-numeric:tabular-nums}
+#pad{position:fixed;z-index:4;inset:auto 0 0 0;height:44vh;pointer-events:none;display:none}
+body.touch #pad{display:block}
+#stick{position:absolute;left:calc(16px + env(safe-area-inset-left));
+  bottom:calc(70px + env(safe-area-inset-bottom));width:118px;height:118px;border-radius:50%;
+  background:#ffffff12;border:1px solid #ffffff2b;pointer-events:auto;touch-action:none}
+#knob{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;
+  background:#ffffff35;border:1px solid #ffffff55}
+#lift{position:absolute;right:calc(14px + env(safe-area-inset-right));
+  bottom:calc(74px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+#lift button{width:56px;height:52px;font-size:17px}
+#hint{position:fixed;z-index:4;left:50%;transform:translateX(-50%);
+  bottom:calc(8px + env(safe-area-inset-bottom));font-size:12px;color:var(--dim);text-align:center;
+  text-shadow:0 1px 3px #000a;pointer-events:none;max-width:92vw}
+body.touch #hint{bottom:calc(6px + env(safe-area-inset-bottom))}
+#load{position:fixed;z-index:9;inset:0;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:12px;background:#0d0f14f2;text-align:center;padding:20px}
+#load.hide{display:none}
+.bar{width:min(320px,70vw);height:8px;background:#242b38;border-radius:6px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffd24b,#ff8a3d);transition:width .15s}
+#err{color:#ff9a8a;max-width:80vw;white-space:pre-wrap}
+body.desktop #stick,body.desktop #lift{display:none}
+/* 触屏：按钮让到右上角，底部整片留给摇杆与升降键 */
+body.touch #btns{top:calc(58px + env(safe-area-inset-top));left:auto;right:10px;bottom:auto;
+  flex-direction:column;align-items:flex-end;gap:6px;max-width:52vw}
+body.touch #btns button{padding:7px 10px;font-size:12px}
+body.touch #panel{top:calc(58px + env(safe-area-inset-top));max-height:66vh}
+body.touch #ttl{font-size:13px;max-width:60vw}
+body.touch #st{font-size:11px}
+#hint{transition:opacity 1s}
+#hint.fade{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div class="ui" id="top">
+  <div id="ttl">加载中…</div>
+  <div id="st"></div>
+</div>
+
+<div class="ui" id="btns">
+  <button id="bAuto">▶ 自动沿轨迹飞</button>
+  <button id="bTop">⤓ 俯瞰全景</button>
+  <button id="bReset">↺ 回起点</button>
+  <button id="bPanel">⚙ 场景/设置</button>
+</div>
+
+<div id="panel">
+  <div id="pHead"><h3>场景 / 设置</h3><button id="pClose">✕ 关闭</button></div>
+  <h3>场景（点云重建结果）</h3>
+  <div id="scnList"></div>
+  <h3>参数</h3>
+  <div class="row"><span>速度</span><input id="sSpeed" type="range" min="-1" max="1.9" step="0.01"><b id="vSpeed"></b></div>
+  <div class="row"><span>点大小</span><input id="sSize" type="range" min="0.3" max="4" step="0.05"><b id="vSize"></b></div>
+  <div class="row"><span>视距</span><input id="sFar" type="range" min="0.15" max="1.4" step="0.01"><b id="vFar"></b></div>
+  <div class="row"><input id="cTraj" type="checkbox" checked><span>显示相机轨迹</span></div>
+  <div class="row"><input id="cLight" type="checkbox"><span>浅色背景</span></div>
+  <div class="row" style="color:var(--dim);font-size:11px">输入模式：<span id="inMode"></span>（自动识别，可手动切换）</div>
+  <button id="bInput" style="width:100%">切换 触屏 / 键鼠</button>
+</div>
+
+<div id="pad">
+  <div id="stick"><i id="knob"></i></div>
+  <div id="lift"><button id="bUp">▲</button><button id="bDown">▼</button></div>
+</div>
+
+<div id="hint"></div>
+
+<div id="load">
+  <div style="font-size:15px" id="loadTxt">正在加载…</div>
+  <div class="bar"><i id="loadBar"></i></div>
+  <div id="err"></div>
+</div>
+
+<script type="module">
+import * as THREE from './three.module.min.js';
+
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const S = { scenes: [], man: null, speed: 6, psize: 1, farK: 1.0, auto: false, autoT: 0,
+            traj: null, trajLine: null, points: null, touch: false, fps: 0 };
+
+/* ---------- 设备识别 ---------- */
+function detectTouch(){
+  const coarse = matchMedia('(pointer:coarse)').matches;
+  const anyCoarse = matchMedia('(any-pointer:coarse)').matches;
+  return (navigator.maxTouchPoints > 0 && (coarse || anyCoarse)) || 'ontouchstart' in window;
+}
+function setMode(touch){
+  S.touch = touch; document.body.classList.toggle('touch', touch);
+  document.body.classList.toggle('desktop', !touch);
+  $('#inMode').textContent = touch ? '触屏（左摇杆移动 / 拖动转向 / ▲▼ 升降）'
+    : '键鼠（WASD·方向键 / 拖动转向 / 滚轮调速 / Shift 加速）';
+  $('#hint').textContent = touch
+    ? '左摇杆=移动　屏幕拖动=转视角　▲▼=升降　双指捏合=调速'
+    : 'WASD/方向键 移动 · 空格/C 升降 · 鼠标拖动转向（双击锁定指针）· 滚轮调速 · Shift 加速';
+  localStorage.setItem('worldInput', touch ? 'touch' : 'mouse');
+}
+
+/* ---------- three ---------- */
+const canvas = $('#gl');
+let renderer, scene, camera, clock;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'high-performance' });
+} catch (e) {
+  $('#err').textContent = 'WebGL 启动失败：' + e.message;
+}
+const BG_DARK = new THREE.Color('#0d0f14'), BG_LIGHT = new THREE.Color('#e9e5d8');
+let bg = BG_DARK;
+scene = new THREE.Scene();
+scene.background = bg;
+camera = new THREE.PerspectiveCamera(62, 1, 0.01, 1000);
+clock = new THREE.Clock();
+
+/* 相机朝向（yaw/pitch），自由飞行 */
+let yaw = 0, pitch = 0;
+const inp = { f:0, b:0, l:0, r:0, up:0, dn:0, lookX:0, lookY:0, boost:1 };
+
+/* ---------- 载入 .bin ---------- */
+function parseBin(buf){
+  const dv = new DataView(buf);
+  const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
+  if (magic !== 'DLW1') throw new Error('点云文件格式不对（' + magic + '）');
+  const count = dv.getUint32(4, true), ntraj = dv.getUint32(8, true);
+  const lo = [dv.getFloat32(12,true), dv.getFloat32(16,true), dv.getFloat32(20,true)];
+  const hi = [dv.getFloat32(24,true), dv.getFloat32(28,true), dv.getFloat32(32,true)];
+  const span = [hi[0]-lo[0] || 1, hi[1]-lo[1] || 1, hi[2]-lo[2] || 1];
+  const q = new Uint16Array(buf, 36, count*3);
+  const c8 = new Uint8Array(buf, 36 + count*6, count*3);
+  const pos = new Float32Array(count*3), col = new Float32Array(count*3);
+  const LUT = new Float32Array(256);
+  for (let i=0;i<256;i++) LUT[i] = Math.pow(i/255, 2.2);
+  for (let i=0;i<count;i++){
+    const j = i*3;
+    pos[j]   = lo[0] + q[j]  /65535*span[0];
+    pos[j+1] = lo[1] + q[j+1]/65535*span[1];
+    pos[j+2] = lo[2] + q[j+2]/65535*span[2];
+    col[j] = LUT[c8[j]]; col[j+1] = LUT[c8[j+1]]; col[j+2] = LUT[c8[j+2]];
+  }
+  let traj = null;
+  if (ntraj){
+    const t16 = new Uint16Array(buf, 36 + count*9, ntraj*3);
+    traj = new Float32Array(ntraj*3);
+    for (let i=0;i<ntraj;i++){
+      const j = i*3;
+      traj[j]   = lo[0] + t16[j]  /65535*span[0];
+      traj[j+1] = lo[1] + t16[j+1]/65535*span[1];
+      traj[j+2] = lo[2] + t16[j+2]/65535*span[2];
+    }
+  }
+  return { pos, col, traj, count, lo, hi, span, diag: Math.hypot(span[0],span[1],span[2]) };
+}
+
+function fetchBin(url, onProg){
+  return new Promise((res, rej) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.responseType = 'arraybuffer';
+    xhr.onprogress = e => e.lengthComputable && onProg(e.loaded / e.total);
+    xhr.onload = () => xhr.status === 200 ? res(xhr.response) : rej(new Error('HTTP ' + xhr.status));
+    xhr.onerror = () => rej(new Error('网络错误'));
+    xhr.send();
+  });
+}
+
+async function loadScene(tag){
+  const info = S.scenes.find(s => s.tag === tag) || S.scenes[0];
+  S.man = info; S.auto = false; S.autoT = 0;
+  $('#bAuto').classList.remove('on');
+  $('#load').classList.remove('hide');
+  $('#loadTxt').textContent = '下载 ' + info.title + ' …';
+  $('#loadBar').style.width = '0%';
+  $('#err').textContent = '';
+  try {
+    const buf = await fetchBin(info.file, p => {
+      $('#loadBar').style.width = (p*100).toFixed(0) + '%';
+      $('#loadTxt').textContent = '下载 ' + info.title + ' (' + (p*info.bytes/1e6).toFixed(1) + '/' + (info.bytes/1e6).toFixed(1) + ' MB)';
+    });
+    $('#loadTxt').textContent = '解析 ' + info.count.toLocaleString() + ' 个点…';
+    await new Promise(r => setTimeout(r, 30));
+    const d = parseBin(buf);
+    build(d, info);
+    $('#ttl').textContent = info.title;
+    location.hash = '#' + tag;
+    $('#load').classList.add('hide');
+  } catch (e) {
+    $('#err').textContent = '加载失败：' + e.message;
+    $('#loadTxt').textContent = '加载失败';
+  }
+}
+
+function build(d, info){
+  if (S.points){ scene.remove(S.points); S.points.geometry.dispose(); S.points.material.dispose(); }
+  if (S.trajLine){ scene.remove(S.trajLine); S.trajLine.geometry.dispose(); S.trajLine.material.dispose(); }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(d.pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(d.col, 3));
+  geo.computeBoundingSphere();
+  const mat = new THREE.PointsMaterial({ size: info.size_hint * S.psize, sizeAttenuation: true,
+    vertexColors: true, depthWrite: true, fog: true });
+  S.points = new THREE.Points(geo, mat);
+  scene.add(S.points);
+
+  if (d.traj && d.traj.length >= 6){
+    S.traj = d.traj;
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(d.traj, 3));
+    S.trajLine = new THREE.Line(tg, new THREE.LineBasicMaterial({ color: 0xff3b30, fog: false }));
+    S.trajLine.visible = $('#cTraj').checked;
+    scene.add(S.trajLine);
+  } else { S.traj = null; S.trajLine = null; }
+
+  camera.near = Math.max(0.005, d.diag/20000);
+  camera.far = d.diag * 3;
+  camera.updateProjectionMatrix();
+  S.diag = d.diag;
+  applyFar();
+  setSpeed(Math.max(0.35, d.diag * 0.12));            // 每个场景默认一个合适的速度
+  resetView();
+  $('#vSize').textContent = S.psize.toFixed(2) + '×';
+}
+
+function resetView(){
+  const m = S.man;
+  if (!m) return;
+  const c = m.start ? m.start.eye : [0,0,0];
+  const t = m.start ? m.start.look : [1,0,0];
+  camera.position.set(c[0], c[1], c[2]);
+  const dx = t[0]-c[0], dy = t[1]-c[1], dz = t[2]-c[2];
+  const len = Math.hypot(dx,dy,dz) || 1;
+  yaw = Math.atan2(-dx/len, -dz/len);
+  pitch = Math.asin(clamp(dy/len, -1, 1));
+  S.autoT = 0;
+}
+function applyFar(){
+  if (!S.diag) return;
+  const far = S.diag * S.farK;
+  camera.far = far * 3;
+  camera.updateProjectionMatrix();
+  scene.fog.color.copy(bg);
+  scene.fog.near = far * 0.15;
+  scene.fog.far = far;
+  if (S.points && S.points.material.fog !== true) S.points.material.fog = true;
+}
+
+/* ---------- 自动沿轨迹飞行 ---------- */
+function autoStep(dt){
+  const T = S.traj, n = T ? T.length/3 : 0;
+  if (!T || n < 2) return;
+  const len = S.diag * 0.06;                       // 总时长 ~ 轨迹长度/速度
+  S.autoT += dt * S.speed * 1.2 / Math.max(1, len);
+  if (S.autoT > 1) S.autoT -= 1;
+  const f = S.autoT * (n-1), i = Math.floor(f), u = f - i;
+  const j = Math.min(n-1, i+1), h = Math.max(0.004, S.diag*0.012);
+  const a = [T[i*3], T[i*3+1]+h, T[i*3+2]], b = [T[j*3], T[j*3+1]+h, T[j*3+2]];
+  camera.position.set(a[0]+(b[0]-a[0])*u, a[1]+(b[1]-a[1])*u, a[2]+(b[2]-a[2])*u);
+  const k = Math.min(n-1, i + Math.max(2, Math.round(n*0.03)));
+  const L = [T[k*3], T[k*3+1]+h, T[k*3+2]];
+  const dx = L[0]-camera.position.x, dy = L[1]-camera.position.y, dz = L[2]-camera.position.z;
+  const l = Math.hypot(dx,dy,dz) || 1;
+  const ty = Math.atan2(-dx/l, -dz/l), tp = Math.asin(clamp(dy/l,-1,1));
+  yaw += ((((ty-yaw+Math.PI*3)%(Math.PI*2))-Math.PI)) * Math.min(1, dt*4);
+  pitch += (tp - pitch) * Math.min(1, dt*4);
+}
+
+/* ---------- 输入：键鼠 ---------- */
+const keys = new Set();
+addEventListener('keydown', e => {
+  keys.add(e.key.toLowerCase());
+  if ([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
+});
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+addEventListener('blur', () => keys.clear());
+
+let dragging = false, locked = false, lastX = 0, lastY = 0;
+canvas.addEventListener('pointerdown', e => {
+  if (S.touch) return;
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  if (S.touch || (!dragging && !locked)) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  yaw -= dx * 0.0035; pitch = clamp(pitch - dy * 0.0035, -1.5, 1.5);
+});
+addEventListener('pointerup', () => { dragging = false; });
+canvas.addEventListener('dblclick', () => {
+  if (S.touch) return;
+  if (!locked && canvas.requestPointerLock) canvas.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  locked = document.pointerLockElement === canvas;
+  if (locked) { lastX = innerWidth/2; lastY = innerHeight/2; }
+});
+addEventListener('mousemove', e => {
+  if (!locked) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  yaw -= dx * 0.0022; pitch = clamp(pitch - dy * 0.0022, -1.5, 1.5);
+});
+addEventListener('wheel', e => {
+  if (S.touch) return;
+  e.preventDefault();
+  setSpeed(S.speed * Math.exp(-e.deltaY * 0.0012));
+}, { passive: false });
+
+/* ---------- 输入：触屏 ---------- */
+const stick = $('#stick'), knob = $('#knob');
+let stickId = null, lookId = null, lookX = 0, lookY = 0, pinch0 = 0, speed0 = 0;
+const park = () => { knob.style.transform = 'translate(0,0)'; inp.f = inp.b = inp.l = inp.r = 0; };
+
+stick.addEventListener('touchstart', e => {
+  const t = e.changedTouches[0]; stickId = t.identifier; e.preventDefault();
+}, { passive: false });
+addEventListener('touchmove', e => {
+  for (const t of e.changedTouches){
+    if (t.identifier === stickId){
+      const r = stick.getBoundingClientRect();
+      let dx = t.clientX - (r.left + r.width/2), dy = t.clientY - (r.top + r.height/2);
+      const R = r.width/2 - 24, len = Math.hypot(dx, dy);
+      if (len > R){ dx = dx/len*R; dy = dy/len*R; }
+      knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      const nx = dx/R, ny = dy/R;
+      inp.r = Math.max(0, nx); inp.l = Math.max(0, -nx);
+      inp.b = Math.max(0, ny); inp.f = Math.max(0, -ny);
+      e.preventDefault();
+    } else if (t.identifier === lookId){
+      yaw -= (t.clientX - lookX) * 0.005;
+      pitch = clamp(pitch - (t.clientY - lookY) * 0.005, -1.5, 1.5);
+      lookX = t.clientX; lookY = t.clientY;
+      e.preventDefault();
+    }
+  }
+  if (e.touches.length >= 2 && S.touch){
+    const [a, b] = e.touches;
+    const d = Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+    if (!pinch0){ pinch0 = d; speed0 = S.speed; }
+    else setSpeed(speed0 * (d / pinch0));
+  }
+}, { passive: false });
+addEventListener('touchend', e => {
+  for (const t of e.changedTouches){
+    if (t.identifier === stickId){ stickId = null; park(); }
+    if (t.identifier === lookId){ lookId = null; }
+  }
+  if (e.touches.length < 2) pinch0 = 0;
+}, { passive: false });
+canvas.addEventListener('touchstart', e => {
+  if (!S.touch || lookId !== null) return;
+  const t = e.changedTouches[0]; lookId = t.identifier; lookX = t.clientX; lookY = t.clientY;
+  e.preventDefault();
+}, { passive: false });
+for (const [id, key] of [['#bUp','up'], ['#bDown','dn']]){
+  const el = $(id);
+  const on = e => { inp[key] = 1; e.preventDefault(); };
+  const off = () => { inp[key] = 0; };
+  el.addEventListener('touchstart', on, { passive: false });
+  el.addEventListener('touchend', off); el.addEventListener('touchcancel', off);
+  el.addEventListener('mousedown', on); el.addEventListener('mouseup', off); el.addEventListener('mouseleave', off);
+}
+
+/* ---------- UI ---------- */
+function setSpeed(v){
+  S.speed = clamp(v, 0.3, 400);
+  $('#sSpeed').value = Math.log10(S.speed);
+  $('#vSpeed').textContent = S.speed < 10 ? S.speed.toFixed(1) : S.speed.toFixed(0);
+}
+$('#sSpeed').addEventListener('input', e => setSpeed(Math.pow(10, +e.target.value)));
+$('#sSize').addEventListener('input', e => {
+  S.psize = +e.target.value;
+  $('#vSize').textContent = S.psize.toFixed(2) + '×';
+  if (S.points) S.points.material.size = S.man.size_hint * S.psize;
+});
+$('#sFar').addEventListener('input', e => {
+  S.farK = +e.target.value;
+  $('#vFar').textContent = (S.diag*S.farK).toFixed(0);
+  applyFar();
+});
+$('#cTraj').addEventListener('change', e => { if (S.trajLine) S.trajLine.visible = e.target.checked; });
+$('#cLight').addEventListener('change', e => {
+  bg = e.target.checked ? BG_LIGHT : BG_DARK;
+  scene.background = bg; applyFar();
+});
+$('#bAuto').addEventListener('click', () => {
+  S.auto = !S.auto; S.autoT = 0; $('#bAuto').classList.toggle('on', S.auto);
+});
+$('#bReset').addEventListener('click', () => { S.auto = false; $('#bAuto').classList.remove('on'); resetView(); });
+$('#bTop').addEventListener('click', () => {
+  const c = (S.man.start && S.man.start.center) || [0, 0, 0];
+  const h = (S.diag || 10) * 0.62;
+  S.auto = false; $('#bAuto').classList.remove('on');
+  camera.position.set(c[0], c[1] + h, c[2] + h * 0.004);
+  yaw = 0; pitch = -Math.PI/2 + 0.02;
+});
+$('#bPanel').addEventListener('click', () => togglePanel());
+$('#pClose').addEventListener('click', () => togglePanel(false));
+function togglePanel(v){
+  const el = $('#panel');
+  const show = v === undefined ? !el.classList.contains('show') : v;
+  el.classList.toggle('show', show);
+  document.body.classList.toggle('panelOpen', show);
+}
+$('#bInput').addEventListener('click', () => setMode(!S.touch));
+
+function buildSceneList(){
+  const box = $('#scnList'); box.innerHTML = '';
+  for (const s of S.scenes){
+    const b = document.createElement('button');
+    b.className = 'scn' + (s.tag === S.man?.tag ? ' on' : '');
+    b.innerHTML = s.title + '<small>' + (s.desc||'') + '<br>' + s.count.toLocaleString() +
+      ' 点 · ' + (s.bytes/1e6).toFixed(1) + ' MB</small>';
+    b.onclick = () => { loadScene(s.tag); togglePanel(false);
+      [...box.children].forEach(c => c.classList.remove('on')); b.classList.add('on'); };
+    box.appendChild(b);
+  }
+}
+
+/* ---------- 主循环 ---------- */
+let fpsAcc = 0, fpsN = 0, statT = 0;
+function resize(){
+  const w = innerWidth, h = innerHeight, dpr = Math.min(devicePixelRatio || 1, S.touch ? 2 : 1.75);
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+addEventListener('orientationchange', () => setTimeout(resize, 250));
+
+function loop(){
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.1, clock.getDelta());
+  if (!S.points) { renderer.render(scene, camera); return; }
+  if (S.auto) autoStep(dt);
+  else {
+    if (!S.touch){
+      inp.f = (keys.has('w')||keys.has('arrowup')) ? 1 : 0;
+      inp.b = (keys.has('s')||keys.has('arrowdown')) ? 1 : 0;
+      inp.l = (keys.has('a')||keys.has('arrowleft')) ? 1 : 0;
+      inp.r = (keys.has('d')||keys.has('arrowright')) ? 1 : 0;
+      inp.up = (keys.has(' ')||keys.has('e')) ? 1 : 0;
+      inp.dn = (keys.has('c')||keys.has('q')) ? 1 : 0;
+    }
+    const boost = (!S.touch && keys.has('shift')) ? 3 : 1;
+    const sp = S.speed * boost * dt;
+    const f = (inp.f - inp.b) * sp, s = (inp.r - inp.l) * sp, u = (inp.up - inp.dn) * sp;
+    camera.position.x += -Math.sin(yaw)*f + Math.cos(yaw)*s;
+    camera.position.z += -Math.cos(yaw)*f - Math.sin(yaw)*s;
+    camera.position.y += u;
+  }
+  camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+  renderer.render(scene, camera);
+
+  fpsAcc += dt; fpsN++;
+  if ((statT += dt) > 0.4){
+    S.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; statT = 0;
+    $('#st').textContent = S.fps.toFixed(0) + ' fps · ' + S.man.count.toLocaleString() + ' 点\n'
+      + '位置 ' + camera.position.x.toFixed(1) + ', ' + camera.position.y.toFixed(1) + ', '
+      + camera.position.z.toFixed(1);
+  }
+}
+
+/* ---------- 启动 ---------- */
+// 供自动化检查用的钩子（不影响正常使用）
+window.__world = {
+  S, camera, renderer, scene, THREE,
+  ready: () => !!(S.points && S.points.geometry.attributes.position.count),
+  count: () => (S.points ? S.points.geometry.attributes.position.count : 0),
+  pos: () => camera.position.toArray().map(v => +v.toFixed(3)),
+  yaw: () => yaw, loadScene, setMode, setSpeed,
+};
+(async function start(){
+  setMode(localStorage.getItem('worldInput') ? localStorage.getItem('worldInput') === 'touch' : detectTouch());
+  scene.fog = new THREE.Fog(bg, 1, 100);
+  resize(); setSpeed(S.speed); loop();
+  try {
+    const man = await (await fetch('manifest.json', { cache:'no-store' })).json();
+    S.scenes = man.scenes || [];
+    if (!S.scenes.length) throw new Error('manifest.json 里没有场景');
+    buildSceneList();
+    const want = location.hash.slice(1);
+    const pick = S.scenes.find(s => s.tag === want) ? want : S.scenes[0].tag;
+    await loadScene(pick);
+    $('#sFar').dispatchEvent(new Event('input'));
+    setTimeout(() => $('#hint').classList.add('fade'), 9000);
+  } catch (e) {
+    $('#loadTxt').textContent = '启动失败';
+    $('#err').textContent = e.message + '\n（请确认 manifest.json 与 .bin 都在同目录）';
+  }
+})();
+</script>
+</body>
+</html>
