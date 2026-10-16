@@ -43,12 +43,14 @@ const O = {
   poses: A.poses || null,
   frame: parseInt(A.frame, 10) || 0,
   identity: !!A.identity,
+  eye: String(A.eye || "").split(",").filter(s => s !== "").map(Number),
+  look: String(A.look || "").split(",").filter(s => s !== "").map(Number),
+  worldUpZ: !!A["world-up-z"],
   out: A.out || path.join(ROOT, "out", "tmp", "ref-scene", "render.png"),
   w: parseInt(A.w, 10) || 1280,
   h: parseInt(A.h, 10) || 720,
   fovY: A["fov-y"] ? parseFloat(A["fov-y"]) : null,
   shift: String(A.shift || "").split(",").filter(s => s !== "").map(Number),
-  look: A.look || null,
   pointSize: parseFloat(A["point-size"]) || 0.03,
   farPct: A["far-pct"] !== undefined ? parseFloat(A["far-pct"]) : 0.985,
   farMin: parseFloat(A["far-min"]) || 5,
@@ -271,6 +273,10 @@ async function main() {
     if (!T || !canvas) return "缺 THREE 或 canvas";
     if (g && g.renderer) { try { g.renderer.setAnimationLoop(null); } catch (e) {} }
     const renderer = (g && g.renderer) || window.__renderer;
+    // 关键：游戏 renderer 带着自己的 tone mapping / 色彩空间，会把点云渲成一片惨白
+    try { renderer.toneMapping = T.NoToneMapping; } catch (e) {}
+    try { renderer.outputColorSpace = T.SRGBColorSpace; } catch (e) {}
+    try { renderer.toneMappingExposure = 1; } catch (e) {}
     const scene = new T.Scene();
     scene.background = new T.Color(${JSON.stringify(String(O.bg))});
 
@@ -295,9 +301,10 @@ async function main() {
     let keep = null;
     {
       const P = geo0.attributes.position.array, n = P.length / 3;
+      const eyeOff = [${(O.eye.length === 3 ? O.eye : [0, 0, 0]).join(",")}];
       const d = new Float32Array(n);
       for (let i = 0; i < n; i++) {
-        const dd = Math.hypot(P[i*3], P[i*3+1], P[i*3+2]);
+        const dd = Math.hypot(P[i*3] - eyeOff[0], P[i*3+1] - eyeOff[1], P[i*3+2] - eyeOff[2]);
         d[i] = Number.isFinite(dd) ? dd : 1e9;         // MoGe 的天空/无效点常是 NaN/Inf
       }
       const fin = [];
@@ -329,7 +336,9 @@ async function main() {
       geo.setAttribute("position", new T.BufferAttribute(pos, 3));
       geo.setAttribute("color", new T.BufferAttribute(c, 3));
     }
-    geo.applyMatrix4(new T.Matrix4().makeScale(1, -1, -1)); // OpenCV -> three.js 相机系
+    // 世界系点云（x,y=地面, h=高度）需要先旋成 three.js 的 Y-up；相机系点云只翻 OpenCV 轴
+    const MW = ${O.worldUpZ} ? new T.Matrix4().makeRotationX(-Math.PI / 2) : new T.Matrix4().makeScale(1, -1, -1);
+    geo.applyMatrix4(MW);
     geo.computeBoundingSphere();
     const mat = new T.PointsMaterial({ size: ${O.pointSize}, vertexColors: true, sizeAttenuation: true });
     const pts = new T.Points(geo, mat);
@@ -337,9 +346,12 @@ async function main() {
     scene.add(pts);
 
     const cam = new T.PerspectiveCamera(${fovY}, ${O.w} / ${O.h}, 0.01, 2000);
-    cam.position.set(0, 0, 0);
     cam.up.set(0, 1, 0);
-    cam.quaternion.identity();
+    ${(O.eye.length === 3 && O.look.length === 3)
+      ? `cam.position.copy(new T.Vector3(${O.eye.join(",")}).applyMatrix4(MW));
+    cam.lookAt(new T.Vector3(${O.look.join(",")}).applyMatrix4(MW));`
+      : `cam.position.set(0, 0, 0);
+    cam.quaternion.identity();`}
     cam.updateProjectionMatrix();
 
     renderer.setSize(${O.w}, ${O.h}, false);

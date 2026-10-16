@@ -67,13 +67,17 @@ def frame_cache(args, fr, img, path, cf):
         uvf[mf, 0] = qf[mf] @ r
         uvf[mf, 1] = qf[mf] @ f
     np.savez_compressed(cf, uv=uv, h=h, rgb=rgb, uvf=uvf, n=n, d=d, r=r, f=f,
-                        fx=fr["fx"], fy=fr["fy"], H=H, W=W, fname=os.path.basename(path))
+                        fx=fr["fx"], fy=fr["fy"], H=H, W=W,
+                        fname=os.path.basename(path) if path else (fr.get("fname") or ""))
     return cf
 
 
 def voxel_down(P, C, v):
-    key = np.floor(P / v).astype(np.int64)
-    _, idx = np.unique(key, axis=0, return_index=True)
+    # 注意：np.unique(..., axis=0) 在千万级点上是分钟~十分钟级（实测 44 分钟 CPU 没跑完），
+    # 必须把三个体素坐标打包成一个 int64 标量再 unique（21 bit/轴，±100 万格，够用）。
+    k = np.floor(P / v).astype(np.int64) + (1 << 20)
+    key = (k[:, 0] << 42) | (k[:, 1] << 21) | k[:, 2]
+    _, idx = np.unique(key, return_index=True)
     return P[idx], C[idx]
 
 
@@ -90,6 +94,9 @@ def main():
     ap.add_argument("--ckpt", default=rs.DEFAULT_CKPT if hasattr(rs, "DEFAULT_CKPT") else None)
     ap.add_argument("--num-tokens", type=int, default=2200)
     ap.add_argument("--voxel", type=float, default=0.03)
+    ap.add_argument("--max-radius", type=float, default=4.0, help="融合时只保留相机周围这么多单位内的点（0=全留）")
+    ap.add_argument("--start", type=int, default=0, help="从第几帧开始（配合 --max-frames 取一段窗口）")
+    ap.add_argument("--max-h", type=float, default=3.0, help="只保留离地面这么高的点（滤掉天空/远平面）")
     ap.add_argument("--sign-t", type=float, default=-1.0, help="相机位移 = sign_t * 点位移")
     ap.add_argument("--sign-yaw", type=float, default=-1.0, help="相机偏航 = sign_yaw * 点旋转")
     ap.add_argument("--max-pts", type=int, default=900000)
@@ -100,7 +107,11 @@ def main():
     os.makedirs(cache, exist_ok=True)
 
     files = sorted(f for f in os.listdir(args.dir) if f.lower().endswith((".jpg", ".png")))
-    files = files[::args.step][:args.max_frames]
+    files = files[::args.step]
+    if args.start:
+        files = files[args.start:]
+    if args.max_frames:
+        files = files[:args.max_frames]
     log("[fuse] %d 帧 (step=%d)  %s" % (len(files), args.step, args.dir))
 
     model = device = None
@@ -120,7 +131,11 @@ def main():
             frame_cache(args, fr, img, path, cf)
             log("  [%2d/%d] %s  MoGe %.1fs" % (i + 1, len(files), name, time.time() - t0))
         z = np.load(cf, allow_pickle=False)
-        cfs.append(z)
+        # 一次性物化：NpzFile 是惰性的，循环里下标访问会每点重解压整段（实测卡死）
+        cfs.append({"uv": z["uv"], "h": z["h"], "rgb": z["rgb"], "uvf": z["uvf"],
+                    "n": z["n"], "d": float(z["d"]), "r": z["r"], "f": z["f"],
+                    "fx": float(z["fx"]), "fy": float(z["fy"]),
+                    "H": int(z["H"]), "W": int(z["W"])})
         frames.append({"file": name, "img": img})
 
     # 地面系 (u,v,h) + 每帧的地面参数
@@ -160,9 +175,15 @@ def main():
         % (len(X), path_len, dt, path_len / max(1e-9, dt * (len(X) - 1))))
 
     # ---- 融合 ----
+    # 每帧的稠密点云里有一大片"远处地面/天空"的楔形（相机只有 2~3 单位高，地面能望到 10+ 单位），
+    # 直接拼起来顶视图全是扇骨 ⇒ 默认只保留相机周围 --max-radius 单位内的点（车道及其邻居）。
     Ps, Cs = [], []
     for k, z in enumerate(cfs):
         uv, h, rgb = z["uv"], z["h"], z["rgb"]
+        r2 = uv[:, 0] ** 2 + uv[:, 1] ** 2
+        R = args.max_radius if args.max_radius > 0 else float("inf")
+        keep = (r2 <= R * R) & (np.abs(h) <= args.max_h)
+        uv, h, rgb = uv[keep], h[keep], rgb[keep]
         c, s = math.cos(PSI[k]), math.sin(PSI[k])
         x = X[k] + c * uv[:, 0] - s * uv[:, 1]
         y = Y[k] + s * uv[:, 0] + c * uv[:, 1]
@@ -225,14 +246,18 @@ def _pair_motion_cached(za, zb, ia, ib, y0f=0.45):
     for (x1, y1), (x2, y2) in zip(a, b):
         xi1, yi1 = int(round(x1)), int(round(y1))
         xi2, yi2 = int(round(x2)), int(round(y2))
-        if xi1 % step or yi1 % step or xi2 % step or yi2 % step:
-            continue
+        # 最近栅格（不要求整除：误差 ≤ step/2 像素）
         i1 = (yi1 // step) * (Wa // step) + (xi1 // step)
         i2 = (yi2 // step) * (Wb // step) + (xi2 // step)
+        if xi1 < 0 or yi1 < 0 or xi2 < 0 or yi2 < 0:
+            continue
         if i1 < 0 or i1 >= len(za["uvf"]) or i2 < 0 or i2 >= len(zb["uvf"]):
             continue
-        uva.append(za["uvf"][i1]); uvb.append(zb["uvf"][i2]); keep.append(True)
-    uva = np.array(uva, dtype=np.float32); uvb = np.array(uvb, dtype=np.float32)
+        uva.append(za["uvf"][i1]); uvb.append(zb["uvf"][i2])
+    if len(uva) < 12:
+        return None
+    uva = np.asarray(uva, dtype=np.float32).reshape(-1, 2)
+    uvb = np.asarray(uvb, dtype=np.float32).reshape(-1, 2)
     good = np.isfinite(uva).all(1) & np.isfinite(uvb).all(1)
     if good.sum() < 12:
         return None
