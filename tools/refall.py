@@ -166,20 +166,22 @@ def main():
                                "--max-frames", "0", "--voxel", str(args.voxel),
                                "--max-h", str(args.max_h), "--max-pts", str(args.max_pts),
                                "--sign-t", str(args.sign_t), "--sign-yaw", str(args.sign_yaw)],
-                              log_path=os.path.join(args.work, "reffuse.log"))
+                              log_path=os.path.join(args.work, "reffuse-%s.log" % tag))
             raw = vox = 0
             # log_path 会把子进程输出写进文件，run() 的 out 是空的 -> 必须回读日志文件
             try:
-                with open(os.path.join(args.work, "reffuse.log"), encoding="utf-8", errors="replace") as fh:
+                with open(os.path.join(args.work, "reffuse-%s.log" % tag),
+                          encoding="utf-8", errors="replace") as fh:
                     txt = fh.read()
             except OSError:
                 txt = out or ""
-            m = re.search(r"原始\s+(\d+)\s+点", txt)
-            if m:
-                raw = int(m.group(1))
-            m = re.search(r"体素降采样\([^)]*\)\s*后\s+(\d+)\s+点", txt)
-            if m:
-                vox = int(m.group(1))
+            # log 是 append 模式，取最后一次匹配（否则后续关卡会报第一关的点数）
+            mm = re.findall(r"原始\s+(\d+)\s+点", txt)
+            if mm:
+                raw = int(mm[-1])
+            mm = re.findall(r"体素降采样\([^)]*\)\s*后\s+(\d+)\s+点", txt)
+            if mm:
+                vox = int(mm[-1])
             tj = os.path.join(args.out, "%s-traj.json" % tag)
             path_len = speed = frames = 0
             if os.path.exists(tj):

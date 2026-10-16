@@ -76,7 +76,7 @@ def main():
 
     todo = [j for k, j in enumerate(jobs) if k % args.workers == args.worker_index]
     model = device = None
-    done, skip = 0, 0
+    done, skip, noground = 0, 0, 0
     t0 = time.time()
     for n, (tag, d, name) in enumerate(todo):
         cf = os.path.join(args.cache, "%s-%s.npz" % (tag, name.rsplit(".", 1)[0]))
@@ -91,12 +91,18 @@ def main():
             continue
         fr = rv.infer_frame(model, device, img, args.num_tokens)
         fr["fname"] = name
-        rf.frame_cache(SimpleNamespace(px_step=args.px_step), fr, img, name, cf)
+        if rf.frame_cache(SimpleNamespace(px_step=args.px_step), fr, img, name, cf) is None:
+            # 拟合不出地面（菜单/过渡/纯天空帧）-> 不写 npz，由 reffuse 端跳过
+            noground += 1
+            print("[w%d] 无地面，跳过 %s" % (args.worker_index, name), flush=True)
+            continue
         done += 1
         if done % 20 == 0 or n == len(todo) - 1:
             el = time.time() - t0
-            print("[w%d] %d/%d 帧  已用 %.0fs  (%.2fs/帧) 跳过 %d"
-                  % (args.worker_index, n + 1, len(todo), el, el / max(1, done), skip), flush=True)
+            print("[w%d] %d/%d 帧  已用 %.0fs  (%.2fs/帧) 跳过 %d（已缓存） 无地面 %d"
+                  % (args.worker_index, n + 1, len(todo), el, el / max(1, done), skip, noground), flush=True)
+    if noground:
+        print("[w%d] 共 %d 帧拟合不出地面（未写 npz）" % (args.worker_index, noground), flush=True)
 
 
 if __name__ == "__main__":

@@ -115,14 +115,16 @@ def main():
     log("[fuse] %d 帧 (step=%d)  %s" % (len(files), args.step, args.dir))
 
     model = device = None
+    bad = 0
     cfs, frames = [], []
     for i, name in enumerate(files):
         path = os.path.join(args.dir, name)
         cf = os.path.join(cache, "%s-%s.npz" % (args.tag, name.rsplit(".", 1)[0]))
         img = load_bgr(path)
-        if os.path.exists(cf):
-            pass
-        else:
+        if img is None:
+            bad += 1
+            continue
+        if not os.path.exists(cf):
             if model is None:
                 model, device = rv.load_model(args.ckpt, None)
             t0 = time.time()
@@ -130,6 +132,12 @@ def main():
             fr["_img"] = img
             frame_cache(args, fr, img, path, cf)
             log("  [%2d/%d] %s  MoGe %.1fs" % (i + 1, len(files), name, time.time() - t0))
+        if not os.path.exists(cf):
+            # frame_cache 在"拟合不出地面"的帧（菜单/过渡/纯天空）上会返回 None、
+            # 不写 npz —— 这种帧跳过，不能整关崩掉
+            bad += 1
+            log("  [skip] %s 无地面面（缓存未生成）" % name)
+            continue
         z = np.load(cf, allow_pickle=False)
         # 一次性物化：NpzFile 是惰性的，循环里下标访问会每点重解压整段（实测卡死）
         cfs.append({"uv": z["uv"], "h": z["h"], "rgb": z["rgb"], "uvf": z["uvf"],
@@ -137,6 +145,8 @@ def main():
                     "fx": float(z["fx"]), "fy": float(z["fy"]),
                     "H": int(z["H"]), "W": int(z["W"])})
         frames.append({"file": name, "img": img})
+    if bad:
+        log("[fuse] 跳过 %d 帧（读不出图像 / 拟合不出地面，缓存里没有对应 npz）" % bad)
 
     # 地面系 (u,v,h) + 每帧的地面参数
     gf = [{"n": z["n"], "d": float(z["d"]), "r": z["r"], "f": z["f"]} for z in cfs]
