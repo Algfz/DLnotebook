@@ -364,6 +364,14 @@ DLnotebook/
 | **多帧稠密融合（可飞场景）** | `python tools/reffuse.py --dir <帧目录> --tag desert-a --step 2 --max-frames 30 [--start N] --fps 10 --cache <缓存> [--max-radius 4] [--max-h 3] [--voxel 0.008] --out <目录>` | MoGe 逐帧稠密点云 + 地面系光流测位移 → 世界系点云（体素降采样）+ 顶视图（点云 + 相机轨迹）。符号 `--sign-t/--sign-yaw` 用"轨迹是否沿路走"自检；`--max-radius/--max-h` 只留相机周围的近景点（远地面楔形是 MoGe 外推的垃圾）；`--max-frames 0` = 到底。**性能坑**：`np.load()` 是惰性 `NpzFile`，逐点索引会把整段数组重解压（15 分钟起）；`np.unique(..., axis=0)` 在千万级点上 44 分钟不收敛 ⇒ 三轴体素坐标打包成 int64 后整关 43 秒。见 ADR-33 |
 | **并行 MoGe 缓存（吃满 GPU）** | `python tools/refcache.py --dir <帧目录> --tag desert-full --cache <缓存目录> --workers 3 --px-step 2` | 父进程按帧号取模分工起 N 个子进程，各自 `rv.load_model(rv.DEFAULT_CKPT)` 逐帧推理并写**与 `reffuse.frame_cache()` 同格式**的 npz（已存在则跳过，可续跑）。单进程只有 GPU 11%/21 W/0.6~1.3 s/帧；**3 进程 = GPU 99%/7.5 GB/104 W/0.62 s/帧/进程**（635 帧 134 秒） |
 | **点云抽稀（大 PLY 过 CDP 的唯一出路）** | `python tools/ply-sub.py <in.ply> <out.ply> [--n 600000]` | 读二进制 PLY（15 字节/点 = x,y,z float32 + r,g,b uchar），随机抽稀后写回同格式；7.81M 点 / 111.7 MB → 60 万点 / 8.6 MB，`refrender.mjs` 秒过 |
+| **镜像站分片下载权重** | `tools\fetch-hf.ps1 -Repo depth-anything/DA3NESTED-GIANT-LARGE -OutDir <目录> -Chunks 10` | 走 **hf-mirror.com**（本机不通梯子也能下），`curl -sIL` 取长度 → 切 N 段并行 `curl -r` → 总字节校验后按序拼接（可断点续传，已完整则跳过）。单连接 2.7 MB/s → **10 分片 9.1 MB/s**（6.4 GB 用 329 s）。⚠️ 脚本必须 **ASCII-only**（PS 5.1 读无 BOM UTF-8 会解析崩）；⚠️ **PowerShell 变量名大小写不敏感**，`param([int]$Parts)` 旁边不能再出现 `$parts`（否则报"无法把 System.Object[] 转成 System.Int32"且一个分片都不启动） |
+| **DA3 适配器（同 npz 格式）** | `python tools/refserve-da3.py --dir <帧目录> --tag da3m8 --frames 340-347 --multi --chunk 8 --process-res 504 --dtype fp32 --ply --out <目录>` | 产出与 `refserve.infer_frame()` **同构**的 `fr`（points/depth/mask/H/W/K_px/fx/fy/fov_x/fov_y），于是 props/motion/fusion/回渲整条管线原样可用、与 MoGe 直接可比。⚠️ **只能 fp32**（bf16 会在包内 `.float()` 处炸，见 `docs/model-comparison.md` §6）；⚠️ 官方 CLI 坏的（`cli.py:383 NameError`），走 `depth_anything_3.api.DepthAnything3.from_pretrained(dir).inference(...)` |
+| **MapAnything 适配器** | `python tools/refserve-ma.py --img <帧> [--img <帧2>] --out <目录> --tag ma --ply` | 用 `MapAnything.from_pretrained(dir).infer(views, use_amp=True, amp_dtype="bf16")`；**返回值全是 cuda Tensor** ⇒ 必须 `.detach().to("cpu").float().numpy()`，且 `depth_z/mask` 要再 squeeze 尾部单维（`(294,518,1)`）。没有 PyPI 包，代码走 codeload tarball |
+| **fov 标定（多模型）** | `python tools/cmp-fov.py --img <帧> [--img <帧2>] [--no-da3] [--no-moge] [--da3-dtype fp32]` | 对每张图分别跑 MoGe / DA3，打印各自 fov_x/fov_y 与对真值（默认 85.58/55.0）的偏差 + 有效像素比。**对比实验的第一张表** |
+| **单帧点云（两种口径）** | `python tools/mkply.py --model moge\|da3 --img <帧> --tag <tag> --out <目录> --scales 0.25,0.5,1 [--force-truth-k] [--process-res 504]` | `--force-truth-k` = 用引擎真值内参（fov_y=55）重反投影，**把"fov 估错"与"深度估错"分开**（这是唯一有意义的对照）；同时用 `refmotion.ground_frame` 记 `W_m/d/road_px/agree` |
+| **同机位回渲评分** | `python tools/img-score.py --truth <真值帧> --render <渲染图> [--render ...] --out <json>` | 对 `refrender.mjs` 渲的图算 `fg_iou / road_iou / edge_corr / edge_corr_fg / ssim / cover`。⚠️ 相机在原点时 `--scales` 不影响投影（只影响点大小）⇒ **别做尺度扫描**，那是白跑 |
+| **俯视图对比（多模型并排）** | `python tools/cmp-top.py --ply a.ply [--ply b.ply ...] [--poses run-poses.json] --out top.png [--up-axis=-y]` | TURBO 按高度着色 + 红折线画相机轨迹（`cam_center`）。用来一眼看出"轨迹是否连贯、地面是否成片"：VGGT-1B 40 帧裂成两团 vs DA3-Giant 8 帧一整片连续扇形 |
+| **带标签并排图** | `tools\montage.ps1 -Out <jpg> -Img "a.png\|标签A", "b.png\|标签B"` | ffmpeg hstack + drawtext。⚠️ PS 里数组参数必须一次给全 `-Img a,b`（重复写 `-Img` 报"参数被指定了多次"）；⚠️ **函数名 `R` 是 `Invoke-History` 的别名**，自定义函数别叫 `R` |
 
 
 > 预览器需在浏览器中选择/拖入**整个关卡文件夹**（因为要同时读 `level.json` 和音乐文件）。
@@ -1146,6 +1154,13 @@ MoGe-2 ViT-L（1.32 GB）在 8 GB 的 RTX 5060 上跑得动（单帧 ~25~40 s）
 一帧输出度量点云/深度/法线/内参 + 世界 up 主轴 + "朝上的面"分层出的平板清单 + **重投影校验图**（线框套回原图）。
 实测精度（拿我们自己的引擎渲染当真值）：世界 up 误差 **4.7°**、FOV 偏大 ~15%、块尺寸约 **±30%**、
 **绝对尺度不可信**（必须用已知长度归一化）。
+
+**几何模型对比实验（2026-10-16）**：`docs/model-comparison.md`。四模型 × 同机位回渲 + 定量 + 俯视图：
+**单帧稠密几何仍选 MoGe-2 ViT-L**（真值内参下 f00001 前景梯度相关 0.45，f00121 前景 IoU **0.78**）；
+**多帧骨架改用 DA3-Giant**（连续 8 帧 fov 中位 81.0° = 真值 −4.6°、`scale_factor` 8 帧恒定、俯视图一整片连续地面；
+VGGT-1B 40 帧 fov 偏 −20° 且点云裂成两团）；MapAnything 单帧 fov 更准（−3.9/+2.5°）、覆盖更高。
+**两条铁律**（血泪）：① 相机固定在原点时把点云乘标量**不改变投影**，`--scales` 是无效实验；
+② "模型自洽内参"与"真值内参"（`mkply.py --force-truth-k`）两种口径必须分开报，否则 fov 误差会伪装成深度误差。
 
 ---
 

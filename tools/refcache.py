@@ -29,10 +29,22 @@ def load_bgr(path):
     return cv2.imdecode(b, cv2.IMREAD_COLOR)
 
 
+def collect_jobs(dirs, tags, start, end, stride):
+    """返回 [(tag, dir, name), ...]；多个 (tag, dir) 一起排班，模型只加载一次。"""
+    if len(tags) != len(dirs):
+        raise SystemExit("--dir 与 --tag 数量必须一致")
+    jobs = []
+    for d, t in zip(dirs, tags):
+        names = sorted(f for f in os.listdir(d) if f.lower().endswith((".jpg", ".png")))[start:end or None]
+        for n in names[::stride]:
+            jobs.append((t, d, n))
+    return jobs
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", required=True)
-    ap.add_argument("--tag", required=True)
+    ap.add_argument("--dir", required=True, nargs="+")
+    ap.add_argument("--tag", required=True, nargs="+")
     ap.add_argument("--cache", required=True)
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--worker-index", type=int, default=-1)
@@ -44,16 +56,16 @@ def main():
     args = ap.parse_args()
 
     os.makedirs(args.cache, exist_ok=True)
-    files = sorted(f for f in os.listdir(args.dir) if f.lower().endswith((".jpg", ".png")))[args.start:args.end or None]
-    files = files[::args.stride]
+    jobs = collect_jobs(args.dir, args.tag, args.start, args.end, args.stride)
 
     if args.worker_index < 0:                     # 父进程：起 N 个工人
         procs = []
         for i in range(args.workers):
-            cmd = [sys.executable, os.path.abspath(__file__), "--dir", args.dir, "--tag", args.tag,
+            cmd = [sys.executable, os.path.abspath(__file__),
                    "--cache", args.cache, "--workers", str(args.workers), "--worker-index", str(i),
                    "--px-step", str(args.px_step), "--num-tokens", str(args.num_tokens),
-                   "--start", str(args.start), "--end", str(args.end), "--stride", str(args.stride)]
+                   "--start", str(args.start), "--end", str(args.end), "--stride", str(args.stride),
+                   "--dir"] + list(args.dir) + ["--tag"] + list(args.tag)
             procs.append(subprocess.Popen(cmd, env=os.environ.copy()))
             print("[cache] worker %d 起（pid %d）" % (i, procs[-1].pid), flush=True)
         t0 = time.time()
@@ -62,18 +74,18 @@ def main():
         print("[cache] 全部完成，用时 %.1fs" % (time.time() - t0), flush=True)
         return
 
-    todo = [f for k, f in enumerate(files) if k % args.workers == args.worker_index]
+    todo = [j for k, j in enumerate(jobs) if k % args.workers == args.worker_index]
     model = device = None
     done, skip = 0, 0
     t0 = time.time()
-    for n, name in enumerate(todo):
-        cf = os.path.join(args.cache, "%s-%s.npz" % (args.tag, name.rsplit(".", 1)[0]))
+    for n, (tag, d, name) in enumerate(todo):
+        cf = os.path.join(args.cache, "%s-%s.npz" % (tag, name.rsplit(".", 1)[0]))
         if os.path.exists(cf):
             skip += 1
             continue
         if model is None:
             model, device = rv.load_model(rv.DEFAULT_CKPT, None)
-        img = load_bgr(os.path.join(args.dir, name))
+        img = load_bgr(os.path.join(d, name))
         if img is None:
             print("[w%d] 读不出 %s" % (args.worker_index, name), flush=True)
             continue
