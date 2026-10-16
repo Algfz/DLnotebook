@@ -225,6 +225,13 @@ a{{color:var(--acc)}}
 </header>
 <div class="wrap">
 
+<h2>🔭 想看三维的？</h2>
+<figure style="background:#1b1f27">
+  <figcaption><b>自由飞行观察器</b>：在这些反推出的点云世界里自由移动视角（手机=左摇杆+拖动，电脑=WASD+鼠标）<br>
+  <span><a href="/world/" style="font-size:15px">→ 打开 /world/</a>（自动识别触屏 / 键鼠；含 4 个场景：沙漠走廊带 635 帧、全关、110 帧高密度窗口、DA3-Giant 8 帧多视图）</span>
+  </figcaption>
+</figure>
+
 <h2>模型对比结论（本轮的重点）</h2>
 <figure><img src="i/{hero}" alt="hero"><figcaption><b>f00341：真值 vs MoGe 单帧 vs DA3-Giant 8 帧多视图</b><br>
 <span>真值内参由引擎给出（<code>PerspectiveCamera(55°)</code> 垂直 fov ⇒ 16:9 时 fov_x=85.58°）。

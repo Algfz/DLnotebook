@@ -130,19 +130,29 @@ def build_scene(out, tag, ply, tpath, up, max_pts, seed=0):
     if len(T) >= 2:
         n = len(T)
         cand = np.unique(np.linspace(0, n - 1, min(40, n)).astype(int))
-        r = max(0.02 * diag, 1e-6)
-        best, bestc = int(cand[0]), -1
-        for i in cand:
-            c = int((np.linalg.norm(P - T[i], axis=1) < r).sum())
-            if c > bestc:
-                best, bestc = int(i), c
+        # 自适应「局部密度」半径：太小时（例如 DA3 那种小场景）会一个点都没有
+        best, bestc, dense_r = int(cand[0]), -1, None
+        for k in (0.02, 0.05, 0.12, 0.25, 0.5, 1.0):
+            r = max(k * diag, 1e-6)
+            c, bi = max((int((np.linalg.norm(P - T[i], axis=1) < r).sum()), int(i)) for i in cand)
+            if c > 0:
+                best, bestc, dense_r = bi, c, r
+                break
         i0 = best
-        i1 = min(n - 1, i0 + max(1, n // 25))
+        step = max(1, n // 20)
+        j = i0 + step if i0 + step <= n - 1 else max(0, i0 - step)
+        # 1) 沿轨迹往前看；2) 前向退化就回看；3) 仍退化（轨迹本身太短）就看向场景中心
+        tgt = T[j]
+        if np.linalg.norm(tgt - T[i0]) < 0.05 * diag:
+            tgt = T[max(0, i0 - step)] if j != max(0, i0 - step) else (hi + lo) / 2
+        if np.linalg.norm(tgt - T[i0]) < 0.02 * diag:
+            tgt = (hi + lo) / 2
         drop = 0.10 * max(0.012 * diag, 1e-6)
         eye = T[i0] + np.array([0.0, 0.012 * diag, 0.0])
-        look = T[i1] + np.array([0.0, 0.012 * diag - drop, 0.0])
+        look = np.array([tgt[0], tgt[1] + 0.012 * diag - drop, tgt[2]])
         start = {"eye": [float(x) for x in eye], "look": [float(x) for x in look],
-                 "dense_idx": i0, "dense_n": bestc, "center": [float(x) for x in (hi + lo) / 2]}
+                 "dense_idx": i0, "dense_n": bestc, "dense_r": dense_r,
+                 "center": [float(x) for x in (hi + lo) / 2]}
     print("[world] %-12s %8d -> %7d 点  bbox %s  轨迹 %d 点  %.1f MB  %s"
           % (tag, n0, len(P), np.round(hi - lo, 2).tolist(), len(T),
              os.path.getsize(path) / 1e6, os.path.basename(ply)))
