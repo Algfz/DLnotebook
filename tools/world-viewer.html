@@ -34,6 +34,10 @@ button.on{background:var(--acc);color:#12141a;border-color:var(--acc);font-weigh
 .scn{display:block;width:100%;text-align:left;margin-bottom:6px;padding:9px 10px;border-radius:10px}
 .scn small{display:block;color:var(--dim);font-size:11px;margin-top:2px;white-space:normal}
 .scn.on small{color:#4a3d10}
+.lv{margin:10px 0 6px;padding-top:7px;border-top:1px solid rgba(255,255,255,.10);font-size:12px;color:var(--acc);letter-spacing:.4px}
+.lv:first-child{margin-top:0;padding-top:0;border-top:0}
+.lv em{color:var(--dim);font-style:normal;font-size:11px}
+.seg{float:right;color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums}
 .row{display:flex;align-items:center;gap:8px;margin:9px 0;font-size:12px;color:var(--dim)}
 .row input[type=range]{flex:1;accent-color:var(--acc)}
 .row b{color:var(--fg);font-weight:600;min-width:44px;text-align:right;font-variant-numeric:tabular-nums}
@@ -229,6 +233,23 @@ async function loadScene(tag){
   }
 }
 
+let DOT = null;
+function dotTex(){
+  if (DOT) return DOT;
+  const s = 64, c = document.createElement('canvas');
+  c.width = c.height = s;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(s/2, s/2, 0, s/2, s/2, s/2);
+  grd.addColorStop(0.0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.62, 'rgba(255,255,255,0.92)');
+  grd.addColorStop(1.0, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.beginPath(); g.arc(s/2, s/2, s/2, 0, 6.2832); g.fill();
+  DOT = new THREE.CanvasTexture(c);
+  DOT.colorSpace = THREE.SRGBColorSpace;
+  return DOT;
+}
+
 function build(d, info){
   if (S.points){ scene.remove(S.points); S.points.geometry.dispose(); S.points.material.dispose(); }
   if (S.trajLine){ scene.remove(S.trajLine); S.trajLine.geometry.dispose(); S.trajLine.material.dispose(); }
@@ -237,7 +258,7 @@ function build(d, info){
   geo.setAttribute('color', new THREE.BufferAttribute(d.col, 3));
   geo.computeBoundingSphere();
   const mat = new THREE.PointsMaterial({ size: info.size_hint * S.psize, sizeAttenuation: true,
-    vertexColors: true, depthWrite: true, fog: true });
+    map: dotTex(), alphaTest: 0.18, vertexColors: true, depthWrite: true, fog: true });
   S.points = new THREE.Points(geo, mat);
   scene.add(S.points);
 
@@ -443,16 +464,50 @@ function togglePanel(v){
 }
 $('#bInput').addEventListener('click', () => setMode(!S.touch));
 
+function fmtT(t){
+  if (t === undefined || t === null || isNaN(t)) return '';
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+function scnButton(s, box){
+  const b = document.createElement('button');
+  b.className = 'scn' + (s.tag === S.man?.tag ? ' on' : '');
+  let head = s.title || s.tag;
+  if (s.seg) head += ' <span class="seg">第 ' + s.seg + ' 段</span>';
+  if (s.tStart !== undefined && s.tStart !== null && !isNaN(s.tStart))
+    head += '<span class="seg">' + fmtT(s.tStart) + '–' + fmtT(s.tEnd) + '</span>';
+  b.innerHTML = head + '<small>' + (s.desc || '') + '<br>' + (s.count || 0).toLocaleString() +
+    ' 点 · ' + ((s.bytes || 0) / 1e6).toFixed(1) + ' MB</small>';
+  b.onclick = () => {
+    loadScene(s.tag); togglePanel(false);
+    [...box.querySelectorAll('.scn')].forEach(c => c.classList.remove('on'));
+    b.classList.add('on');
+  };
+  box.appendChild(b);
+}
 function buildSceneList(){
   const box = $('#scnList'); box.innerHTML = '';
+  // 两级：关卡 → 场景。有 level 的场景按关卡分组（同一关卡会切成多个场景世界），
+  // 没有 level 的老场景保持原来的平铺列表。
+  const groups = new Map();
   for (const s of S.scenes){
-    const b = document.createElement('button');
-    b.className = 'scn' + (s.tag === S.man?.tag ? ' on' : '');
-    b.innerHTML = s.title + '<small>' + (s.desc||'') + '<br>' + s.count.toLocaleString() +
-      ' 点 · ' + (s.bytes/1e6).toFixed(1) + ' MB</small>';
-    b.onclick = () => { loadScene(s.tag); togglePanel(false);
-      [...box.children].forEach(c => c.classList.remove('on')); b.classList.add('on'); };
-    box.appendChild(b);
+    const k = (s.level === undefined || s.level === null || s.level === '') ? '__none__' : String(s.level);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(s);
+  }
+  const twoLevel = [...groups.keys()].some(k => k !== '__none__');
+  if (!twoLevel){ S.scenes.forEach(s => scnButton(s, box)); return; }
+  for (const [k, arr] of groups){
+    if (k !== '__none__'){
+      const h = document.createElement('div');
+      h.className = 'lv';
+      const nm = arr[0].levelName || k;
+      const total = arr[0].segments ? ' <em>（全关 ' + arr[0].segments + ' 段）</em>' : '';
+      h.innerHTML = nm + total;
+      box.appendChild(h);
+    }
+    arr.sort((a, b) => (a.seg || 0) - (b.seg || 0));
+    arr.forEach(s => scnButton(s, box));
   }
 }
 

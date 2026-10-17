@@ -225,6 +225,14 @@ a{{color:var(--acc)}}
 </header>
 <div class="wrap">
 
+<h2>🎬 新发现：关卡视频是剪过的</h2>
+<figure style="background:#1b1f27">
+  <figcaption><b>每关几个独立场景？</b> 62 个关卡里 <b>56 个有多次镜头切换</b>，合计 <b>384 段</b>（最长的一关切了 18 段）。
+  之前把整关硬拼成一份点云，正好跨了这些切换 —— 是重影/撕裂的来源之一。<br>
+  <span><a href="/gallery/scenes/" style="font-size:15px">→ 看切分总览（每关缩略图 + 切点时刻）</a></span>
+  </figcaption>
+</figure>
+
 <h2>🔭 想看三维的？</h2>
 <figure style="background:#1b1f27">
   <figcaption><b>自由飞行观察器</b>：在这些反推出的点云世界里自由移动视角（手机=左摇杆+拖动，电脑=WASD+鼠标）<br>

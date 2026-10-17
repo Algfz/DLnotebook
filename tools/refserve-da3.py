@@ -110,8 +110,13 @@ def scale_K(K, w_p, h_p, W, H):
 
 
 # ------------------------------------------------------------------ 推理
-def infer(model, imgs_bgr, process_res=504, conf_pct=20.0, use_autocast=True):
-    """imgs_bgr: list of BGR uint8 (H,W,3) -> list of fr dict (+ w2c extrinsics)."""
+def infer(model, imgs_bgr, process_res=504, conf_pct=20.0, use_autocast=True, fov_x=None):
+    """imgs_bgr: list of BGR uint8 (H,W,3) -> list of fr dict (+ w2c extrinsics).
+
+    fov_x: 强制水平视场角（度）。DA3 每个窗口自己预测内参，实测在这批素材上同一段视频
+    相邻窗口能从 50.5° 跳到 110.7°（真值 85.58°）⇒ 各窗点云的横向尺度/形状彼此不一致，
+    融合必然出现放射状薄片。给定 fov_x 时用固定 fx=fy 覆盖预测内参。
+    """
     rgbs = [cv2.cvtColor(im, cv2.COLOR_BGR2RGB) for im in imgs_bgr]
     dtype = next(model.parameters()).dtype
     ctx = torch.autocast("cuda", dtype=dtype, enabled=(use_autocast and dtype != torch.float32))
@@ -128,6 +133,10 @@ def infer(model, imgs_bgr, process_res=504, conf_pct=20.0, use_autocast=True):
         if Kp[0, 0] < 5.0:                       # 归一化内参的保险：换算到处理像素
             Kp = Kp.copy(); Kp[0] *= w_p; Kp[1] *= h_p
         K = scale_K(Kp, w_p, h_p, W, H)
+        if fov_x:
+            fx = 0.5 * W / math.tan(math.radians(float(fov_x)) / 2.0)
+            K = K.copy()
+            K[0, 0] = K[1, 1] = fx               # 方像素
         depth = cv2.resize(depth_p, (W, H), interpolation=cv2.INTER_LINEAR)
         pts = depth_to_points(depth, K)
         conf = None

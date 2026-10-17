@@ -63,14 +63,14 @@ def load_ply(path):
 
 
 def traj_points(tpath, up):
-    """从 traj.json（X/Y 数组）或 DA3 poses.json（cam_c2w 平移）取轨迹点。"""
+    """从 traj.json（X/Y/Z 数组）或 DA3 poses.json（cam_c2w 平移）取轨迹点。"""
     if not tpath or not os.path.exists(tpath):
         return np.zeros((0, 3))
     d = json.load(open(tpath, encoding="utf-8"))
     if "X" in d and "Y" in d:
         X = np.asarray(d["X"], dtype=np.float64)
         Y = np.asarray(d["Y"], dtype=np.float64)
-        Z = np.zeros_like(X)                       # 轨迹在地面上，抬到相机高由查看器做
+        Z = np.asarray(d["Z"], dtype=np.float64) if "Z" in d else np.zeros_like(X)
         return np.stack([X, Y, Z], 1)
     cam = []
     for fr in d.get("poses", d.get("frames", [])):
@@ -84,6 +84,8 @@ def traj_points(tpath, up):
 
 def bake_axes(P, up):
     """-> three.js Y-up"""
+    if up == "y":                                  # 已经重力对齐：DA3 世界系 x 右 / y 上 / z 后
+        return P
     if up == "h":                                  # MoGe 世界系 (x, y, h)
         return np.stack([P[:, 0], P[:, 2], -P[:, 1]], 1)
     if up == "-y":                                 # OpenCV (x, y, z), y 向下
@@ -97,7 +99,7 @@ def quant(v, lo, hi):
     return np.round(q).astype(np.uint16)
 
 
-def build_scene(out, tag, ply, tpath, up, max_pts, seed=0):
+def build_scene(out, tag, ply, tpath, up, max_pts, seed=0, size_hint_arg=0.0):
     P, C = load_ply(ply)
     T = traj_points(tpath, up)
     if len(T):
@@ -108,6 +110,22 @@ def build_scene(out, tag, ply, tpath, up, max_pts, seed=0):
         idx = rng.choice(n0, max_pts, replace=False)
         P, C = P[idx], C[idx]
     P = bake_axes(P, up)
+    # 点精灵尺寸：按「最近邻距离中位」估（老代码用对角线比例，大场景会变成巨大方块 ⇒ 看着就很"粗糙"）
+    spacing = None
+    try:
+        from scipy.spatial import cKDTree
+        ns = len(P)
+        sub = P if ns <= 120000 else P[np.random.default_rng(7).choice(ns, 120000, replace=False)]
+        dd, _ = cKDTree(sub).query(sub, k=2)
+        spacing = float(np.median(dd[:, 1]))
+    except Exception:
+        spacing = None
+    if size_hint_arg:
+        size_hint = float(size_hint_arg)
+    elif spacing and spacing > 0:
+        size_hint = float(min(max(1.6 * spacing, 0.0015), 0.03))
+    else:
+        size_hint = float(min(max(0.0005 * float(np.linalg.norm(P.max(0) - P.min(0))), 0.0015), 0.03))
     lo = P.min(0)
     hi = P.max(0)
     if len(T):
@@ -129,7 +147,10 @@ def build_scene(out, tag, ply, tpath, up, max_pts, seed=0):
     start = None
     if len(T) >= 2:
         n = len(T)
-        cand = np.unique(np.linspace(0, n - 1, min(40, n)).astype(int))
+        # 起始机位：只在「路线前 1/6 段」里挑局部点云最密的采样点（≈关卡起点）。
+        # 之前对整条轨迹找最密点，2.5M 点随机抽稀后最密点会随机落到终点，
+        # 从终点朝前看只剩空场（实测出过整幅黑屏）。
+        cand = np.unique(np.linspace(0, max(1, n // 6), min(12, n)).astype(int))
         # 自适应「局部密度」半径：太小时（例如 DA3 那种小场景）会一个点都没有
         best, bestc, dense_r = int(cand[0]), -1, None
         for k in (0.02, 0.05, 0.12, 0.25, 0.5, 1.0):
@@ -139,7 +160,10 @@ def build_scene(out, tag, ply, tpath, up, max_pts, seed=0):
                 best, bestc, dense_r = bi, c, r
                 break
         i0 = best
-        step = max(1, n // 20)
+        # 看向「前方一段路」而不是紧邻的下一步：轨迹采样很密时前后两点几乎重合，
+        # 高度上的微小变化会把 pitch 放大（实测沙漠段 eye→look 只有 0.35 单位却抬头 18°，
+        # 整幅画面全是天空）。用 ~1/5 段长（至少 8 个采样点）当基线。
+        step = max(8, n // 5)
         j = i0 + step if i0 + step <= n - 1 else max(0, i0 - step)
         # 1) 沿轨迹往前看；2) 前向退化就回看；3) 仍退化（轨迹本身太短）就看向场景中心
         tgt = T[j]
@@ -147,8 +171,10 @@ def build_scene(out, tag, ply, tpath, up, max_pts, seed=0):
             tgt = T[max(0, i0 - step)] if j != max(0, i0 - step) else (hi + lo) / 2
         if np.linalg.norm(tgt - T[i0]) < 0.02 * diag:
             tgt = (hi + lo) / 2
-        drop = 0.10 * max(0.012 * diag, 1e-6)
         eye = T[i0] + np.array([0.0, 0.012 * diag, 0.0])
+        # 轻微俯视：按「看向距离」的 4% 压低（至少 1cm），之前写成 0.10*0.012*diag 等于没压
+        dlook = float(np.linalg.norm(tgt - eye))
+        drop = max(0.04 * dlook, 0.01)
         look = np.array([tgt[0], tgt[1] + 0.012 * diag - drop, tgt[2]])
         start = {"eye": [float(x) for x in eye], "look": [float(x) for x in look],
                  "dense_idx": i0, "dense_n": bestc, "dense_r": dense_r,
@@ -159,7 +185,7 @@ def build_scene(out, tag, ply, tpath, up, max_pts, seed=0):
     return {
         "tag": tag, "file": "%s.bin" % tag, "count": int(len(P)), "ntraj": int(len(T)),
         "bbox": [float(x) for x in lo] + [float(x) for x in hi],
-        "diag": diag, "size_hint": 0.0016 * diag, "start": start,
+        "diag": diag, "size_hint": float(size_hint), "start": start,
         "bytes": os.path.getsize(path),
     }
 
@@ -168,18 +194,33 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=r"C:\DLnotebook-media\tmp\world")
     ap.add_argument("--max-pts", type=int, default=600000)
+    ap.add_argument("--size-hint", type=float, default=0.0,
+                    help="点精灵世界尺寸；0=按最近邻距离中位自动估")
     ap.add_argument("--only", default="")
+    ap.add_argument("--scenes-json", default="",
+                    help="外部场景清单（[{tag,title,ply,traj,up,desc,level,seg}]），按场景重跑时用")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    scenes = list(SCENES)
+    extra_meta = {}
+    if args.scenes_json and os.path.exists(args.scenes_json):
+        raw = json.load(open(args.scenes_json, encoding="utf-8"))
+        for it in (raw.get("scenes") if isinstance(raw, dict) else raw):
+            scenes.append((it["tag"], it.get("title", it["tag"]), it["ply"], it.get("traj", ""),
+                           it.get("up", "-y"), it.get("desc", "")))
+            extra_meta[it["tag"]] = {k: it[k] for k in
+                                     ("level", "levelName", "seg", "segments", "tStart", "tEnd")
+                                     if k in it}
     scn = []
-    for tag, title, ply, tpath, up, desc in SCENES:
+    for tag, title, ply, tpath, up, desc in scenes:
         if args.only and tag not in args.only.split(","):
             continue
         if not os.path.exists(ply):
             print("[world] 缺少 %s，跳过 %s" % (ply, tag))
             continue
-        info = build_scene(args.out, tag, ply, tpath, up, args.max_pts)
+        info = build_scene(args.out, tag, ply, tpath, up, args.max_pts, size_hint_arg=args.size_hint)
         info.update({"title": title, "desc": desc, "ply": os.path.basename(ply)})
+        info.update(extra_meta.get(tag, {}))
         scn.append(info)
     man = os.path.join(args.out, "manifest.json")
     old = []

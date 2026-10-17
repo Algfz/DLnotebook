@@ -213,7 +213,12 @@ DLnotebook/
               "enter":-66, "sink":3, "palette":"cream" }      // 结尾"截开的金字塔"
 }
 ```
-- 四种 `motif`，全部只用基本几何体：`deck` 厚板台地 / `canyon` 裂谷 / `terraces` 层叠平台 / `cloud` 云海
+- 母题表（`MOTIFS`）：`deck` 厚板台地 / `canyon` 裂谷 / `terraces` 层叠平台 / `cloud` 云海 /
+  `board`、`boardSlot`（板上切槽）/ **`paving` 石板原**（2026-10-18 新增：一整块水平米黄厚板 +
+  世界轴对齐的蓝石板场，街道用矩形差从石板场里裁出来；按 `params.acts[]` 分 5 幕换色卡/密度）
+- **`paving` 的 `params`**（缺省在 `DEFAULT_PARAMS.paving`）：`rim` 街半宽 2.0 / `cell` 网格 7.5 /
+  `gap` 缝 0.5 / `reach` 石板铺到离路多远 108 / `tierH` 台地四档 `[0.65,1.5,2.9,4.6]` /
+  `slabSeed` 哈希种子；`acts[]` 每幕写 `{t, palette, occ, tierMax, tall, tallH0, tallH1, pill…}`
 - **别用"闭合轮廓 + 挖洞"造地形**（`ringSlab` 那类）：这个关的路是"每拍一个 90° 转角"，
   把折线往外偏移几米得到的闭合轮廓**一定自交**，`ExtrudeGeometry` 三角化时洞会被填死 →
   表现就是"一整块地面盖住整条路"。现在的做法全是**条带**（`flatBand` / `vertBand`），
@@ -222,7 +227,10 @@ DLnotebook/
 - `params` 逐项可省，缺省值在 `src/js/terrain.js` 的 `DEFAULT_PARAMS`
 - **颜色可以用 `palette` 按段换**（2026-10-12 新增，发起人要求"每一段换不同颜色"）：
   写**色卡名字**，颜色值不写进关卡（和主题色一个道理）。可选：
-  `rose` / `plum` / `sand` / `ice` / `jade` / `cream`（表在 `src/js/terrain.js` 的 `PALETTES`）。
+  `rose` / `plum` / `sand` / `ice` / `jade` / `cream` / `board` / `stone2` / `stone3`
+  （表在 `src/js/terrain.js` 的 `PALETTES`）。**每张色卡有 8 个色位**：
+  `near`（断面/板边）`mid`（板顶）`far` `slabTop`/`slabTopL`/`slabTopD`（石板顶面的三档）
+  `slabSide`（石板侧面）`floor`（街面），后 5 个缺省回落到 `near/mid`。
   `base` 或任一 `span` 都能写；**motif 或 palette 任一变化都会切段**。
   没写 palette 的段照样跟着主题表逐帧过渡（`scenNear/scenMid/scenFar`）；
   写了 palette 的段拿到的是**固定材质**，不再随主题变（也因此不受分幕过渡影响）
@@ -360,6 +368,7 @@ DLnotebook/
 | **折点读数点（按"玩家只需判断往哪走"重做布景）** | `node tools/corner-gen.mjs "levels/ring a bell-灰澈" [--angle 30] [--merge 6] [--dry] [--apply]` | 由 `buildVerts()` 取方向改变 > `--angle` 的折点、按 `--merge` 米合并 ⇒ **每个"需要判断的位置"摆一件判定物**（外侧＝内角平分线的反向）；同时**假墙清场**（贴着路却不判定的件推远并 `sol:0`）。默认 `--dry` 只报数，`--apply` 才写回并备份 `out/bak/level-corner-*.json`。见 ADR-32 |
 | **验收「折点有没有参照」** | `node tools/corner-check.mjs "levels/ring a bell-灰澈"` | 用**引擎几何**（`buildVerts` + `buildPlaced` 的 `solids`）量：①每个折点 8 m 内有没有判定物（**不区分左右**：锯齿走廊上"每个齿的外侧"左右交替，不可能都满足）②沿路每 0.25 s 到最近判定物的间距（当信息量）。退出码 1 = 有折点缺参照。实测 277/277 有参照。见 ADR-32 |
 | **量「这段路旁边有没有景物」** | `node tools/near-gap.mjs "levels/ring a bell-灰澈" [时长]` | 沿官方路线每 0.25 s 量到最近一件布景的距离（布景世界位置从 `buildPlaced()` 的 InstancedMesh `instanceMatrix` 读 ⇒ **引擎几何**），报**最大距离 / 超过 4 m 的采样点**；退出码 0 = 全程 ≤4 m。平原段实测 169 → 5（见 ADR-31） |
+| **撒「路边方石」判定体** | `node tools/obstacle-gen.mjs "levels/ring a bell-灰澈" [--step 2] [--apply]` | 2026-10-18 新增（v9 石板原）。每 `--step` 个折点摆一件、`turn` 决定左右、偏移 1.45~1.75 m（压进街沿）、0.7~1.05 m 见方、`sol:1`+`exact:1`；默认只报数，`--apply` 写回并备份 `out/bak/level-*-pre-obstacles.json`。改完必须跑 `solid-check` 复核（本关 261 件、撞帧 0、最近 0.891 m） |
 | **闭环回渲（反推的验收）** | `node tools/refrender.mjs --cloud <*.ply> [--poses <*-poses.json> --frame N] [--identity --fov-y 74] [--shift dx,dy,dz] [--eye x,y,z --look x,y,z --world-up-z] [--max-points N] --out <png>` | 把反推出来的点云塞进真 three.js（复用 `shot.js` 的 CDP + Chrome），按重建相机**同机位**渲一张，与参考帧并排；`--identity` 用于 MoGe 相机系点云，`--shift` 只平移眼睛看新机位；`--world-up-z` = 世界系点云 (x,y=地面,h=高度)，此时 `--eye/--look` 也按 **(x,y,h)** 给（内部 `makeRotationX(-π/2)` 转成 three.js Y-up）。**两个硬限制**：`Runtime.evaluate` 超时 **120 s**，且整个 PLY 以 base64 字符串过 CDP ⇒ 几百万点的 PLY 必超时，先用 `ply-sub.py` 抽到 ≤60 万点。见 ADR-33 |
 | **多帧稠密融合（可飞场景）** | `python tools/reffuse.py --dir <帧目录> --tag desert-a --step 2 --max-frames 30 [--start N] --fps 10 --cache <缓存> [--max-radius 4] [--max-h 3] [--voxel 0.008] --out <目录>` | MoGe 逐帧稠密点云 + 地面系光流测位移 → 世界系点云（体素降采样）+ 顶视图（点云 + 相机轨迹）。符号 `--sign-t/--sign-yaw` 用"轨迹是否沿路走"自检；`--max-radius/--max-h` 只留相机周围的近景点（远地面楔形是 MoGe 外推的垃圾）；`--max-frames 0` = 到底。**性能坑**：`np.load()` 是惰性 `NpzFile`，逐点索引会把整段数组重解压（15 分钟起）；`np.unique(..., axis=0)` 在千万级点上 44 分钟不收敛 ⇒ 三轴体素坐标打包成 int64 后整关 43 秒。见 ADR-33 |
 | **并行 MoGe 缓存（吃满 GPU）** | `python tools/refcache.py --dir <帧目录> --tag desert-full --cache <缓存目录> --workers 3 --px-step 2` | 父进程按帧号取模分工起 N 个子进程，各自 `rv.load_model(rv.DEFAULT_CKPT)` 逐帧推理并写**与 `reffuse.frame_cache()` 同格式**的 npz（已存在则跳过，可续跑）。单进程只有 GPU 11%/21 W/0.6~1.3 s/帧；**3 进程 = GPU 99%/7.5 GB/104 W/0.62 s/帧/进程**（635 帧 134 秒） |
@@ -710,6 +719,29 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 38
       **反向验证 277/277 命中**（上一轮"探针 0 / 命中 0"的缺陷已修）。踩过的坑：清场按 `|off|` 推 1.4~4.0 m 的件时**误伤了 `sol:1` 的近排真墙** ⇒
       一侧墙被清空（顶视图左密右疏）；改成**只动 `sol:0` 的装饰件**后平原近排 **左 141 / 右 135**。
       审阅视频 `out/ring-a-bell-top-v8-1080p30.mp4`（俯视，140 MB）与 `out/ring-a-bell-v8-1080p30.mp4`（跟车，196 MB）。
+
+- **2026-10-18（布景第三次推倒重来 →「石板原」母题）**：发起人「布景仍然十分糟糕」。
+  ① 先把"抄什么"定下来：`out/design/v9-recipe.md`（照抄 ETW29 实拍帧的配方：蓝石板顶 `#93a4cf` /
+     深蓝侧 `#6d7cb0` / 米黄板 `#d1d0bb` / 抬起来的街带）＋ `out/design/v9-engine.md`（引擎能力与
+     10 条最小改动点清单，后者只作参考、本轮一条都没改引擎）；
+  ② **新地形母题 `paving`**（`src/js/terrain.js` 的 `motifPaving`）——不再用 `place[]` 摆几千件方块，
+     改成"一整块水平米黄厚板 + 世界轴对齐的蓝石板场"：石板由 `cell` 网格 + 双频噪声密度 + 3.5% 泊松缺口
+     生成，尺寸 1×1 / 2×1 / 1×2 / 2×2 拼块，4 档台地 `tierH=[0.65,1.5,2.9,4.6]`，其中一部分"立起来"当板/柱；
+     街道（半宽 `rim=2.0m`）用**矩形差**从石板场里裁掉，石板内沿贴住街沿（`corridor = rim + 0.08`）；
+     石板只出顶面（3 档颜色）+ 侧面两种面，每幕合并成 4~5 个 draw call；
+  ③ **按时间分 5 幕**（`terrain.base.params.acts[]`，每幕独立色卡/密度/台地/立板/柱率）：
+     A 0–52s 地毯（`tierMax:2`）· B 52–96s 城墙（`tierMax:3` + 立板 18%）· C 96–146s 柱林（柱率高）
+     D 146–166s 开阔（台地 ≤3、稀疏）· E 166–175.7s 门阵（柱率 30%，收进结尾金字塔的缝）。
+     ⚠️ **每一幕的台面/街面/外缘只建自己那一段的索引区间**，否则 4 张台面全叠在同一高度；
+  ④ `PALETTES` 每张色卡加到 **8 个色位**（`near/mid/far/slabTop/slabTopL/slabTopD/slabSide/floor`），
+     `mkMats` 一次建 8 个材质，母题通过第 5 个参数 `palMats` 拿自己那套（`buildTerrain` 里
+     `fn(pts, P, rm, surf, palMats)`）；石板不随主题色逐帧过渡；
+  ⑤ 删掉 `bridge`（全关平路）、`roadStrip.from = 999999`（不铺路面带，尊重发起人"不要路带"）；
+     旧的 1587 件 `place[]`（layout-gen / corner-gen 的产物）**全部清空**——那堆乱方块正是"布景糟糕"的根源；
+     重新撒 **261 件路障**（每两个折点一件、`turn` 决定左右、偏移 1.45~1.75m、0.7~1.05m 见方、
+     `sol:1` + `exact:1`），`node tools/solid-check.mjs "levels/ring a bell-灰澈"` ⇒ 撞帧 **0** / 最近 **0.891m @ t=75.2s**；
+  ⑥ `endcap` 沿用 `enter:-66` 的老口径（相机在终点正好到缝口），只把 `fogRange` 拉到 `30..150` 让塔在雾里显形；
+  ⑦ 出图在 `out/shot/ring a bell-灰澈/`（t=2/5/9/22/60/100/120/150/168/173），审阅视频 `out/ring-a-bell-v9-1080p30.mp4`。
 
 ### 📋 待办
 - [ ] Electron 打包（输出与目录同名的 exe，遵循社区"解压即玩"惯例）
@@ -1124,6 +1156,44 @@ B) 速度降到 6.68 m/s（形状不动，但整关 346 s 比音乐 174.7 s 长�
 - 边界：**单视图点云换机位必然露背面空洞** ⇒ "可飞场景"必须多帧融合，见 `tools/reffuse.py`
   （MoGe 逐帧稠密点云 + 地面系光流测位移 → 世界系点云；符号用顶视图"轨迹是否沿路走"自检）。
 
+**ADR-34：布景的主体必须是"地形母题"，不能是 `place[]` 摆件（2026-10-18）**
+> 发起人两次判"布景糟糕"之后（一次说乱、一次说"仍然十分糟糕"），根因收敛到**结构**而不是数量。
+
+**① 问题**：v8 的做法是"一整块米黄板 + 1587 件 `place[]` 方块"。方块由 `layout-gen`/`corner-gen` 在
+道路的 ±(t,off) 坐标系里撒，而 `props.js` 的 `put()` 用 **±30m 基线**取法线（`props.js:1006-1012`），
+锯齿路上这条基线与真实法线差 45° ⇒ 所有方块的落位都落在**对角网格**上。结果就是
+"随机蓝方块漂在米黄纸上"，没有行列、没有层级、没有街。
+
+**② 结论（布景语言的边界）**：
+- **要成片的、几百上千件的、按街道裁剪的**东西（石板场、铺装、墙圈、梯田）→ **必须写进地形母题**。
+  理由有三条：它们不能参与 `rise` 升起动画（会跟着线头冒出来）；几千件 `place[]` 每件一堆 draw call；
+  只有地形层拿得到"到街道的距离"做矩形差裁剪。
+- **要单独配色 / 要参与判定 / 要单独做动画**的东西（路障、门、大地标）→ 才放 `place[]`。
+- 本关最终比例：**地形 0 件 place、石板场 ≈ 3000 块、`place[]` 只剩 261 件路障**。
+
+**③ 判据（写下来给下一轮）**：一眼能看出"这是一条被石板夹出来的街"，看三件事——
+街沿两边**紧贴**（不留大块空地）、有**台地层级**（0.65/1.5/2.9/4.6m 四档）、远处有**立起来的板/柱**。
+
+
+**ADR-35：布景按"时间分幕"而不是按几何分区；三个必踩的坑（2026-10-18）**
+> `spans[]` 按几何切段会在地形断面上留缺口（两段墙高不同 ⇒ 侧壁对不上），所以 v9 改用
+> **一套地形 + `params.acts[]` 按时间换色卡/密度**：地形几何全程连续，只有石板分布与颜色变。
+
+- **坑 1 · 多幕台面重叠**：每一幕都拿整条路径建一遍台面 ⇒ 4~5 张台面**严格共面**（同一 `surf`），
+  z-fighting 谁赢看像素，表现是"**色卡怎么改都不生效**"（把 `mid` 染成 0x00ff00，地面照样是米黄）。
+  修法：`rangeOf(P, ai)` 按 `acts[].t0` 把每一幕的条带**限制在自己的索引区间**（相邻幕共用一个点，不留缝）。
+  排查手段：`node tools/shot.js --js "..."` 注入脚本，把场景里大网格的 `name|type|color|bbox` 全打出来
+  （`throw new Error(JSON.stringify(...))` 会打到 stderr）。
+- **坑 2 · 白色薄片**：街面条带用 `sm1`（1 次平滑）、台面用 `sm2`（3 次平滑）⇒ 拐角处两条 2.2m 偏移线
+  不重合，缝里**直接看见雾/天空**，渲出来是几片亮白条。修法：所有沿路条带用**同一条**折线。
+- **坑 3 · 中文文件不要过 PowerShell 管道**：`(Get-Content -Raw) -replace ... | Set-Content -Encoding UTF8`
+  会按 GBK 解码再写 UTF-8 ⇒ 中文全成乱码（本轮踩了一次，靠 `git checkout` + 重放补丁恢复）。
+  改 `.js`/`.json` 一律用 `write`/`edit` 工具或 node 脚本（`readFileSync(...,'utf8')`）。
+
+
+**ADR-33（续）：`refrender.mjs` 的边界** 见上条 ③——单视图点云换机位必露背面空洞，
+"可飞场景"必须多帧融合（`tools/reffuse.py`）。
+
 ---
 
 ## 10. 关卡素材与设计说明
@@ -1260,6 +1330,9 @@ python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
 | 延迟补偿依赖校准 | ✅ 已解决 | 299ms 已记录；2026-10-11 起**校准器搬进关卡界面**（蜂鸣 + 空格，与采音器同一套算法），弹窗里还摆出作者校准值给玩家参考（见 §8） |
 | **直接录屏「音频提前」** | ✅ 已解决 | 客户端画面比音频晚 `latency_ms`（预卷补偿，作者值 299ms），所以**录屏必然音画不同步**。不要录像，改用 `tools/render-demo.js` **离线逐帧渲染**：画面按 `latency = 0` 生成（转向正好落在鼓点上）+ 合成 mp3（见 §7） |
 | **Three.js 渲染坑（已修，勿复现）** | ✅ 见文档 | ①动态 count 的 InstancedMesh 被视锥剔除 ②near/far 比值过大导致贴路面元素被盖 ③共面 z-fighting ④不同材质导致色差。**详见 `docs/client-impl.md` §8** |
+| **多幕台面共面 z-fighting** | ✅ 已修（2026-10-18） | 症状极具误导性：**改了色卡颜色但画面不变**（把 `board.mid` 染成 0x00ff00，地面照样米黄）。根因是每一幕都拿整条路径建一遍台面，5 张台面严格共面，后一幕的米黄色卡在像素争夺里赢。修法：`motifPaving` 里用 `rangeOf(P, ai)` 把每幕条带限制在自己的索引区间。**排查手段**：`node tools/shot.js --js "..."` 注入脚本把大网格的 `name\|color\|bbox` 打出来（`throw new Error(JSON.stringify(...))` 打到 stderr） |
+| **街边"白色薄片"** | ✅ 已修（2026-10-18） | 街面条带用 `sm1`、台面用 `sm2` ⇒ 拐角处两条偏移线不重合，缝里**看见雾/天空**（渲出来是亮白条）。修法：所有沿路条带用同一条折线。**新增沿路条带时，务必确认偏移量取自同一条折线** |
+| **中文文件不要过 PowerShell 管道** | ⚠️ 反复踩 | `(Get-Content -Raw) -replace ... \| Set-Content -Encoding UTF8` 会按 GBK 解码 ⇒ 中文全成乱码（本轮踩了一次，`git checkout` + 重放补丁恢复）。改 `.js`/`.json` 一律用 `write`/`edit` 工具或 node 脚本 |
 | 《ring a bell》密度过高 | ⚠️ 待定 | 681 点 / 3.9 个每秒，最短段 1.17m < 路宽 3m → 密集段路面重叠（已改用高架桥缓解视觉）。发起人确认暂不稀释，若后续要加 `--min-gap` 合并过密点 |
 | **密集踩音不是缺陷** | ✅ 已界定 | 发起人 2026-10-11 明确：高难关卡踩音本就密集（Breeze 线 A 3.6 转/秒、最小段 2.39m 属常态）。**不要建议抽稀**；整曲俯视预览糊成斜线只是尺度问题，用 `--view a,b` 放大即可 |
 | **双线关卡** | ✅ 客户端已实现（2026-10-11） | `level.json` 的 `lines[]`（线 A/B）已能在客户端**同时渲染**：每条线一条路面 + 一个线头 + 一条轨迹，各自独立输入（上箭头 / X）与独立判定。镜头以**线头中点**为中心、按 `cameraOrbit` 环绕（详见 §14 与 `docs/client-impl.md` §十） |
@@ -1276,6 +1349,14 @@ python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
          裂谷 40–75s / 层叠平台 75–120s / 云海 120–150s + 结尾金字塔）。成图 `out/terrain_final.png`
    - [x] 修掉演示视频里暴露的 5 个布景 bug（"整条线被盖住 / 线穿墙 / 桥两边鼓出厚墙 /
          团块盖住路面 / 结尾断头路"，见 §8 最后一条）
+   - [x] **2026-10-18 第三次推倒重来 →`paving` 石板原母题**（ADR-34/35）：
+         地形**整体**换成"米黄厚板 + 蓝石板场 + 矩形差裁出的街"，按 `acts[]` 分 5 幕；
+         旧的 1587 件 `place[]` 清空，重撒 261 件路障（`tools/obstacle-gen.mjs`）。
+         **待发起人看视频定调**：石板密度/台地层级/立板比例/街宽/结尾塔
+   - [ ] **石板原还要补三样**（发起人看过后再定）：
+         a) 街沿的"路缘石"（现在街沿是裸的米黄，和石板之间只有 0.08m 缝）；
+         b) 石板投在地上的**接触阴影**（引擎无实时阴影，只能贴暗块或进一步压暗 `slabSide`）；
+         c) 每幕之间的**过渡段**（现在是硬切，色卡跳变）
    - [x] **道具库落地**（2026-10-12，`src/js/props.js` + `level.props`）：12 种道具全部用
           **基本几何体**拼（tree / pine / appleTree / bush / rock / flower / mushroom /
           fence / lamp / note / crystal / cloudlet / snowman），关卡只写**摆放规则**
