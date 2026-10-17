@@ -742,6 +742,9 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 38
      `sol:1` + `exact:1`），`node tools/solid-check.mjs "levels/ring a bell-灰澈"` ⇒ 撞帧 **0** / 最近 **0.891m @ t=75.2s**；
   ⑥ `endcap` 沿用 `enter:-66` 的老口径（相机在终点正好到缝口），只把 `fogRange` 拉到 `30..150` 让塔在雾里显形；
   ⑦ 出图在 `out/shot/ring a bell-灰澈/`（t=2/5/9/22/60/100/120/150/168/173），审阅视频 `out/ring-a-bell-v9-1080p30.mp4`。
+  ⑧ 第二轮微调（同日晚）：`acts[]` 兼容 `t`/`t0` 两种写法并剔掉没有时间的幕（**丢 `t0` 会让排序与
+     `t1Of` 算出 NaN，后果和坑 1 一样：最后一幕台面盖满全程**）；2×2 拼块概率 18%→10%（前景巨板太多）；
+     空场里保留 30% 的低石板（原来 7%，留白太大）；路障/石板密度按幕微调。
 
 ### 📋 待办
 - [ ] Electron 打包（输出与目录同名的 exe，遵循社区"解压即玩"惯例）

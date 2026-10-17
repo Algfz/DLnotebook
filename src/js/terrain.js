@@ -465,7 +465,11 @@ function motifPaving(pts, W, M, surf, palMats) {
   const half = W.half, th = W.th;
   // rim = 街的半宽（石板内沿到路中线的距离）
   const rim = W.rim == null ? W.walk / 2 + 1.3 : W.rim;
-  const acts = (W.acts && W.acts.length ? W.acts.slice() : [{ t0: -1e9 }])
+  // t0 与 t 都认（老数据里有人写 t），并剔掉没有时间的幕 —— 否则排序与 t1Of 会算出 NaN，
+  // 后果是"最后一幕的台面又覆盖全程"，和四幕共面 z-fighting 是同一个症状。
+  const acts = (W.acts && W.acts.length ? W.acts.map((a) => Object.assign({}, a, {
+    t0: a.t0 == null ? (a.t == null ? -1e9 : a.t) : a.t0,
+  })) : [{ t0: -1e9 }]).filter((a) => Number.isFinite(a.t0) || a.t0 === -1e9)
     .sort((a, b) => a.t0 - b.t0);
   // 每一幕用自己的色卡（同一座世界、不同段的温度差）
   const actMat = acts.map((a) => (a.palette && palMats ? palMats(a.palette) : null) || M);
@@ -682,7 +686,7 @@ function motifPaving(pts, W, M, surf, palMats) {
     if (oc >= 1) continue;                                   // 这一幕不放石板
     const occ = 0.62 * vnoise(cx / 46, cz / 46, 21) + 0.38 * vnoise(cx / 17, cz / 17, 22);
     // 空广场里也撒几块"孤石"（7%），否则留白太干净、像没做完
-    if (occ < oc && Hs(i, j, 23) > 0.07) continue;
+    if (occ < oc && Hs(i, j, 23) > 0.30) continue;   // 空场里也留 30% 的低石板，别留大块空白
     // 墙圈里不放石板（墙体本身是实心的，石板会插进去）
     const dw = near + corridor;
     if (acts[ai].walls) {
@@ -693,9 +697,9 @@ function motifPaving(pts, W, M, surf, palMats) {
     // 拼大块：越往后的概率越小 —— 2x2 的 15m 板最贵，不能太多
     const rr = Hs(i, j, 1);
     let pw = 1, pd = 1;
-    if (rr > 0.82) { pw = 2; pd = 2; }
-    else if (rr > 0.60) { pw = 2; pd = 1; }
-    else if (rr > 0.42) { pw = 1; pd = 2; }
+    if (rr > 0.90) { pw = 2; pd = 2; }
+    else if (rr > 0.70) { pw = 2; pd = 1; }
+    else if (rr > 0.52) { pw = 1; pd = 2; }
     for (;;) {
       if (pw === 1 && pd === 1) break;
       let ok = true;

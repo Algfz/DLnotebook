@@ -6182,9 +6182,9 @@
         "slabSeed": 20261018,
         "acts": [
           {
-            "t0": -1000000,
+            "t0": -1000000000,
             "palette": "board",
-            "occ": 0.4,
+            "occ": 0.38,
             "tierMax": 2,
             "tall": 0.1,
             "pillarK": 0.95
@@ -6192,7 +6192,7 @@
           {
             "t0": 52,
             "palette": "stone3",
-            "occ": 0.32,
+            "occ": 0.3,
             "tierMax": 3,
             "tall": 0.28,
             "tallMin": 1,
@@ -6203,7 +6203,7 @@
           {
             "t0": 96,
             "palette": "stone2",
-            "occ": 0.4,
+            "occ": 0.38,
             "tierMax": 3,
             "tall": 0.55,
             "tallMin": 0,
@@ -6212,18 +6212,19 @@
             "pillarK": 0.42
           },
           {
+            "t0": 146,
             "palette": "board",
             "occ": 0.34,
             "tierMax": 3,
-            "tall": 0.16
+            "tall": 0.18
           },
           {
-            "t": 166,
+            "t0": 166,
             "palette": "board",
-            "occ": 0.5,
+            "occ": 0.28,
             "tierMax": 3,
-            "tall": 0.26,
-            "pillarK": 0.3
+            "tall": 0.3,
+            "pillarK": 0.35
           }
         ]
       }
