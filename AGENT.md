@@ -747,6 +747,12 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 38
      空场里保留 30% 的低石板（原来 7%，留白太大）；路障/石板密度按幕微调。
 
 ### 📋 待办
+- [ ] **本关布景已清空，等方向**（2026-10-18 白天，发起人："把这个关卡所有布景全删了"）：
+      `place[] = []`、`terrain = {base:{motif:"board", walk:3, half:150, th:9}, endcap:false}`、无 `spans`、
+      `roadStrip.from = 999999`（不铺路面带）。现在全场只剩**一整块米黄平板 + 白舞线 + 引导虚线**，
+      备份 `out/bak/level-*-pre-clear-scenery.json`（一条命令可还原）。
+      **路径 / 速度 / 相机 / 音乐 / 踩音全未动。** 下一步等发起人定：a) 连底板也去掉（纯虚空）；
+      b) 从零重铺，但换一种语言（石板原这套判"太乱"的话）
 - [ ] Electron 打包（输出与目录同名的 exe，遵循社区"解压即玩"惯例）
 - [ ] `scenes[].decor` 规则装饰（拱门/花柱/花瓣等**有语义**的景物；纯几何 `scenery` 已完成）
 - [ ] 判定物 / 景物 / 跳跃与掉落机制
