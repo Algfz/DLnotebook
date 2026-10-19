@@ -40,6 +40,11 @@ function saveSettings() {
   try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch (e) { /* 忽略 */ }
 }
 
+/* 盲人通道：把关键进度打到本地开发服务器的控制台（由 tools/dev-server.js 打印）。
+   为什么要有：手机上没有 DevTools、截不了屏，AI 只能靠这些打点判断"卡在哪一步"。
+   服务器不在时 report 内部已 catch，完全无害。 */
+const trace = m => { try { if (window.__report) window.__report("play: " + m); } catch (e) { /* 忽略 */ } };
+
 function showErr(e) {
   const b = $("#errBox");
   b.style.display = "block";
@@ -358,6 +363,7 @@ function enterImmersive() {
 
 async function startGame() {
   if (!curLevel) return;
+  trace("tap level=" + (curLevel && curLevel.dir));
   enterImmersive();                       // 必须在 await 之前（见上面的说明）
   const btn = $("#btnPlay");
   const old = btn.textContent;
@@ -366,12 +372,16 @@ async function startGame() {
   try {
     ensureAC();
     stopPreview();
+    trace("ac state=" + AC.state + " sampleRate=" + AC.sampleRate);
 
     const level = await loadLevelJSON(curLevel.dir);
+    trace("json ok, path=" + ((level.path || []).length) + " lines=" + ((level.lines || []).length));
     levelData = level;
     if (!audioBuf || audioBuf.__dir !== curLevel.dir) {
+      trace("audio 开始解码 " + curLevel.music);
       audioBuf = await loadAudioBuffer(AC, curLevel.dir, curLevel.music);
       audioBuf.__dir = curLevel.dir;
+      trace("audio ok, 时长=" + audioBuf.duration.toFixed(1) + "s");
     }
 
     // 先显示游戏视图，再创建 Game（否则 canvas 尺寸为 0）
@@ -391,6 +401,7 @@ async function startGame() {
     });
     // 按设置限制渲染分辨率：手机 DPR 常是 3，按 2 倍渲染会明显掉帧
     game.setQuality(settings.quality);
+    trace("game ok, 关卡时长=" + game.dur.toFixed(1) + "s 相机aspect=" + game.camera.aspect.toFixed(2));
 
     // 调试钩子：把 Game 实例挂到 window，供 tools/shot.js 之类的离线工具
     // 在页面里改参数后立刻截图对比（正常玩不受影响，reload 即消失）
@@ -414,6 +425,7 @@ async function startGame() {
     $("#startHint").style.opacity = "1";
     $("#chkGuide").checked = settings.guide;
   } catch (e) {
+    trace("FAIL " + ((e && (e.stack || e.message)) || e));
     showErr(e);
     $("#viewGame").classList.add("hide");
     $("#viewSelect").classList.remove("hide");

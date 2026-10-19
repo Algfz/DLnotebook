@@ -947,6 +947,14 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
   为什么不用 HTTPS：本机 443 的 git 通道被卡死（`git push/ls-remote` 连续超时），而 **22 端口是通的**。
   密钥在 `~/.ssh/id_ed25519`（2026-10-19 在手机上生成，公钥已登记到发起人的 GitHub 账号），
   客户端是容器里 apt 装的 `openssh-client`（镜像原本没有 `ssh`）
+- **服务器要独立跑**：别用会话里的后台任务（会话重启就被杀，发起人会撞上"打不开/卡载入"的空窗期）。
+  用 `setsid nohup node tools/dev-server.js 8080 > /tmp/dlnotebook-server.log 2>&1 < /dev/null &`
+- **盲人通道（看不到屏幕时的调试手段）**：`tools/dev-server.js` 会打印每个请求；
+  页面里 `index.html` 的 `report()` 把启动/转屏/异常 POST 到 `/api/log`，
+  `main.js` 的 `trace()` 把 Play 流程逐段打点（tap → ac → json → audio → game）。
+  手机上没有 DevTools 也截不了屏时，这是唯一能看见"卡在哪一步"的办法
+- 实测（Breeze，手机横屏 751×363 CSS 像素，aspect 2.07）：点 Play → 读关卡 <0.3s →
+  解码 11MB mp3 约 2s → 建场景 <1s；**方向锁生效**（视口从 363×625 竖屏转成 751×363 横屏）
 - 能做：改代码 / 关卡 JSON、跑生成器脚本、起服务器试玩
 - 不能做：Electron 打包（ADR-23）、`tools/shot.js` 与 `render-demo.js`（写死 Windows Chrome 路径 + CDP 端口）、
   `analyze-music.py`（要 numpy/scipy）、以及 `C:\DLnotebook-media\` 里的参考素材（不在手机上，`out/` 也不存在）
@@ -990,6 +998,7 @@ node tools/analyze.js          # 分析踩音数据
 node tools/probe.js            # 各曲密度 vs 线速
 node build/gen-path.js        # 生成 level.json
 node build/gen-scenery.js --level "ring a bell"   # 布景：沿真实路线布三层纯几何块 → level.json 的 scenery
+node tools/dev-server.js 8080  # 起客户端（请求日志 + /api/log 接收客户端打点）
 node tools/shot.js --level "ring a bell" --times 8,45,90   # 看单帧截图（调视觉用）
 python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
 ```

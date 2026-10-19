@@ -70,6 +70,24 @@ function listLevels() {
 const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent(req.url.split("?")[0]);
 
+  // 每次请求记一行：排查「浏览器到底有没有连上服务器」时最直接 ——
+  // 页面打不开时，日志里一条都没有 = 没连上（地址/端口问题）；
+  // 有 / 和各个 .js 的请求 = 连上了，问题在客户端脚本里。
+  console.log("  " + new Date().toTimeString().slice(0, 8) + "  " + req.method + " " + urlPath);
+
+  // 客户端日志上报：页面把启动信息/报错 POST 过来，服务端打到控制台。
+  // 为什么要有这个：开发机（手机）上截不了屏、也打不开 DevTools，
+  // AI 只能靠这条"盲人通道"看到视口尺寸、方向、以及客户端异常。
+  if (urlPath === "/api/log" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => { body += c; if (body.length > 4000) body = body.slice(0, 4000); });
+    req.on("end", () => {
+      console.log("  ▸ 客户端: " + String(body).replace(/\s+/g, " ").slice(0, 500));
+      res.writeHead(204, { "Cache-Control": "no-store" }); res.end();
+    });
+    return;
+  }
+
   if (urlPath === "/api/levels") {
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",

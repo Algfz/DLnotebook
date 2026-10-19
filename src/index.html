@@ -348,11 +348,37 @@
   }
   window.__fatal = showFatal;
 
+  /* 盲人通道：把启动/异常信息 POST 给本地开发服务器（tools/dev-server.js 会打出来）。
+     为什么需要：手机上没有 DevTools、截屏也不可用，AI 看不到画面，
+     只能靠这条通道知道「视口多大、是横还是竖、有没有报错」。开发服务器不在时完全无害。 */
+  function report(msg) {
+    try {
+      fetch("/api/log", { method: "POST", body: String(msg).slice(0, 3000), keepalive: true }).catch(function () {});
+    } catch (e) { /* 没有服务器就算了 */ }
+  }
+  window.__report = report;
+  function viewportLine(tag) {
+    return tag + " viewport=" + window.innerWidth + "x" + window.innerHeight +
+      " dpr=" + (window.devicePixelRatio || 1).toFixed(2) +
+      " orient=" + (window.innerWidth > window.innerHeight ? "landscape" : "portrait") +
+      " touch=" + (("ontouchstart" in window) ? 1 : 0) +
+      " ua=" + (navigator.userAgent || "").slice(0, 60);
+  }
+  window.addEventListener("load", function () { report(viewportLine("start")); });
+  // 转屏/改窗口：布局问题多半在这一行里看得出来
+  var _vk = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(_vk);
+    _vk = setTimeout(function () { report(viewportLine("resize")); }, 400);
+  });
+
   window.addEventListener("error", function (e) {
+    report("js-error: " + (e.message || "未知") + " @ " + String(e.filename || "").split("/").pop() + ":" + (e.lineno || 0));
     showFatal("脚本错误：" + (e.message || "未知") +
       (e.filename ? "\n位置：" + e.filename.split("/").pop() + ":" + e.lineno : ""));
   });
   window.addEventListener("unhandledrejection", function (e) {
+    report("js-rejection: " + String((e.reason && (e.reason.stack || e.reason.message)) || e.reason));
     showFatal("未处理的异常：" + ((e.reason && e.reason.stack) || e.reason));
   });
 
