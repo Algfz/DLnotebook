@@ -726,4 +726,41 @@ async function init() {
   requestAnimationFrame(loop);
 }
 
-init();
+/* ---------------------- 截图模式（?capture=1） ----------------------
+   用途：AI 在手机上看不到画面。带这个参数打开页面，它会自己选关、开局、
+   把时间轴推到指定时刻，然后把 canvas 导成 PNG POST 给本地服务器（落盘 out/shot/）。
+   正常游玩不经过这里。 */
+async function runCapture() {
+  const q = new URLSearchParams(location.search);
+  const times = (q.get("times") || "20,70,130").split(",").map(Number).filter((n) => isFinite(n));
+  const idx = Math.max(0, Math.min(levels.length - 1, Number(q.get("level") || 0)));
+  const W = Number(q.get("w") || 1600), H = Number(q.get("h") || 900);
+  const tag = q.get("tag") || "shot";
+  try {
+    selectLevel(idx);
+    await startGame();
+    if (!game) { trace("capture: game 没建起来"); return; }
+    // 首帧状态在等玩家点击：截图模式自己按一下，否则时间推了也不动（三张图会长得一模一样）
+    if (game.state === "idle") game.onTap(0);
+    // 手机上视口只有 751×363，直接导图太小 —— 把绘制缓冲区设成 16:9 的高分辨率
+    game.renderer.setSize(W, H, false);
+    game.camera.aspect = W / H;
+    game.camera.updateProjectionMatrix();
+    game.resize = function () {};              // 防止随后窗口事件把它改回去
+    for (const t of times) {
+      for (let i = 0; i < 90; i++) window.__setTime(t - 3 + (3 * i) / 90);   // 先把动画/镜头稳住
+      window.__setTime(t);
+      await new Promise((r) => setTimeout(r, 80));
+      const data = game.renderer.domElement.toDataURL("image/png");
+      await fetch("/api/shot?name=" + encodeURIComponent(tag + "-t" + t), { method: "POST", body: data });
+      trace("capture t=" + t + " ok, " + Math.round(data.length / 1024) + "KB");
+    }
+    trace("capture 全部完成");
+  } catch (e) {
+    trace("capture FAIL " + ((e && e.stack) || e));
+  }
+}
+
+init().then(() => {
+  if (/[?&]capture=1/.test(location.search)) setTimeout(runCapture, 200);
+});

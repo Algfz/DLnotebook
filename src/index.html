@@ -527,6 +527,36 @@
 
 <div class="err" id="errBox"></div>
 
+<!-- ==================== 截图模式（?capture=1） ====================
+     AI 在手机上看不到画面（没有 CDP、截屏接口不可用）。这里让**页面自己**把画面交出来：
+     用虚拟时钟把游戏驱动到指定时刻，再把 canvas 导成 PNG 发给本地服务器。
+     只在带 ?capture=1 时生效，正常玩完全不受影响。 -->
+<script>
+(function () {
+  if (!/[?&]capture=1/.test(location.search)) return;
+  try {
+    localStorage.setItem("dlfan.settings", JSON.stringify({
+      latency: 0, volume: 0, guide: false, autoLines: [true, true], keys: [], quality: "high",
+    }));
+  } catch (e) {}
+  window.__vt = 0;
+  try { Object.defineProperty(performance, "now", { value: () => window.__vt * 1000, configurable: true, writable: true }); } catch (e) {}
+  for (var n of ["BaseAudioContext", "AudioContext", "webkitAudioContext"]) {
+    var C = window[n]; if (!C || !C.prototype) continue;
+    try { Object.defineProperty(C.prototype, "currentTime", { get: function () { return window.__vt; }, configurable: true }); } catch (e) {}
+  }
+  var cbs = [];
+  window.requestAnimationFrame = function (cb) { var id = cbs.length + 1000000; cbs.push({ id: id, cb: cb }); return id; };
+  window.cancelAnimationFrame = function (id) { var i = cbs.findIndex(function (o) { return o.id === id; }); if (i >= 0) cbs.splice(i, 1); };
+  window.__setTime = function (t) {
+    window.__vt = t;
+    var list = cbs.splice(0);
+    for (var i = 0; i < list.length; i++) list[i].cb(t * 1000);
+  };
+  window.__captureMode = true;
+})();
+</script>
+
 <!-- 检测 ES 模块是否真正执行了（importmap/模块静默失败时 main.js 不会跑） -->
 <script>
   window.__moduleLoaded = false;

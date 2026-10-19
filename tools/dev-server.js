@@ -88,6 +88,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // 收客户端自己截的帧（客户端用 canvas.toDataURL 导的 PNG）。
+  // 为什么走这条路：手机上没有 CDP、系统截屏接口也不可用，
+  // 但 WebGL 在手机 Chrome 里是活的 —— 让页面把自己的画面交出来，
+  // 是唯一不依赖外部工具的"AI 眼睛"。
+  if (urlPath === "/api/shot" && req.method === "POST") {
+    const name = (new URL(req.url, "http://x")).searchParams.get("name") || "shot";
+    const safe = String(name).replace(/[^\w.-]+/g, "_").slice(0, 80);
+    const outDir = path.join(ROOT, "out", "shot");
+    let body = "", tooBig = false;
+    req.on("data", c => { body += c; if (body.length > 40 * 1024 * 1024) tooBig = true; });
+    req.on("end", () => {
+      if (tooBig) { res.writeHead(413); res.end("too big"); return; }
+      const m = /^data:image\/png;base64,([\s\S]+)$/.exec(body);
+      if (!m) { res.writeHead(400); res.end("expect dataURL"); return; }
+      try {
+        fs.mkdirSync(outDir, { recursive: true });
+        fs.writeFileSync(path.join(outDir, safe + ".png"), Buffer.from(m[1], "base64"));
+        console.log("  ▣ 截图已存 out/shot/" + safe + ".png");
+        res.writeHead(204); res.end();
+      } catch (e) { res.writeHead(500); res.end(String(e)); }
+    });
+    return;
+  }
+
   if (urlPath === "/api/levels") {
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",

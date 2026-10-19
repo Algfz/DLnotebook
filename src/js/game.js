@@ -279,7 +279,9 @@ export class Game {
 
   /* ---------------------- Three.js 初始化 ---------------------- */
   initThree() {
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
+    // ?capture=1 时保留绘制缓冲：不然 canvas.toDataURL() 导出来是空白（WebGL 惯例）
+    const captureMode = /[?&]capture=1/.test(location.search);
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, preserveDrawingBuffer: captureMode });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
     this.scene = new THREE.Scene();
