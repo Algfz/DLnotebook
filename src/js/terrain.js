@@ -446,6 +446,10 @@ function endPyramid(pts, W, M, surf) {
 function motifProfile(pts, W, M, surf) {
   const prof = (W.profile && W.profile.length >= 2 ? W.profile : [[1.6, 0], [60, 0]])
     .slice().sort((a, b) => a[0] - b[0]);
+  // inset：地面整体压到路面以下多少米。参考 Astra 那代复刻：路是一条**凸起**的带子，
+  // 坐在一整块台面之上；齐平时路和地会糊成一张纸。
+  const IN = W.inset == null ? 0 : W.inset;
+  const surf0 = surf - IN;
   const sm = smoothCoords(pts, W.smooth == null ? 2 : W.smooth);
   // 远处（off > smoothFarFrom）用**更重的平滑**：近处要给路让位、不能抹，
   // 但 100m 外的崖壁如果还跟着每 3m 一个 90° 折点走，就会碎成一块块"板"。
@@ -475,17 +479,17 @@ function motifProfile(pts, W, M, surf) {
       };
       const S0 = curve(o0), S1 = curve(o1);
       // 水平台面：一格一亮一暗，读起来才有"层"（官方关的台阶感来自明暗交替）
-      out.push(flatBand(S0, sign * o0, S1, sign * o1, surf + h0,
+      out.push(flatBand(S0, sign * o0, S1, sign * o1, surf0 + h0,
         i % 2 ? M.far : M.mid, "prof-flat-" + i));
       // 立面：同一 off 处的高度跳变
       if (Math.abs(h1 - h0) > 1e-6) {
-        out.push(vertBand(S1, sign * o1, surf + Math.min(h0, h1), surf + Math.max(h0, h1),
+        out.push(vertBand(S1, sign * o1, surf0 + Math.min(h0, h1), surf0 + Math.max(h0, h1),
           M.near, "prof-wall-" + i));
       }
     }
     // 最外沿补一堵立面，让最后一级台地看起来有厚度（不然边缘是纸片）
     const last = prof[prof.length - 1];
-    out.push(vertBand(sm, sign * last[0], surf + last[1] - th, surf + last[1], M.mid, "prof-lip"));
+    out.push(vertBand(sm, sign * last[0], surf0 + last[1] - th, surf0 + last[1], M.mid, "prof-lip"));
   }
   return out;
 }

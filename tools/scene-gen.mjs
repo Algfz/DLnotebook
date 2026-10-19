@@ -36,23 +36,23 @@ const ACTS = [
   {
     id: "A", name: "台原", t: [0, 40], palette: "board",
     // 平原：几乎不放坡，只在 3m 处落一个 0.9m 的坎，让路"读"得出来
-    profile: [[1.6, 0], [14, 0], [14, -1.2], [60, -1.6], [110, -1.6]],
+    profile: [[1.6, 0], [14, 0], [14, -1.2], [60, -1.6], [110, -1.6]], flat: 13,
   },
   {
     id: "B", name: "深谷", t: [40, 108], palette: "cream",
     // 主体：路是一条窄脊，两侧先垂直落 10m，再两级台地落到谷底 −32m，
     // 谷对面 70m 处拔起一道 46m 高的崖壁（把天压住，画面才有"谷"的感觉）
-    profile: [[1.6, 0], [13, 0], [13, -38], [34, -44], [104, -46], [104, 20], [136, 28]],
+    profile: [[1.6, 0], [13, 0], [13, -38], [34, -44], [104, -46], [104, 20], [136, 28]], flat: 12,
   },
   {
     id: "C", name: "梯田", t: [108, 148], palette: "sand",
     // 收势：崖壁退到 62m，台地变缓，视野重新打开（和前一幕形成呼吸）
-    profile: [[1.6, 0], [12, 0], [12, -14], [40, -18], [104, -18], [104, 12], [134, 18]],
+    profile: [[1.6, 0], [12, 0], [12, -14], [40, -18], [104, -18], [104, 12], [134, 18]], flat: 11,
   },
   {
     id: "D", name: "广场", t: [148, 168], palette: "board",
     // 结尾：一片开阔的广场，只保留 7m 的台坎，把视线全部让给金字塔
-    profile: [[1.6, 0], [20, 0], [20, -10], [96, -10]],
+    profile: [[1.6, 0], [20, 0], [20, -10], [96, -10]], flat: 19,
   },
 ];
 
@@ -103,14 +103,21 @@ delete level.bridge;
 
 level.terrain = {
   v: 1,
-  base: { motif: "profile", palette: "board", params: { profile: ACTS[0].profile, smooth: 2, smoothFar: 6, smoothFarFrom: 15, th: 6 } },
+  base: { motif: "profile", palette: "board", params: { profile: ACTS[0].profile, flat: ACTS[0].flat, inset: 0.45, smooth: 2, smoothFar: 6, smoothFarFrom: 15, th: 6 } },
   spans: ACTS.slice(1).map((a) => ({
     t: a.t, motif: "profile", palette: a.palette,
-    params: { profile: a.profile, smooth: 2, smoothFar: 6, smoothFarFrom: 15, th: 6 },
+    params: { profile: a.profile, flat: a.flat, inset: 0.45, smooth: 2, smoothFar: 6, smoothFarFrom: 15, th: 6 },
   })),
   // 结尾的金字塔保留（它是最强的终点符号），但让它退得更远、更宽
-  endcap: { halfW: 96, slotW: 9, h: 120, enter: -70, sink: 3, palette: "cream" },
+  endcap: { halfW: 96, slotW: 9, h: 120, enter: -70, sink: 3, palette: "jade" },
 };
+
+// 树：参考图里"稀但大"的植被。每 34m 一棵、左右交替，尺寸 1.2~1.9 倍，
+// 摆在台面内侧（off 7.5~11m，不出台沿），归 buildProps 的占用格处理互相避让。
+level.props = [
+  { kind: "tree", t: [2, 166], every: 34, off: [7.5, 11], scale: [1.2, 1.9] },
+  { kind: "rock", t: [30, 160], every: 71, off: [10, 14], scale: [0.8, 1.4] },
+];
 
 level.place = ARCH.map((o) => ({
   t: +o.t.toFixed(3), off: +o.off.toFixed(2),

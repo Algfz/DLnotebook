@@ -89,6 +89,27 @@ def profile_at(level, t):
         prof = (base.get("params") or {}).get("profile")
     return prof or DEFAULT_PROFILE
 
+
+# 色卡（与 src/js/terrain.js 的 PALETTES 一一对应）
+PALETTES = {
+    "board": (0x9199ac, 0xd1d0bb, 0xa8b8d8),
+    "rose":  (0x8e2a57, 0xc06a95, 0xf0d2e0),
+    "plum":  (0x452838, 0x6b3f63, 0xbe9cba),
+    "sand":  (0x8a5a2b, 0xc9a86f, 0xf2e4c4),
+    "ice":   (0x27506e, 0x5f89a6, 0xcfe2ec),
+    "jade":  (0x2f6b48, 0x74ad91, 0xc4e8d5),
+    "cream": (0xa89f8e, 0xe9e3d7, 0xfdfbf6),
+}
+def hexrgb(v):
+    return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
+def palette_at(level, t):
+    spec = level.get("terrain") or {}
+    for sp in spec.get("spans") or []:
+        if sp["t"][0] <= t < sp["t"][1] and sp.get("palette"):
+            return PALETTES.get(sp["palette"]) or PALETTES["board"]
+    base = (spec.get("base") or {}).get("palette")
+    return PALETTES.get(base) or PALETTES["board"]
+
 def road_half(level):
     return (level.get("roadWidth") or 3.0) / 2.0
 
@@ -178,13 +199,15 @@ def build_faces(level, pts, t0, t1):
                 h = height_at(s0, off0)
                 a = world(s0, off0, h, sign); b = world(s1, off0, h, sign)
                 c = world(s1, off1, h, sign); d = world(s0, off1, h, sign)
-                col = C_TOP if i == 0 else (C_TOP2 if i % 2 else C_TOP)
+                pal = palette_at(level, s0["p"]["t"])
+                col = hexrgb(pal[1]) if i % 2 == 0 else hexrgb(pal[2])
                 faces.append(([a, b, c, d], col))
                 # 立面：从这一段高度落到下一段高度
                 h2 = height_at(s0, off1)
                 if abs(h2 - h) > 1e-6:
                     a2 = world(s0, off1, h2, sign); b2 = world(s1, off1, h2, sign)
-                    faces.append(([d, c, b2, a2], C_CUT if abs(h2 - h) < 12 else C_DEEP))
+                    pal2 = palette_at(level, s0["p"]["t"])
+                    faces.append(([d, c, b2, a2], hexrgb(pal2[0])))
 
     # ---- 路面 ----
     w = road_half(level)
@@ -219,6 +242,41 @@ def build_faces(level, pts, t0, t1):
         tone = it.get("tone", 0)
         shade = [(150, 160, 184), (168, 178, 200), (188, 196, 214)][tone % 3]
         add_box(faces, cx, cy, cz, ww, hh, dd, yaw, shade)
+    # ---- props[] 规则（树/石/柱…）：预览里用"树干 + 两层树冠"的方块近似 ----
+    TREE_KINDS = ("tree", "pine", "bush", "rock", "column", "giant", "arch", "crystal")
+    for r in (level.get("props") or []):
+        kind = r.get("kind")
+        if kind not in TREE_KINDS:
+            continue
+        tt0 = (r.get("t") or [0, pts[-1]["t"]])[0]
+        tt1 = (r.get("t") or [0, pts[-1]["t"]])[1]
+        every = max(4.0, r.get("every") or 30)
+        off = r.get("off") or 10
+        off0 = off[0] if isinstance(off, list) else off
+        off1 = off[1] if isinstance(off, list) else off
+        sc = r.get("scale") or 1.0
+        sc0 = sc[0] if isinstance(sc, list) else sc
+        # 每 every 米一个（沿弧长），左右交替
+        t = tt0
+        side = 1
+        while t < tt1:
+            sp_ = at_time(pts, t)
+            dx, dz = dir_at(pts, t)
+            nx, nz = dz, -dx
+            o = off0 + (off1 - off0) * (0.5 + 0.5 * math.sin(t * 1.7))   # 在带内错落
+            prof = profile_at(level, t)
+            gh = 0.0
+            for oo, hh in prof:
+                if oo <= abs(o):
+                    gh = hh
+            base = sp_["y"] - 0.06 + gh - (r.get("inset") or 0.45)
+            x = sp_["x"] + nx * o * side
+            z = sp_["z"] + nz * o * side
+            hg = (7.5 if kind == "tree" else 4.0) * sc0
+            add_box(faces, x, base + hg * 0.30, z, 0.7, hg * 0.6, 0.7, 0, (92, 74, 58))       # 干
+            add_box(faces, x, base + hg * 0.85, z, hg * 0.62, hg * 0.55, hg * 0.62, 0, (86, 148, 96))  # 冠
+            side = -side
+            t += every / 14.0      # every 是米，换成时间（线速 14 m/s）
     return faces
 
 def add_box(faces, cx, cy, cz, w, h, d, yaw, color):

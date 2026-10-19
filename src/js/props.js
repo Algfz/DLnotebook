@@ -652,6 +652,7 @@ export function buildProps(level, verts, opts = {}) {
     terraces: () => 6.0,                        // ⚠️ 主台是"一串圆盘"，gap 必须 < 2*最小半径
     islands:  () => 6.0,                        //    （gap 10 / 最小半径 8.2）台面才连成一片
     cloud:    (P) => P.plateW - 1.2,            // 云海宽板
+    profile:  (P) => (P.flat != null ? P.flat : 10),
   };
   const spanFlat = (t) => {
     let sp = null;
