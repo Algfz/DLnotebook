@@ -47,12 +47,12 @@ const ACTS = [
   {
     id: "C", name: "梯田", t: [108, 148], palette: "sand",
     // 收势：崖壁退到 62m，台地变缓，视野重新打开（和前一幕形成呼吸）
-    profile: [[1.6, 0], [9, 0], [9, -7], [26, -15], [62, -18], [104, -18], [104, 12], [134, 18]],
+    profile: [[1.6, 0], [12, 0], [12, -14], [40, -18], [104, -18], [104, 12], [134, 18]],
   },
   {
     id: "D", name: "广场", t: [148, 168], palette: "board",
     // 结尾：一片开阔的广场，只保留 7m 的台坎，把视线全部让给金字塔
-    profile: [[1.6, 0], [34, 0], [34, -9], [96, -9]],
+    profile: [[1.6, 0], [20, 0], [20, -10], [96, -10]],
   },
 ];
 
@@ -103,10 +103,10 @@ delete level.bridge;
 
 level.terrain = {
   v: 1,
-  base: { motif: "profile", palette: "board", params: { profile: ACTS[0].profile, smooth: 2, smoothFar: 7, smoothFarFrom: 40, th: 6 } },
+  base: { motif: "profile", palette: "board", params: { profile: ACTS[0].profile, smooth: 2, smoothFar: 6, smoothFarFrom: 15, th: 6 } },
   spans: ACTS.slice(1).map((a) => ({
     t: a.t, motif: "profile", palette: a.palette,
-    params: { profile: a.profile, smooth: 2, smoothFar: 7, smoothFarFrom: 40, th: 6 },
+    params: { profile: a.profile, smooth: 2, smoothFar: 6, smoothFarFrom: 15, th: 6 },
   })),
   // 结尾的金字塔保留（它是最强的终点符号），但让它退得更远、更宽
   endcap: { halfW: 96, slotW: 9, h: 120, enter: -70, sink: 3, palette: "cream" },
