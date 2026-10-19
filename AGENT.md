@@ -672,6 +672,25 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 - [x] `tools/dev-server.js` 的 `--open` 不再写死 `explorer.exe`（按 win32 / darwin / 其它 走 explorer / open / xdg-open）。
 - ⏳ **未验证**：真机画面没能截图核对（见 §13「手机截屏/读屏不可用」），取景比例等发起人试玩反馈。
 
+### ✅ 2026-10-19 晚 ·《ring a bell》布景重做（从「摆放景物」到「场景建模」）
+
+发起人的判断：问题不是"东西不够多"，而是**用摆放景物的思维堆了太多东西**。
+旧版 3049 件小方块沿路撒满，读起来是"一堆物品"而不是"一个地方"。这一轮整体换掉：
+
+- **地形变成一条横断面剖线**（新母题 `profile`，`src/js/terrain.js`）：
+  给的是"从路中心往外，地面在第 X 米落到第 Y 米"，左右镜像、沿路连续生成。
+  近处轻平滑（给路让位），40m 以外换重平滑 —— 否则 100m 外的崖壁会跟着
+  每 3m 一个 90° 折点碎成一块块"板"。
+- **四幕结构**（`tools/scene-gen.mjs`）：台原 0–40s → 深谷 40–108s → 梯田 108–148s → 广场 148–168s，
+  每幕换色卡（board / cream / sand / board），接缝处立「山门」把切换藏在建筑后面。
+- **建筑只有四类共 57 件**（旧版 3049 件）：平原巨石 8、山门 3 道（两柱 + 架空横梁）、
+  谷中望柱 16（每 16 拍一对）、梯田列柱 20（每 8 拍一根）、广场台座 8。
+- 去掉上一版的 `bridge` 装饰（护栏/桥墩）：路现在走在一整条实心山脊上，再挂桥墩会和地形打架。
+- 关卡文件 973 KB → **42.7 KB**；地形 76 个网格 / 6.8 万顶点（≈2.2 万三角形），构建 47 ms；
+  净空自检：落地件到路中心最小 2.44 m，**0 件压线**。
+- 配套工具：`tools/scene-preview.py`（软件渲染预览）+ `tools/scene-gen.mjs`（可重跑的生成器）；
+  原始布景备份在 `out/bak/ring-a-bell.level.before-scene-rebuild.json`。
+
 ### 📋 待办
 - [ ] Electron 打包（输出与目录同名的 exe，遵循社区"解压即玩"惯例）
 - [ ] `scenes[].decor` 规则装饰（拱门/花柱/花瓣等**有语义**的景物；纯几何 `scenery` 已完成）
@@ -915,6 +934,16 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
   并盖一层「请把手机横过来」的提示（`#rotHint`）。
 - `camFit`（机位后撤）在横屏下恒为 1（`sqrt(16:9/aspect) ≤ 1` 被夹住），只服务竖屏兜底。
 
+**ADR-25：布景改用「场景建模」，不再「摆放景物」（2026-10-19 晚，发起人定调）**
+发起人原话：「用场景建模的思维进行布景，不要用摆放景物的思维进行布景」。
+落地成三条硬规矩：
+1. **先有地，再有物**：环境的第一性表达是地形（横断面剖线），不是物件数量；
+2. **物件必须是"建筑"**：成组、对齐、按节拍出现（本关 6.32 m/拍），每件 10 m 量级起，
+   不做碎石/杂草这类"点缀"；
+3. **分幕靠体量不靠渐变**：幕与幕之间用地形剖面的跳变 + 山门遮挡，而不是靠颜色慢慢糊过去。
+自检方法（可复用）：数"这一关有多少个独立决定" —— 旧版 3049 个（等于没有设计），
+新版 = 4 幕 + 57 件。
+
 ---
 
 ## 10. 关卡素材与设计说明
@@ -940,6 +969,8 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 
 **⚠️ 2026-10-19 起：开发环境在手机上（Android）**
 - 仓库位置：`/sdcard/Documents/DLnotebook`；Node **v24**，**依然零 npm 依赖**，不用 `npm install`
+- ⚠️ **容器里跑不了 Chromium**（`Trace/breakpoint trap`，装完依赖也照崩）：
+  `tools/shot.js` 那套 CDP 截图在手机上用不了；要看画面请用 `tools/scene-preview.py`（Pillow 软件渲染）
 - 起客户端：`node tools/dev-server.js 8080` → 手机 Chrome 开 `http://127.0.0.1:8080`
   - 给发起人的一键版：`sh /sdcard/Documents/DLnotebook/启动手机端.sh`（Android 上 `/sdcard` 不可执行，必须 `sh 脚本` 调用），说明写在 `手机启动说明.md`；真正自启动需要 Termux（本机目前没装）
 - 改完**直接刷新页面**即可（`dev-server` 的所有响应都带 `Cache-Control: no-store`）
@@ -998,6 +1029,8 @@ node tools/analyze.js          # 分析踩音数据
 node tools/probe.js            # 各曲密度 vs 线速
 node build/gen-path.js        # 生成 level.json
 node build/gen-scenery.js --level "ring a bell"   # 布景：沿真实路线布三层纯几何块 → level.json 的 scenery
+node tools/scene-gen.mjs       # 重新生成《ring a bell》的布景（地形剖线 + 57 件建筑）
+python3 tools/scene-preview.py --level "ring a bell" --t 60 --out out/preview/x.png   # 软件渲染预览（不开浏览器）
 node tools/dev-server.js 8080  # 起客户端（请求日志 + /api/log 接收客户端打点）
 node tools/shot.js --level "ring a bell" --times 8,45,90   # 看单帧截图（调视觉用）
 python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
@@ -1049,6 +1082,7 @@ python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
 | **双线关卡** | ✅ 客户端已实现（2026-10-11） | `level.json` 的 `lines[]`（线 A/B）已能在客户端**同时渲染**：每条线一条路面 + 一个线头 + 一条轨迹，各自独立输入（上箭头 / X）与独立判定。镜头以**线头中点**为中心、按 `cameraOrbit` 环绕（详见 §14 与 `docs/client-impl.md` §十） |
 | **手机横屏布局待试玩** | ⚠️ 待试玩 | `max-height: 560px` 的横屏断点是按常见 915×412 CSS 像素估的；选关封面限高 38vh、HUD 四角位置还需真机确认 |
 | **手机截屏/读屏不可用** | ⚠️ 环境限制 | 本机 `/app/ui/screenshot` 回 `SCREEN_TARGET_UNAVAILABLE`，AI 看不到画面 —— 视觉问题只能靠发起人截图或口头描述，需在「设置 → 设备能力授权」里开截屏 |
+| **新布景未经真机验证** | ⚠️ 待试玩 | 2026-10-19 重做的四幕地形 + 57 件建筑只在软件渲染预览里看过（`tools/scene-preview.py`），真机的雾/光照/取景观感待发起人确认 |
 | **`out/` 参考素材不在手机上** | ⚠️ 环境限制 | 6.4GB 素材在电脑的 `C:\DLnotebook-media\`，手机上 `out/` 根本不存在；依赖 `out/research/**` 的复查暂不可做 |
 
 ---

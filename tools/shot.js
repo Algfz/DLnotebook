@@ -73,15 +73,35 @@ function findLevelDir(key) {
   return { name: hit, dir, json };
 }
 
+// 找浏览器。为什么改成"多来源"：项目已经搬到手机上开发（没有 Windows 的 Chrome），
+// 容器里用的是 Playwright 下载的 Chromium。优先级：--chrome 参数 > DL_CHROME 环境变量
+// > 系统 Chrome/Edge > Playwright 缓存里的 Chromium。
 function findChrome() {
   const cands = [
+    O && O.chrome,
+    process.env.DL_CHROME,
     "C:/Program Files/Google/Chrome/Application/chrome.exe",
     "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
     "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
     "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+    "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   ];
-  for (const c of cands) if (fs.existsSync(c)) return c;
-  throw new Error("找不到 Chrome / Edge");
+  // Playwright 的缓存目录：chromium-<版本>/chrome-linux{,-arm64}/chrome
+  try {
+    const pw = path.join(os.homedir(), ".cache", "ms-playwright");
+    if (fs.existsSync(pw)) {
+      for (const d of fs.readdirSync(pw).sort().reverse()) {
+        if (!d.startsWith("chromium-")) continue;
+        for (const sub of ["chrome-linux-arm64", "chrome-linux"]) {
+          const exe = path.join(pw, d, sub, "chrome");
+          if (fs.existsSync(exe)) return exe;
+        }
+      }
+    }
+  } catch (e) { /* 忽略 */ }
+  for (const c of cands) if (c && fs.existsSync(c)) return c;
+  throw new Error("找不到 Chrome / Edge（可用 --chrome <路径> 或环境变量 DL_CHROME 指定）");
 }
 
 class CDP {
