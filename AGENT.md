@@ -927,6 +927,7 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 **⚠️ 2026-10-19 起：开发环境在手机上（Android）**
 - 仓库位置：`/sdcard/Documents/DLnotebook`；Node **v24**，**依然零 npm 依赖**，不用 `npm install`
 - 起客户端：`node tools/dev-server.js 8080` → 手机 Chrome 开 `http://127.0.0.1:8080`
+  - 给发起人的一键版：`sh /sdcard/Documents/DLnotebook/启动手机端.sh`（Android 上 `/sdcard` 不可执行，必须 `sh 脚本` 调用），说明写在 `手机启动说明.md`；真正自启动需要 Termux（本机目前没装）
 - 改完**直接刷新页面**即可（`dev-server` 的所有响应都带 `Cache-Control: no-store`）
 - **推送走 SSH**：remote 已改为 `git@github.com:Algfz/DLnotebook.git`。
   为什么不用 HTTPS：本机 443 的 git 通道被卡死（`git push/ls-remote` 连续超时），而 **22 端口是通的**。
