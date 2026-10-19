@@ -15,6 +15,13 @@ const fmt = t => {
   return Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
 };
 
+/* 是不是触屏设备（手机/平板）。
+   为什么要判断：手机上转向靠"点屏幕"，桌面上靠键盘；提示文案与 HUD 也按这个分叉。
+   pointer: coarse 是"主输入是手指"，触屏笔记本是 fine（有鼠标），所以这条比
+   "ontouchstart in window" 更准；两者取或，覆盖老浏览器。 */
+const TOUCH = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+              ("ontouchstart" in window && navigator.maxTouchPoints > 0);
+
 /* ---------------------- 设置持久化 ---------------------- */
 const SET_KEY = "dlfan.settings";
 const DEFAULTS = {
@@ -316,8 +323,31 @@ function fillCalRef() {
 }
 
 /* ---------------------- 开始游戏 ---------------------- */
+/* 手机全屏 + 锁竖屏。
+   为什么必须放在点击后的同步代码里：浏览器要求全屏 API 由"用户手势"触发，
+   中间只要 await 过一次（加载关卡、解码音频），手势就失效、静默被拒。
+   锁竖屏同理。失败不影响玩，所以全部 catch 掉。
+   （想临时用横屏试玩：把下面 lock("portrait") 那一行注释掉即可。） */
+function enterImmersive() {
+  if (!TOUCH) return;
+  try {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) {
+      const p = el.requestFullscreen({ navigationUI: "hide" });
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (e) { /* 浏览器不支持全屏，照常玩 */ }
+  try {
+    if (screen.orientation && screen.orientation.lock) {
+      const p = screen.orientation.lock("portrait");
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (e) { /* 不支持方向锁，按用户拿手机的姿势走 */ }
+}
+
 async function startGame() {
   if (!curLevel) return;
+  enterImmersive();                       // 必须在 await 之前（见上面的说明）
   const btn = $("#btnPlay");
   const old = btn.textContent;
   btn.textContent = "载入中…";
@@ -348,6 +378,8 @@ async function startGame() {
       roadWidth: 3.0,
       lineWidth: 1.0,
     });
+    // 按设置限制渲染分辨率：手机 DPR 常是 3，按 2 倍渲染会明显掉帧
+    game.setQuality(settings.quality);
 
     // 调试钩子：把 Game 实例挂到 window，供 tools/shot.js 之类的离线工具
     // 在页面里改参数后立刻截图对比（正常玩不受影响，reload 即消失）
@@ -426,12 +458,23 @@ function renderHudRows() {
 }
 
 // 开始提示：只列「需要玩家操作」的线（自动播放的线不用按键）
+// 手机上不可能让玩家按 ↑ / X，所以触屏设备换成"点屏幕"的说法，
+// 双线关卡还要告诉他左半屏/右半屏分别管哪条线（否则玩家不知道该点哪里）。
 function updateStartHint() {
   if (!game) return;
   const names = game.lines.filter(L => !L.auto).map(L => keyName(L.key));
-  $("#startHint").textContent = names.length
-    ? "点击屏幕或按 " + names.join(" / ") + " 开始游戏"
-    : "点击屏幕开始游戏（全部线都是自动播放）";
+  let text;
+  if (TOUCH) {
+    if (!game.lines.some(L => !L.auto)) text = "点击屏幕开始游戏（全部线都是自动播放）";
+    else if (game.lines.length > 1) {
+      text = "点击屏幕开始游戏\n左半屏 " + lineName(1) + " ／ 右半屏 " + lineName(0);
+    } else text = "点击屏幕开始游戏";
+  } else {
+    text = names.length
+      ? "点击屏幕或按 " + names.join(" / ") + " 开始游戏"
+      : "点击屏幕开始游戏（全部线都是自动播放）";
+  }
+  $("#startHint").textContent = text;
 }
 
 function refreshKeyBtn(btn, i) {
@@ -542,11 +585,35 @@ function bindUI() {
 
   $("#btnBack").onclick = backToSelect;
 
-  // 游戏输入：每条线一个按键（多线关卡由关卡数据给出，默认 上箭头 / X）；
-  // 鼠标左键与空格 = 第一条线（右手），兼容单线关卡。
-  $("#gameCanvas").addEventListener("mousedown", e => {
-    if (e.button === 0 && game) game.onTap(0);
-  });
+  /* 游戏输入。
+     桌面：每条线一个按键（多线关卡由关卡数据给出，默认 ↑ / X）；鼠标左键 = 第一条线。
+     手机：没有键盘，**点屏幕转向**；双线关卡按左右半屏分给两条线
+     （右半屏 = 线 A 白线/右手，左半屏 = 线 B 黑线/左手，跟原来的 ↑ / X 分工一致）。
+     为什么统一用 pointerdown 而不是 mousedown + touchstart 各写一遍：
+     pointer 事件已经把鼠标、手指、触控笔合在一起了；同时监听 touch 与 mouse
+     会在手机上让一次点按触发两次 —— 一按转两次，玩家会莫名其妙地死在第二个弯。 */
+  const cv = $("#gameCanvas");
+  cv.addEventListener("pointerdown", e => {
+    if (!game) return;
+    e.preventDefault();                    // 阻止双击缩放与长按菜单
+    const r = cv.getBoundingClientRect();
+    let idx = 0;
+    if (game.lines.length > 1) idx = (e.clientX - r.left) < r.width / 2 ? 1 : 0;
+    game.onTap(idx);
+  }, { passive: false });
+  // 长按画面不要弹系统菜单（手机上按住不放会跳"保存图片"之类的浮层）
+  cv.addEventListener("contextmenu", e => e.preventDefault());
+
+  // 延迟校准：手机上没有空格，改成跟着蜂鸣「点屏幕」。
+  // capture 阶段拦、并跳过表单控件本身 —— 否则"点开始校准"那一下会被当成一次敲击。
+  window.addEventListener("pointerdown", e => {
+    if (!cal.active) return;
+    const t = e.target;
+    if (t && t.closest && t.closest("button, input, select, label, a")) return;
+    calTap();
+  }, true);
+
+  // 键盘输入（桌面保留）
   window.addEventListener("keydown", e => {
     // 在输入框/下拉框里打字时按键不归游戏管
     // （否则在「延迟补偿」里按 ↑↓ 调数字会同时把线转掉，还会 preventDefault 掉步进）
@@ -611,11 +678,7 @@ function bindUI() {
   $("#selQuality").onchange = e => {
     settings.quality = e.target.value;
     saveSettings();
-    if (game) {
-      const pr = { high: 2, medium: 1.5, low: 1 }[settings.quality] || 1.5;
-      game.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pr));
-      game.resize();
-    }
+    if (game) game.setQuality(settings.quality);
   };
   $("#btnSetClose").onclick = () => $("#setModal").classList.add("hide");
 

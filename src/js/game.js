@@ -1080,7 +1080,9 @@ export class Game {
     let ox = (b.x * c + b.z * s) * beh;
     let oz = (-b.x * s + b.z * c) * beh;
     let oy = up;
-    const k = zoomScale(this.level, t);          // 拉远倍数（乘在整条向量上 → 距离等比放大）
+    // 拉远倍数（乘在整条向量上 → 距离等比放大）：
+    // 关卡自己的 zoom 关键帧 ×  竖屏取景的后撤倍数（见 resize 的说明）
+    const k = zoomScale(this.level, t) * (this.camFit || 1);
     return { x: ox * k, y: oy * k, z: oz * k };
   }
 
@@ -1222,12 +1224,41 @@ export class Game {
   }
 
   /* ---------------------- 杂项 ---------------------- */
+  /* 尺寸 / 竖屏取景。
+     为什么竖屏要动机位：横向视野 = 纵向视野 × 宽高比。16:9 横屏时
+     aspect≈1.78，32m 外能横着看到约 30m；手机竖屏 aspect≈0.45，
+     同样的机位横向只剩约 7m —— 路一拐 90° 就出画了，玩家看不到自己要去哪。
+     修法：把整条机位偏移等比放大（相机后撤），让"横向可见宽度"补回来。
+     用开方而不是线性反比：线性反比在竖屏会退到 100m 外，线头小得像蚂蚁；
+     开方是"宽度少一半、距离就远一半"的折中。系数 0.9 是留一点余地，
+     真实手感等发起人试玩后再调（这一条在 AGENT.md §8 里记了待调）。 */
   resize() {
     const w = this.canvas.clientWidth || 1;
     const h = this.canvas.clientHeight || 1;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+
+    const REF_ASPECT = 16 / 9;                       // 关卡按横屏设计
+    const a = Math.max(0.3, this.camera.aspect);
+    // 临时手调：地址栏加 ?fit=1.4 可以强制指定后撤倍数（?fit=1 = 完全不后撤）。
+    // 为什么要留这个口子：竖屏取景没有标准答案，靠试玩反复调；
+    // 有它就不用每改一次都让我重发一版代码，发起人自己换数字刷新就能比。
+    let fit = Math.max(1, Math.min(1.7, Math.sqrt(REF_ASPECT / a) * 0.9));
+    try {
+      const q = new URLSearchParams(location.search).get("fit");
+      if (q != null && q !== "" && isFinite(parseFloat(q))) fit = parseFloat(q);
+    } catch (e) { /* 老浏览器没有 URLSearchParams，用默认值 */ }
+    this.camFit = fit;
+  }
+
+  /* 画质 = 渲染分辨率倍数。
+     为什么要单独一个方法：手机 DPR 常常是 3，无脑按 2 倍渲染会明显掉帧，
+     而这个关卡的布景有两千件（见 AGENT.md §8）。设置里改画质要立刻生效。 */
+  setQuality(q) {
+    const pr = { high: 2, medium: 1.5, low: 1 }[q] || 1.5;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pr));
+    this.resize();
   }
 
   setGuide(v) {

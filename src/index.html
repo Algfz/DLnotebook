@@ -2,7 +2,11 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 手机端要点：user-scalable=no 禁掉双指缩放（玩的时候会误触），
+     viewport-fit=cover 让画面铺到刘海/挖孔屏的边缘，留白交给 CSS 的 safe-area。 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#12141a">
+<meta name="mobile-web-app-capable" content="yes">
 <title>DLnotebook</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -127,7 +131,10 @@
     position: absolute; left: 50%; top: 62%; transform: translateX(-50%);
     font-size: 15px; color: rgba(255,255,255,.82); text-shadow: 0 2px 12px rgba(0,0,0,.8);
     background: rgba(0,0,0,.25); padding: 10px 22px; border-radius: 20px;
-    transition: opacity .3s; white-space: nowrap;
+    transition: opacity .3s;
+    /* pre-line：保留换行、允许自动折行。手机竖屏的双线关卡提示要占两行
+       （"左半屏 黑线 / 右半屏 白线"），用 nowrap 会被压成一行挤出屏幕。 */
+    white-space: pre-line;
   }
   #hudInfo {
     position: absolute; left: 20px; top: 20px; font-size: 12px; color: rgba(255,255,255,.62);
@@ -188,6 +195,70 @@
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 99; display: none;
     background: #5a1a17; color: #ffd9d6; font: 11px Consolas, monospace;
     padding: 8px 14px; max-height: 130px; overflow: auto; white-space: pre-wrap;
+  }
+
+  /* ================= 触屏基础（手机/平板） =================
+     为什么不写在 @media 里：这些都是"有触摸就给上"的无害规则，
+     写了条件反而会在「笔记本带触屏」这种组合上漏掉。 */
+  html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+  body {
+    -webkit-user-select: none; user-select: none;      /* 长按不要选中文字 */
+    -webkit-text-size-adjust: 100%;                    /* 横竖屏切换时不要自动放大字号 */
+  }
+  /* 画布吃掉所有触摸手势：不滚动、不缩放、不触发浏览器的手势识别 */
+  #gameCanvas { touch-action: none; }
+  /* 游戏内按钮的按下态：触屏没有 hover，用 :active 给反馈 */
+  #hud button:active, #hud label:active { background: rgba(60,70,86,.9); }
+
+  /* 手机上没有键盘：按键绑定那一行（"操作按键：↑"）既没用又占地 */
+  @media (pointer: coarse) { #keyRows { display: none; } }
+
+  /* ================= 竖屏（手机主场景） =================
+     关卡本身是按 16:9 设计的（见 AGENT.md §14 的机位说明），
+     但手机上竖着拿才是常态。这里做两件事：
+       ① 选关界面从「左列表 + 右详情」改成上下单列；
+       ② 游戏 HUD 收到四角、按钮放大到拇指点得中。
+     取景本身由 game.js 的 resize() 处理（机位后撤，见 camFit）。 */
+  @media (orientation: portrait) {
+    /* ---- 选关 ---- */
+    .selMain {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(0, 30vh) minmax(0, 1fr);
+      gap: 14px; padding: calc(58px + env(safe-area-inset-top)) 18px calc(16px + env(safe-area-inset-bottom));
+      align-items: stretch;
+    }
+    .selList { max-height: none; padding-right: 0; min-height: 0; }
+    .selDetail { max-width: none; gap: 13px; min-height: 0; overflow-y: auto; }
+    .lvItem { padding: 9px; margin-bottom: 4px; }
+    .lvThumb { width: 52px; height: 52px; }
+    .cover { border-radius: 10px; }
+    .title { font-size: 22px; }
+    .artist { font-size: 13px; }
+    .actions { justify-content: space-between; gap: 10px; }
+    .actions .playBtn { flex: 1; font-size: 17px; padding: 14px 0; }
+    .previewRow button { width: 44px; height: 44px; }
+    .selTop { top: calc(12px + env(safe-area-inset-top)); right: 14px; }
+    .selTop button { padding: 10px 18px; font-size: 14px; }
+
+    /* ---- 游戏 HUD ---- */
+    #hudInfo { left: 14px; top: calc(12px + env(safe-area-inset-top)); font-size: 11px; line-height: 1.6; }
+    .tr { right: 14px; top: calc(12px + env(safe-area-inset-top)); }
+    .bl { left: 14px; bottom: calc(12px + env(safe-area-inset-bottom)); }
+    .brCol {
+      right: 14px; bottom: calc(12px + env(safe-area-inset-bottom));
+      max-width: 66vw; gap: 8px;
+    }
+    .hudBtn { padding: 10px 16px; font-size: 14px; }
+    #hud .keyBtn, #hud label { padding: 9px 12px; font-size: 12px; }
+    #hud .br { gap: 8px; }
+    #startHint {
+      top: 66%; font-size: 14px; padding: 10px 18px;
+      max-width: 88vw; text-align: center; line-height: 1.5;
+    }
+
+    /* ---- 弹窗：小屏上要能滚，不能把「完成」顶出屏幕 ---- */
+    .modalBox, .modalBox.wide { width: 100%; max-width: 92vw; padding: 18px; max-height: 88vh; overflow-y: auto; }
+    .fRow label { min-width: 68px; }
   }
 </style>
 </head>
@@ -278,7 +349,7 @@
         <button id="btnLat" class="hudBtn">音频延迟</button>
       </div>
     </div>
-    <div id="startHint">点击屏幕或按空格、上箭头开始游戏</div>
+    <div id="startHint">点击屏幕开始游戏</div>
   </div>
 </div>
 

@@ -151,11 +151,19 @@ server.listen(PORT, HOST || undefined, () => {
   console.log("");
 
   // --open：服务器就绪后再打开浏览器（避免「启动客户端.bat」打开太早连不上）
-  // 用 explorer.exe 打开 URL 最可靠——cmd start 的引号经过 Node 转义后会错乱，
-  // 导致「Windows 找不到文件 ''」
+  // 为什么要跨平台：原来只写死 explorer.exe —— 项目已经搬到手机上开发，
+  // 这条在 Android/Linux 上会直接报 "spawn explorer.exe ENOENT"。
+  // 打不开也不要紧：上面已经打印了地址，手动点一下就行，所以整体 try 掉。
   if (process.argv.includes("--open")) {
+    const url = "http://localhost:" + PORT;
     const { spawn } = require("child_process");
-    spawn("explorer.exe", ["http://localhost:" + PORT],
-      { detached: true, stdio: "ignore" }).unref();
+    const opener = process.platform === "win32" ? "explorer.exe"
+                 : process.platform === "darwin" ? "open"
+                 : "xdg-open";
+    try {
+      spawn(opener, [url], { detached: true, stdio: "ignore" }).unref();
+    } catch (e) {
+      console.log("  （没能自动打开浏览器，请手动访问上面的地址）");
+    }
   }
 });
