@@ -457,13 +457,29 @@ function motifProfile(pts, W, M, surf) {
     for (let i = 0; i < prof.length - 1; i++) {
       const o0 = prof[i][0], h0 = prof[i][1];
       const o1 = prof[i + 1][0], h1 = prof[i + 1][1];
-      const S = (o1 > FAR_FROM) ? smFar : sm;      // 这一环用哪套平滑采样
+      // ⚠️ 不能"近环用 sm、远环用 smFar"——两条曲线的顶点位置不同，
+      //    交界的那个 offset 上会裂出缝（预览里看得很清楚：一圈飘着的薄片）。
+      //    按偏移量把两条曲线**混合**，相邻两环在同一个 offset 上求值，接缝天然闭合。
+      const curve = (off) => {
+        const t = Math.max(0, Math.min(1, (off - 3) / (FAR_FROM - 3)));
+        if (t <= 0) return sm;
+        if (t >= 1) return smFar;
+        const A = sm, B = smFar, out = [];
+        for (let j = 0; j < A.length; j++) {
+          out.push({ x: A[j].x + (B[j].x - A[j].x) * t,
+                     y: A[j].y + (B[j].y - A[j].y) * t,
+                     z: A[j].z + (B[j].z - A[j].z) * t,
+                     t: A[j].t });
+        }
+        return out;
+      };
+      const S0 = curve(o0), S1 = curve(o1);
       // 水平台面：一格一亮一暗，读起来才有"层"（官方关的台阶感来自明暗交替）
-      out.push(flatBand(S, sign * o0, S, sign * o1, surf + h0,
+      out.push(flatBand(S0, sign * o0, S1, sign * o1, surf + h0,
         i % 2 ? M.far : M.mid, "prof-flat-" + i));
       // 立面：同一 off 处的高度跳变
       if (Math.abs(h1 - h0) > 1e-6) {
-        out.push(vertBand(S, sign * o1, surf + Math.min(h0, h1), surf + Math.max(h0, h1),
+        out.push(vertBand(S1, sign * o1, surf + Math.min(h0, h1), surf + Math.max(h0, h1),
           M.near, "prof-wall-" + i));
       }
     }

@@ -125,6 +125,14 @@ def build_faces(level, pts, t0, t1):
                         "n": samples[i]["n"], "prof": samples[i]["prof"]})
         return out
     far_samples = smooth_points(18)
+    def curve(off, idx):
+        """近/远两条采样按偏移混合（与 terrain.js 的 motifProfile 同一套逻辑）"""
+        t = max(0.0, min(1.0, (off - 3.0) / (40.0 - 3.0)))
+        if t <= 0: return samples[idx]
+        if t >= 1: return far_samples[idx]
+        a, b = samples[idx], far_samples[idx]
+        return {"p": {k: a["p"][k] + (b["p"][k] - a["p"][k]) * t for k in ("x", "y", "z", "t")},
+                "n": a["n"], "prof": a["prof"]}
 
     # 每个断面的剖面可能不同（换母题），渲染时取两侧较大者，用同一套环
     nring = max(len(s["prof"]) for s in samples)
@@ -162,9 +170,8 @@ def build_faces(level, pts, t0, t1):
         for k in range(len(samples) - 1):
             off0 = maxoff if i >= len(samples[k]["offs"]) else samples[k]["offs"][i]
             off1 = maxoff if i + 1 >= len(samples[k]["offs"]) else samples[k]["offs"][i + 1]
-            # 外圈的环用大平滑采样：远处天际线不该跟着 90° 折点碎成一块块
-            use = samples if max(off0, off1) <= 30 else far_samples
-            s0, s1 = use[k], use[k + 1]
+            # 两端各按自己的偏移取混合曲线：相邻环在同一个 offset 上求值，接缝闭合
+            s0, s1 = curve(off0, k), curve(off1, k + 1)
             if off1 <= off0 + 1e-6:
                 continue
             for sign in (1, -1):
