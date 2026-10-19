@@ -213,9 +213,10 @@
   /* 手机上没有键盘：按键绑定那一行（"操作按键：↑"）既没用又占地 */
   @media (pointer: coarse) { #keyRows { display: none; } }
 
-  /* ================= 竖屏（手机主场景） =================
-     关卡本身是按 16:9 设计的（见 AGENT.md §14 的机位说明），
-     但手机上竖着拿才是常态。这里做两件事：
+  /* ================= 竖屏（兜底，不是主场景） =================
+     ⚠️ 2026-10-19 修正：关卡是按 16:9 横屏设计的，手机上也该横过来玩（ADR-24）。
+     这一套竖屏布局只在"方向锁被拒 / 用户就是竖着拿"时兜底 —— 能玩，但不是目标形态。
+     这里做两件事：
        ① 选关界面从「左列表 + 右详情」改成上下单列；
        ② 游戏 HUD 收到四角、按钮放大到拇指点得中。
      取景本身由 game.js 的 resize() 处理（机位后撤，见 camFit）。 */
@@ -259,6 +260,70 @@
     /* ---- 弹窗：小屏上要能滚，不能把「完成」顶出屏幕 ---- */
     .modalBox, .modalBox.wide { width: 100%; max-width: 92vw; padding: 18px; max-height: 88vh; overflow-y: auto; }
     .fRow label { min-width: 68px; }
+  }
+
+  /* ================= 横屏手机（主场景） =================
+     关卡按 16:9 横屏设计（机位/雾/可见宽度，见 AGENT.md §14），所以手机上也横过来玩。
+     手机横屏的特点是"矮"（常见 915×412 这种 CSS 像素），桌面那套 62px 内边距 +
+     330px 侧栏会把内容挤出屏幕，所以这里整体收紧、并且把左右让给刘海/挖孔。 */
+  @media (orientation: landscape) and (max-height: 560px) {
+    /* ---- 选关 ---- */
+    .selMain {
+      grid-template-columns: 42vw 1fr; gap: 18px; align-items: start;
+      padding: calc(10px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+               calc(10px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+    }
+    .selList { max-height: calc(100vh - 40px); }
+    .lvItem { padding: 7px; margin-bottom: 4px; }
+    .lvThumb { width: 42px; height: 42px; }
+    .lvMeta .t { font-size: 13px; }
+    .selDetail { gap: 8px; max-width: none; }
+    /* 封面在横屏里最容易"吃掉高度"：给它高度上限，靠 cover 裁切 */
+    .cover { aspect-ratio: auto; height: 38vh; border-radius: 8px; }
+    .title { font-size: 19px; }
+    .artist { font-size: 12px; margin-top: -4px; }
+    .subtitle { font-size: 11px; }
+    .previewRow button { width: 34px; height: 34px; font-size: 12px; }
+    .actions .playBtn { font-size: 15px; padding: 9px 26px; }
+    .selTop { top: calc(8px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); }
+    .selTop button { padding: 7px 13px; font-size: 12px; }
+
+    /* ---- 游戏 HUD：四角，别挡住中上方的路面 ---- */
+    #hudInfo { left: calc(10px + env(safe-area-inset-left)); top: calc(8px + env(safe-area-inset-top)); font-size: 10px; line-height: 1.45; }
+    .tr { right: calc(10px + env(safe-area-inset-right)); top: calc(8px + env(safe-area-inset-top)); }
+    .bl { left: calc(10px + env(safe-area-inset-left)); bottom: calc(8px + env(safe-area-inset-bottom)); }
+    .brCol { right: calc(10px + env(safe-area-inset-right)); bottom: calc(8px + env(safe-area-inset-bottom)); gap: 6px; max-width: 56vw; }
+    .hudBtn { padding: 7px 12px; font-size: 12px; }
+    #hud .keyBtn, #hud label { padding: 6px 9px; font-size: 11px; }
+    #hud .br { gap: 6px; }
+    #startHint { top: 74%; font-size: 13px; padding: 7px 15px; }
+
+    /* ---- 弹窗：横屏高度紧张，限高必须能滚 ---- */
+    .modalBox, .modalBox.wide { width: 100%; max-width: 78vw; padding: 14px; max-height: 92vh; overflow-y: auto; }
+    .fRow { margin-bottom: 9px; }
+    .fRow label { min-width: 62px; font-size: 12px; }
+    .modalFoot { margin-top: 12px; }
+    #calBars { height: 40px; }
+  }
+
+  /* ================= 拿竖了：提示横过来 =================
+     进入游戏后如果还是竖屏（方向锁被拒 / 浏览器不支持全屏），
+     与其让玩家在错误的取景里送死，不如直接盖一层提示。
+     pointer-events: none 是为了不吞掉触摸（万一他就想这么玩）。 */
+  #rotHint {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+    background: rgba(8,10,14,.94); color: var(--fg); pointer-events: none;
+    font-size: 15px; text-align: center; padding: 24px;
+  }
+  #rotHint .ico { font-size: 44px; line-height: 1; animation: rot 2.4s ease-in-out infinite; }
+  #rotHint .sub { font-size: 12px; color: var(--dim); }
+  @keyframes rot {
+    0%, 45% { transform: rotate(0deg); }
+    55%, 100% { transform: rotate(-90deg); }
+  }
+  @media (orientation: portrait) {
+    #viewGame:not(.hide) ~ #rotHint { display: flex; }
   }
 </style>
 </head>
@@ -351,6 +416,13 @@
     </div>
     <div id="startHint">点击屏幕开始游戏</div>
   </div>
+</div>
+
+<!-- 竖着拿手机时盖一层提示：这个关卡是按横屏设计的，竖屏取景会让玩家莫名其妙送死 -->
+<div id="rotHint">
+  <div class="ico">📱</div>
+  <div>这个关卡是横屏设计的<br>请把手机横过来玩</div>
+  <div class="sub">（点 Play 时会自动转横屏；没转过来的话请手动旋转）</div>
 </div>
 
 <!-- ==================== 音频延迟校准（弹窗） ==================== -->

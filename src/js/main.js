@@ -323,26 +323,37 @@ function fillCalRef() {
 }
 
 /* ---------------------- 开始游戏 ---------------------- */
-/* 手机全屏 + 锁竖屏。
+/* 手机全屏 + 锁横屏。
+   ⚠️ 为什么是**横屏**：这个关卡的机位、雾、可见宽度全是按 16:9 横屏标的（见 AGENT.md §14），
+   竖屏只是为了"手机竖着拿"这个习惯。2026-10-19 发起人指出：游戏本身就是横屏设计，手机上也该横过来玩。
+   → 原 ADR-22 的"竖屏优先"被推翻，见 ADR-24。
+
    为什么必须放在点击后的同步代码里：浏览器要求全屏 API 由"用户手势"触发，
    中间只要 await 过一次（加载关卡、解码音频），手势就失效、静默被拒。
-   锁竖屏同理。失败不影响玩，所以全部 catch 掉。
-   （想临时用横屏试玩：把下面 lock("portrait") 那一行注释掉即可。） */
+   方向锁在 Android Chrome 上**必须先进入全屏**才允许，所以锁的动作挂到全屏的 Promise 后面；
+   全屏被拒时也再试一次锁（某些机型不需要全屏）。失败都不影响玩。 */
 function enterImmersive() {
   if (!TOUCH) return;
+  const lockLandscape = () => {
+    try {
+      if (screen.orientation && screen.orientation.lock) {
+        const p = screen.orientation.lock("landscape");
+        if (p && p.catch) p.catch(() => {});
+      }
+    } catch (e) { /* 不支持方向锁，按用户拿手机的姿势走 */ }
+  };
   try {
     const el = document.documentElement;
     if (!document.fullscreenElement && el.requestFullscreen) {
       const p = el.requestFullscreen({ navigationUI: "hide" });
-      if (p && p.catch) p.catch(() => {});
+      if (p && p.then) p.then(lockLandscape, lockLandscape);
+      else lockLandscape();
+    } else {
+      lockLandscape();
     }
-  } catch (e) { /* 浏览器不支持全屏，照常玩 */ }
-  try {
-    if (screen.orientation && screen.orientation.lock) {
-      const p = screen.orientation.lock("portrait");
-      if (p && p.catch) p.catch(() => {});
-    }
-  } catch (e) { /* 不支持方向锁，按用户拿手机的姿势走 */ }
+  } catch (e) {
+    lockLandscape();           // 浏览器不支持全屏，照常玩
+  }
 }
 
 async function startGame() {
