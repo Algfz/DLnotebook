@@ -928,6 +928,10 @@ node tools/render-demo.js --level "Breeze" --start 100 --end 105   # 只抽一�
 - 仓库位置：`/sdcard/Documents/DLnotebook`；Node **v24**，**依然零 npm 依赖**，不用 `npm install`
 - 起客户端：`node tools/dev-server.js 8080` → 手机 Chrome 开 `http://127.0.0.1:8080`
 - 改完**直接刷新页面**即可（`dev-server` 的所有响应都带 `Cache-Control: no-store`）
+- **推送走 SSH**：remote 已改为 `git@github.com:Algfz/DLnotebook.git`。
+  为什么不用 HTTPS：本机 443 的 git 通道被卡死（`git push/ls-remote` 连续超时），而 **22 端口是通的**。
+  密钥在 `~/.ssh/id_ed25519`（2026-10-19 在手机上生成，公钥已登记到发起人的 GitHub 账号），
+  客户端是容器里 apt 装的 `openssh-client`（镜像原本没有 `ssh`）
 - 能做：改代码 / 关卡 JSON、跑生成器脚本、起服务器试玩
 - 不能做：Electron 打包（ADR-23）、`tools/shot.js` 与 `render-demo.js`（写死 Windows Chrome 路径 + CDP 端口）、
   `analyze-music.py`（要 numpy/scipy）、以及 `C:\DLnotebook-media\` 里的参考素材（不在手机上，`out/` 也不存在）
