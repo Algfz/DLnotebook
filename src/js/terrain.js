@@ -539,6 +539,8 @@ export const PALETTES = {
   ice:   { near: 0x27506e, mid: 0x5f89a6, far: 0xcfe2ec },   // 冰蓝：云海
   jade:  { near: 0x2f6b48, mid: 0x74ad91, far: 0xc4e8d5 },   // 草绿
   cream: { near: 0xa89f8e, mid: 0xe9e3d7, far: 0xfdfbf6 },   // 发白的米色：结尾金字塔
+  // 暖石台：断面（near）明显比台面深，边缘才立得住；far 淡到接近雾色，远处自然消失
+  dune:  { near: 0x6b5b46, mid: 0xc9b183, far: 0xe8dcc0 },
 };
 
 /* --------------------------- 组装整条地形 --------------------------- */

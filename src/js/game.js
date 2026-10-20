@@ -44,6 +44,10 @@ const THEME = {
   // 天空/雾都取"板面的浅版"，于是远处板面直接溶进天空 → 画面里没有地平线，板是无限的。
   // 路是**蓝灰立体折线带**（`#a8b8d8` / 断面 `#7c8aa6`），线保持 DL 的白（白压蓝灰差 32%，
   // 不会重犯那一关"线只比地面暗 6%"的错——报告第 8 节明确列为"不该抄"）。
+  // 「桌面模型」主题：深蓝灰的虚空 + 暖色台面 + 最亮的一条奶油路。
+  // 三层明度拉开（虚空 L12 / 台面 L70 / 路 L88），画面上才有一眼能读的主次。
+  diorama:  { sky: 0x121a24, fog: 0x18222f, road: 0xf1e3bd, trim: 0x8a7550,
+              scenNear: 0x5b4a38, scenMid: 0xc8b083, scenFar: 0xe3d3b4 },
   board:    { sky: 0xe9e7db, fog: 0xebe9dd, road: 0xa8b8d8, trim: 0x7c8aa6,
               scenNear: 0x9199ac, scenMid: 0xd1d0bb, scenFar: 0xe9e7db },
   pink:     { sky: 0xffd4e6, fog: 0xffe4f0, road: 0xf7a8cb, trim: 0xc4709e,

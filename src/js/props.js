@@ -488,6 +488,11 @@ export const PROPS = {
 export const PROP_COLORS = {
   // ETW29「驻足的宁静」：米黄板上只有三档蓝的方块 + 纯白小方块。
   // 三档蓝用的是那一关的实测值（#7F95CF L58 / #657CBE L49 / #3F5286 L32）。
+  // 暖石台（diorama）：树叶用低饱和的橄榄绿，石头用暖沙色 —— 和台面的米黄同调，
+  // 但比台面暗一档，才立得住（全用蓝灰会像"一堆塑料"）
+  dune:  { blue0: 0x7d6a4f, blue1: 0x5f5139, blue2: 0x3f3527, white: 0xf6efdd,
+           ground: 0xc9b183, shade: 0xa89070, foliage: 0x5f7f4e, wood: 0x6b4f35,
+           stone: 0xb8a482, bloom: 0xd9b48a, accent: 0xe8c98a },
   board: { blue0: 0x7f95cf, blue1: 0x657cbe, blue2: 0x3f5286, white: 0xfdfdfb,
            ground: 0xd1d0bb, shade: 0xbcc0c9 },
   // Breeze「灰」：虚空里的浮空云 —— 三档灰（亮/中/暗），别用蓝的（那一关整屏是灰的）

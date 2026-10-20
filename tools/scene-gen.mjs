@@ -32,70 +32,76 @@ const M_PER_BEAT = SPEED * BEAT;   // 6.32 m
 /* ----------------------------- 四幕剖面 -----------------------------
    一组 [离路距离 m, 相对路面高度 m]，左右镜像。
    第一段（0 ~ 1.6m）是路面本身；之后每一段先铺台面、再在同一距离处竖起立面。 */
+/* 设计：一整块「悬浮的暖石台面」，路是台面上最亮的一条带子。
+   台面边缘做 30m 厚的断面（深褐色），让它看起来有质量、不是一张纸。
+   台阶只在"离路 20m 以外"出现 —— 近处留白，远处才有形。 */
 const ACTS = [
   {
-    id: "A", name: "台原", t: [0, 40], palette: "board",
-    // 平原：几乎不放坡，只在 3m 处落一个 0.9m 的坎，让路"读"得出来
-    profile: [[1.6, 0], [14, 0], [14, -1.2], [60, -1.6], [110, -1.6]], flat: 13,
+    id: "A", name: "台原", t: [0, 40], palette: "dune", flat: 20,
+    profile: [[1.6, 0], [22, 0], [22, -1.2], [64, -1.2], [64, -7], [118, -7], [118, -30], [150, -30]],
   },
   {
-    id: "B", name: "深谷", t: [40, 108], palette: "cream",
-    // 主体：路是一条窄脊，两侧先垂直落 10m，再两级台地落到谷底 −32m，
-    // 谷对面 70m 处拔起一道 46m 高的崖壁（把天压住，画面才有"谷"的感觉）
-    profile: [[1.6, 0], [13, 0], [13, -38], [34, -44], [104, -46], [104, 20], [136, 28]], flat: 12,
+    id: "B", name: "深谷", t: [40, 108], palette: "dune", flat: 18,
+    profile: [[1.6, 0], [18, 0], [18, -1.4], [46, -1.4], [46, -12], [96, -12], [96, -24], [120, -24], [120, -44], [150, -44]],
   },
   {
-    id: "C", name: "梯田", t: [108, 148], palette: "sand",
-    // 收势：崖壁退到 62m，台地变缓，视野重新打开（和前一幕形成呼吸）
-    profile: [[1.6, 0], [12, 0], [12, -14], [40, -18], [104, -18], [104, 12], [134, 18]], flat: 11,
+    id: "C", name: "梯田", t: [108, 148], palette: "dune", flat: 22,
+    profile: [[1.6, 0], [24, 0], [24, -3], [44, -3], [44, -7], [66, -7], [66, -13], [118, -13], [118, -34], [150, -34]],
   },
   {
-    id: "D", name: "广场", t: [148, 168], palette: "board",
-    // 结尾：一片开阔的广场，只保留 7m 的台坎，把视线全部让给金字塔
-    profile: [[1.6, 0], [20, 0], [20, -10], [96, -10]], flat: 19,
+    id: "D", name: "广场", t: [148, 168], palette: "dune", flat: 30,
+    profile: [[1.6, 0], [40, 0], [40, -2], [110, -2], [110, -26], [150, -26]],
   },
 ];
 
-/* ----------------------------- 建筑语法 -----------------------------
-   四类，全部按 (t, off) 落位；off 正号 = 行进方向的右侧。 */
+/* 建筑语法：四类，成组出现，按乐句落位（8 拍 = 50.6m，16 拍 = 101m） */
 const ARCH = [];
 const put = (o) => ARCH.push({ rise: false, exact: true, ...o });
 
-// ① 平原上的巨石：建立尺度（人一进关就知道这世界多大）
-[8, 16, 24, 32].forEach((t, i) => {
-  const off = (16 + 6 * (i % 3)) * (i % 2 ? -1 : 1);
-  put({ t, off, w: 2.8, h: 13 + 4 * (i % 3), d: 2.8, tone: 2 });
+// ① 山门：幕的交界，两柱 + 架空横梁（横梁不做碰撞，只在头顶上跨过去）
+[39.6, 107.6, 147.6].forEach((t) => {
+  put({ t, off: 8.2, w: 4.4, h: 18, d: 4.4, tone: 2 });
+  put({ t, off: -8.2, w: 4.4, h: 18, d: 4.4, tone: 2 });
+  put({ t, off: 0, w: 25, h: 3.0, d: 5.6, dy: 15.4, tone: 1 });
 });
 
-// ② 山门：每一幕的交界处立一道门 —— 门是"进入下一段"的信号
-const GATES = [39.5, 107.5, 147.5];
-GATES.forEach((t) => {
-  put({ t, off: 6.8, w: 3.4, h: 15, d: 3.4, tone: 1 });
-  put({ t, off: -6.8, w: 3.4, h: 15, d: 3.4, tone: 1 });
-  put({ t, off: 0, w: 19, h: 2.4, d: 4.4, dy: 12.6, tone: 2 });   // 横梁：架空，不挡路
+// ② 远处的碑：只在平原段出现，做尺度参照（高而不密）
+[[6, 34], [18, -40], [30, 36]].forEach(([t, off]) => {
+  put({ t, off, w: 5, h: 26, d: 5, tone: 2 });
 });
 
-// ③ 谷中望柱：每 16 拍一对，沿脊线站成两排（节奏，而不是装饰）
-for (let t = 50; t <= 104; t += 16 * BEAT) {
-  put({ t, off: 5.2, w: 1.6, h: 6.5, d: 1.6, tone: 0 });
-  put({ t, off: -5.2, w: 1.6, h: 6.5, d: 1.6, tone: 0 });
+// ③ 柱列：贴着台面前沿排（每 8 拍一根），把"路的走向"读出来
+for (let t = 46; t <= 144; t += 8 * BEAT) {
+  put({ t, off: 5.6, w: 1.8, h: 7, d: 1.8, tone: 1 });
+  put({ t, off: -5.6, w: 1.8, h: 7, d: 1.8, tone: 1 });
 }
 
-// ④ 梯田列柱：每 8 拍一根，间距 50m→25m，走起来像穿过一段柱廊
-for (let t = 112; t <= 146; t += 8 * BEAT) {
-  put({ t, off: 9, w: 2.0, h: 10, d: 2.0, tone: 1 });
-  put({ t, off: -9, w: 2.0, h: 10, d: 2.0, tone: 1 });
-}
-
-// ⑤ 广场台座：两级退台，把金字塔托起来
-[[152, 15, 12, 5], [156, 24, 16, 8], [160, 15, 12, 5], [164, 24, 16, 8]].forEach(([t, off, w, h]) => {
-  put({ t, off, w, h, d: w, tone: 2 });
-  put({ t, off: -off, w, h, d: w, tone: 2 });
+// ④ 广场台座：两级退台，把金字塔托起来
+[[152, 18, 14, 5], [158, 28, 18, 9]].forEach(([t, off, w, h]) => {
+  put({ t, off, w, h, d: w, tone: 1 });
+  put({ t, off: -off, w, h, d: w, tone: 1 });
 });
 
 /* ----------------------------- 写入 ----------------------------- */
 const dry = process.argv.includes("--dry");
 const level = JSON.parse(fs.readFileSync(FILE, "utf8"));
+
+// 场景：深色虚空 + 拉远的雾（雾 26~118 会把 100m 外的崖壁吃掉，之前就是被它糊平的）
+for (const sc of level.scenes || []) {
+  sc.theme = "diorama";
+  sc.palette = "dune";
+  sc.fogRange = [90, 620];
+  sc.camera = [
+    { t: 0, tilt: 40, dist: 32, yaw: 35 },
+    { t: 14, tilt: 38, dist: 30, yaw: 18 },
+    { t: 40, tilt: 40, dist: 32, yaw: 0 },
+    { t: 70, tilt: 39, dist: 33, yaw: 0 },
+    { t: 110, tilt: 42, dist: 32, yaw: 8 },
+    { t: 148, tilt: 38, dist: 30, yaw: 0 },
+    { t: 168, tilt: 36, dist: 28, yaw: 0 },
+  ];
+}
+
 
 // 旧的高架桥装饰（护栏/桥墩）属于上一版"路架空 4m"的做法；现在的路是走在一整条
 // 实心山脊上，再挂护栏/桥墩只会和地形打架 —— 去掉（改由地形剖面 + 望柱表达）。
@@ -103,20 +109,20 @@ delete level.bridge;
 
 level.terrain = {
   v: 1,
-  base: { motif: "profile", palette: "board", params: { profile: ACTS[0].profile, flat: ACTS[0].flat, inset: 0.45, smooth: 2, smoothFar: 6, smoothFarFrom: 15, th: 6 } },
+  base: { motif: "profile", palette: "board", params: { profile: ACTS[0].profile, flat: ACTS[0].flat, inset: 0.3, smooth: 2, smoothFar: 8, smoothFarFrom: 20, th: 8 } },
   spans: ACTS.slice(1).map((a) => ({
     t: a.t, motif: "profile", palette: a.palette,
-    params: { profile: a.profile, flat: a.flat, inset: 0.45, smooth: 2, smoothFar: 6, smoothFarFrom: 15, th: 6 },
+    params: { profile: a.profile, flat: a.flat, inset: 0.3, smooth: 2, smoothFar: 8, smoothFarFrom: 20, th: 8 },
   })),
   // 结尾的金字塔保留（它是最强的终点符号），但让它退得更远、更宽
-  endcap: { halfW: 96, slotW: 9, h: 120, enter: -70, sink: 3, palette: "jade" },
+  endcap: { halfW: 96, slotW: 9, h: 120, enter: -70, sink: 3, palette: "dune" },
 };
 
 // 树：参考图里"稀但大"的植被。每 34m 一棵、左右交替，尺寸 1.2~1.9 倍，
 // 摆在台面内侧（off 7.5~11m，不出台沿），归 buildProps 的占用格处理互相避让。
 level.props = [
-  { kind: "tree", t: [2, 166], every: 34, off: [7.5, 11], scale: [1.2, 1.9] },
-  { kind: "rock", t: [30, 160], every: 71, off: [10, 14], scale: [0.8, 1.4] },
+  { kind: "tree", t: [4, 164], every: 38, off: [9, 19], scale: [1.6, 2.5] },
+  { kind: "rock", t: [26, 158], every: 63, off: [12, 22], scale: [0.9, 1.6] },
 ];
 
 level.place = ARCH.map((o) => ({

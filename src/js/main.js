@@ -364,7 +364,9 @@ function enterImmersive() {
 async function startGame() {
   if (!curLevel) return;
   trace("tap level=" + (curLevel && curLevel.dir));
-  enterImmersive();                       // 必须在 await 之前（见上面的说明）
+  // 截图模式不要全屏、不要锁横屏：那是给别人玩的时候用的，
+  // 拍一张图就把用户的手机转过去，纯属添乱（用户已经提过一次了）
+  if (!/capture=1/.test(location.search)) enterImmersive();                       // 必须在 await 之前（见上面的说明）
   const btn = $("#btnPlay");
   const old = btn.textContent;
   btn.textContent = "载入中…";
@@ -756,6 +758,7 @@ async function runCapture() {
       trace("capture t=" + t + " ok, " + Math.round(data.length / 1024) + "KB");
     }
     trace("capture 全部完成");
+    setTimeout(() => { location.href = "about:blank"; }, 800);
   } catch (e) {
     trace("capture FAIL " + ((e && e.stack) || e));
   }
