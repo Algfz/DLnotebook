@@ -52,6 +52,12 @@ const THEME = {
   // 白线（0xffffff）与黑线（0x000000）在同一条中灰路面上都能看清。
   gray:     { sky: 0xb9bec6, fog: 0xd2d6db, road: 0x70767d, trim: 0xf0f2f5,
               scenNear: 0x3f454c, scenMid: 0x848b93, scenFar: 0xc9ced4 },
+  // 全白（悬空路线用，2026-10-31 新关《来自我的声音》）：天空与雾几乎同色，
+  // 于是**没有地平线**，路带像一条浮在虚空里的纸带。
+  // 白线（0xffffff）必须压在浅灰蓝路面上才看得见：路 0xc6cede L≈211，白 255 → 差约 17%，
+  // 刚好越过 R3 的 15% 底线；描边取更深的蓝灰（R22：亮场不要提亮线，只会更糊）。
+  white:    { sky: 0xf7f9fc, fog: 0xfdfeff, road: 0xc6cede, trim: 0x8e99ad,
+              scenNear: 0xa9b4c6, scenMid: 0xd2d9e4, scenFar: 0xf2f5f8 },
 };
 
 // 相机相对「线头中点」的固定偏移（等距斜后方视角，DL 的典型机位）

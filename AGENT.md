@@ -342,6 +342,7 @@ DLnotebook/
 | 密度 | `node tools/probe.js` | 各曲踩音密度 vs 线速的权衡表（判断某关是否"过密"） |
 | 音乐结构 | `python tools/analyze-music.py [音频]` | 段落/能量/亮度/onset/旋律轮廓 → 同目录 `music-analysis.json`；需 numpy + scipy |
 | 生成 | `node build/gen-path.js [关卡目录]` | `.beat.json` → `level.json`（理想轨迹 + 客户端关卡）；`--elevate` 高架、`--b-x/--b-y/--b-z` 双线平移/抬高、`--view a,b` 放大预览 |
+| **踩点抽稀** | `node tools/thin-marks.mjs <beat.json> --min-dt 0.30 [--out 另存] [--dry]` | 把挨得太近的 mark 合并掉：两个 mark 只差 0.09s 时那一段长 1.2m，比路宽（3m）还窄，两个 90° 弯挤成一团、路面自己叠着糊成疙瘩。贪心保留（每颗留下的仍是真踩点） |
 | 布景 | `node build/gen-scenery.js --level "ring a bell"` | 沿**真实路线**布近/中/远三层纯几何块 → 写回 `level.json` 的 `scenery`（v2 分层格式）；`--seed/--density/--clear/--dry`；缺 `--level` 时仍取 `levels/` 下最近修改的关卡 |
 | 布景手工编辑 | 双击 `tools/SceneryEditor.html` | 拖入 `level.json` + `dance-line.json`（或整个文件夹）→ 可视化放置/移动/缩放/删除布景块 → 「导出 level.json」覆盖原文件 |
 | 预览 | 双击 `tools/PathPreview.html`，拖入**关卡文件夹** | 俯视看路径，播放时红线沿路径移动，验证结构与音画同步；**支持多线**（含 `lines[]` 时同时画两条线） |
@@ -747,6 +748,11 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 38
      空场里保留 30% 的低石板（原来 7%，留白太大）；路障/石板密度按幕微调。
 
 ### 📋 待办
+- [x] **新关《来自我的声音》demo（2026-10-31）**：白调 + 悬空（**不写 `terrain`**）+ 无布景（`place=[]`）。
+      `levels/来自我的声音-David叶音_刘家良MARSIX/`，96.27 s、122.03 BPM、14 m/s、119 个折点 / 1348 m，
+      路宽 3 m，主题新增 `white`（见 ADR-36），相机三段 `{tilt, dist, yaw}`（见 ADR-37）。
+      踩点先用 `thin-marks.mjs --min-dt 0.30` 抽稀（160 → 119 颗），否则最短段 1.23 m < 路宽。
+      出图 `out/shot/来自我的声音-David叶音_刘家良MARSIX/`、成片 `out/smy-demo-1080p30.mp4`。
 - [ ] **本关布景已清空，等方向**（2026-10-18 白天，发起人："把这个关卡所有布景全删了"）：
       `place[] = []`、`terrain = {base:{motif:"board", walk:3, half:150, th:9}, endcap:false}`、无 `spans`、
       `roadStrip.from = 999999`（不铺路面带）。现在全场只剩**一整块米黄平板 + 白舞线 + 引导虚线**，
@@ -1202,6 +1208,26 @@ B) 速度降到 6.68 m/s（形状不动，但整关 346 s 比音乐 174.7 s 长�
 
 **ADR-33（续）：`refrender.mjs` 的边界** 见上条 ③——单视图点云换机位必露背面空洞，
 "可飞场景"必须多帧融合（`tools/reffuse.py`）。
+
+**ADR-36：`white` 主题 —— 白场里"路"与"线"的明度差是设计约束（2026-10-31）**
+> 悬空关没有地面做参照，路带自己就是唯一的形体。白色调最容易翻车的地方是
+> **白线压在浅色路面上直接消失**，所以路必须比线暗一档。
+
+- 取值：`sky 0xf7f9fc` / `fog 0xfdfeff`（天空与雾几乎同色 ⇒ **没有地平线**，路像浮在虚空里）/
+  `road 0xc6cede`（L≈211，白线 255 ⇒ 差约 17%，刚好越过 R3 的 15% 底线）/ `trim 0x8e99ad`
+  （亮场描边要**更深**，R22：亮场别去提亮线，只会糊成一团）。
+- 想再白一点就把 `road` 抬到 0xd8dde6 以上——但那样白线差 <10%，线会看不见，**不要试**。
+- `scenNear/Mid/Far` 仍按"近暗→远淡"给（本轮没布景，留着是给以后加景物用）。
+
+**ADR-37：相机关键帧只认 `{t, tilt, dist, yaw}`（2026-10-31 又踩了一次）**
+> 老写法 `{mode:"follow", height, dist}` 里的 `height` **引擎根本不读**，而且
+> `dist` 只有在同一帧给了 `tilt` 时才生效（`game.js:232`）。所以只写 `height+dist` 的帧会被整体丢弃，
+> 回落到默认机位（tilt≈41°、dist≈32m）——表现是"**改了相机参数画面完全没变**"（本轮 A/B 两张图 sha256 一模一样）。
+
+- 正确写法：`{"t":0,"mode":"follow","tilt":36,"dist":26,"yaw":0}`（`tilt` 度、`dist` 米、`yaw` 相对正后方）。
+- 悬空关的机位参考：`tilt 34~42`、`dist 24~32`；要求"看得清折线形状"就往 45°/40m 走，
+  要求"贴地压迫感"就往 30°/20m 走。
+- 新关用 `gen-path.js --level` 生成的 `camera` 是**老写法**，出图前必须自己改成 `tilt/dist`。
 
 ---
 
