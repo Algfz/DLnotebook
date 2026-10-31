@@ -9,7 +9,9 @@
 
 ## 0. 一分钟理解本项目
 
-做 **DLnotebook** —— 一个**自制 Windows 客户端 + 关卡项目**：线沿路径自动前进，点击转向，撞障碍即失败。术语与生态见 §1。
+做 **DLnotebook** —— 一个**自制 DL 客户端 + 关卡项目**：线沿路径自动前进，点击转向，撞障碍即失败。术语与生态见 §1。
+
+**目标平台：手机横屏优先**（关卡按 16:9 设计，手机上横过来玩），电脑浏览器上也能玩。**不再打包 exe**（2026-10-19 拍板，见 ADR-23）。
 
 ---
 
@@ -37,7 +39,7 @@
 **硬约束**
 - 发起人**零编程基础**，不学编程。所有技术工作由 AI 完成
 - 他能做到的配合：运行程序、描述现象、贴报错、试玩提反馈
-- 只做 **Windows 客户端**（暂不考虑手机）
+- 只做 **手机横屏**（2026-10-19 修正：竖屏是错的判断，见 ADR-24），桌面浏览器能跑就行（2026-10-19 起；原因见 §11「开发环境搬到手机」与 ADR-22/23）
 - 非商用作品：原曲出处与授权说明必须在关卡 `meta.source` 里写清（见 `docs/level-format.md`）
 
 ---
@@ -46,7 +48,7 @@
 
 | 层 | 选择 | 理由 |
 |---|---|---|
-| 客户端运行时 | **Electron**（Chromium + Node） | 圈内"解压即玩"惯例；Web 技术栈 AI 产出质量最高 |
+| 客户端运行时 | **手机/桌面浏览器 + 本地 Node 静态服务**（`tools/dev-server.js`） | Electron 打包已放弃（ADR-23）：浏览器直接开就是客户端，手机上一样 |
 | 3D 渲染 | **Three.js**（WebGL） | DL 画面为低多边形几何+后期，无需 Unity 级管线 |
 | 音频 | **Web Audio API** | 提供精确音频时钟，是音画同步的基础 |
 | 关卡数据 | **JSON** | AI 读写最稳、可 diff、可脚本生成 |
@@ -57,7 +59,8 @@
 
 - **Unity**：发起人明确不用（对现有模板不满，且不想进 Unity 生态）
 - **Godot**：可行，但发起人只做 Windows，Web 技术栈迭代更快
-- **纯网页（不打包）**：分发不体面，不符合圈内"下载 exe"习惯
+- **Electron 打包 exe**（2026-10-19 放弃，ADR-23）：发起人电脑送修、开发整体搬到手机，桌面打包链路在手机上没法复现；
+  浏览器本身就是最好的客户端。原打包规格仍留在 `docs/client-spec.md` 备查
 
 ---
 
@@ -747,6 +750,66 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 38
      `t1Of` 算出 NaN，后果和坑 1 一样：最后一幕台面盖满全程**）；2×2 拼块概率 18%→10%（前景巨板太多）；
      空场里保留 30% 的低石板（原来 7%，留白太大）；路障/石板密度按幕微调。
 
+### ✅ 2026-10-19 手机端化（触摸操作 + 放弃 exe；方向从竖屏纠正为横屏，见 ADR-24）
+
+**触发**：发起人的电脑送修，开发环境整体搬到**手机**（Android，仓库在 `/sdcard/Documents/DLnotebook`）。
+`node tools/dev-server.js` 在手机上能起（Node 24 / 零 npm 依赖），但客户端原本是「键盘 + 16:9 横屏」，
+手机上一个弯都过不去 —— 转向只监听 `keydown`。
+
+- [x] **触摸转向**（`src/js/main.js`）：用 `pointerdown` 统一处理鼠标/手指/触控笔。
+  单线 = 点屏幕任意处转向；**双线 = 右半屏管线 A（白线）、左半屏管线 B（黑线）**（与原 ↑ / X 的分工一致）。
+  ⚠️ 坑：不能同时监听 `touchstart` + `mousedown` —— 手机上同一次点按会触发两次，一按转两次。
+- [x] ~~竖屏界面~~ → **改为横屏**（ADR-24）：`src/index.html` 新增 `@media (orientation: landscape) and (max-height: 560px)`；
+  竖屏那套留作兜底。选关从「左列表 + 右详情」
+  改成上下单列，封面/标题/Play 按钮按拇指尺寸放大，HUD 收到四角并避让 `safe-area`（刘海/挖孔），
+  弹窗限高可滚；触摸设备上**隐藏「操作按键」那一行**（手机没键盘，绑了也没用）。
+- [x] **取景**（`src/js/game.js` 的 `resize()` + `camOffsetAt()`；横屏下倍数为 1，只服务竖屏兜底）：横向视野 = 纵向视野 × 宽高比，
+  竖屏 aspect≈0.45 时同一机位横向只剩约 7m，拐个弯就出画。按 `sqrt(16:9 / aspect)` 把机位整体后撤
+  （封顶 1.7 倍）。**可现场手调**：地址栏加 `?fit=1.4` 试不同倍数。
+- [x] **手机细节**：禁双击缩放 / 长按选字 / 长按系统菜单（viewport + `touch-action:none` + `contextmenu`）；
+  点 Play 时申请全屏并锁竖屏（**必须在 `await` 之前**：全屏 API 要求用户手势还在有效期内）；
+  画质按设置封顶渲染像素比（手机 DPR 常是 3，无脑按 2 渲染会掉帧）。
+- [x] **延迟校准也能在手机上做**：跟着蜂鸣**点屏幕**，替代桌面的空格键。
+- [x] `tools/dev-server.js` 的 `--open` 不再写死 `explorer.exe`（按 win32 / darwin / 其它 走 explorer / open / xdg-open）。
+- ⏳ **未验证**：真机画面没能截图核对（见 §13「手机截屏/读屏不可用」），取景比例等发起人试玩反馈。
+
+### ✅ 2026-10-19 晚 ·《ring a bell》布景重做（从「摆放景物」到「场景建模」）
+
+发起人的判断：问题不是"东西不够多"，而是**用摆放景物的思维堆了太多东西**。
+旧版 3049 件小方块沿路撒满，读起来是"一堆物品"而不是"一个地方"。这一轮整体换掉：
+
+- **地形变成一条横断面剖线**（新母题 `profile`，`src/js/terrain.js`）：
+  给的是"从路中心往外，地面在第 X 米落到第 Y 米"，左右镜像、沿路连续生成。
+  近处轻平滑（给路让位），40m 以外换重平滑 —— 否则 100m 外的崖壁会跟着
+  每 3m 一个 90° 折点碎成一块块"板"。
+- **四幕结构**（`tools/scene-gen.mjs`）：台原 0–40s → 深谷 40–108s → 梯田 108–148s → 广场 148–168s，
+  每幕换色卡（board / cream / sand / board），接缝处立「山门」把切换藏在建筑后面。
+- **建筑只有四类共 57 件**（旧版 3049 件）：平原巨石 8、山门 3 道（两柱 + 架空横梁）、
+  谷中望柱 16（每 16 拍一对）、梯田列柱 20（每 8 拍一根）、广场台座 8。
+- 去掉上一版的 `bridge` 装饰（护栏/桥墩）：路现在走在一整条实心山脊上，再挂桥墩会和地形打架。
+- 关卡文件 973 KB → **42.7 KB**；地形 76 个网格 / 6.8 万顶点（≈2.2 万三角形），构建 47 ms；
+  净空自检：落地件到路中心最小 2.44 m，**0 件压线**。
+- 配套工具：`tools/scene-preview.py`（软件渲染预览）+ `tools/scene-gen.mjs`（可重跑的生成器）；
+  原始布景备份在 `out/bak/ring-a-bell.level.before-scene-rebuild.json`。
+
+### ✅ 2026-10-31 · 合并手机端那条线（origin/master 13 个提交）
+
+**背景**：10-19 发起人在手机上开发（触摸/横屏/打点/`profile` 母题/布景重做/diorama），
+当时没从电脑这边 pull，于是两条线分叉（本地 43 / 远端 13）。10-31 正式合入。
+
+- 冲突 4 个：`.gitignore`（**HEAD 里那份自己就是坏的**：混着 GBK 乱码行 + 重复的 `.dsh/`，已重写成干净版）、
+  `AGENT.md`（两边都是"按时间追加的进度记录"，取并集）、
+  `levels/ring a bell-灰澈/level.json`（**取远端 10-19 的「场景建模重做」版**：motif=`profile`、681 折点、72 件 place，
+  比本地 10-18 的"清空布景"更新，代表发起人最后的意思）、
+  `src/js/terrain.js`（远端是**纯新增**：`motifProfile()` + `MOTIFS.profile` + `DEFAULT_PARAMS.profile` + `PALETTES.dune`，
+  直接叠加到本地的 `paving` 版上，两边都保住了）。
+- ⚠️ **合并后必须重跑工具自检**：`shot.js` / `render-demo.js` 原来靠 `MouseEvent("mousedown")` 点画布开始游戏，
+  而客户端 10-19 起统一监听 `pointerdown` ⇒ 合成 mousedown 不触发，**游戏停在 idle、线头永远在起点**，
+  出图全是"远景空镜"。两个工具已改为发 `PointerEvent("pointerdown")`（无 PointerEvent 时回落 MouseEvent）。
+  判据：`node tools/shot.js --level "ring a bell" --times 30 --check` 应打印 `状态 playing`。
+- 合并后自检：`node --check` 全过（src/js/*.js、tools/*.mjs）、两关都能跑完整程
+  （ring a bell t=174 / 来自我的声音 t=94 都是 `playing`）、`dev-server.js` 起在 8099 回 200。
+
 ### 📋 待办
 - [x] **新关《来自我的声音》demo（2026-10-31）**：白调 + 悬空（**不写 `terrain`**）+ 无布景（`place=[]`）。
       `levels/来自我的声音-David叶音_刘家良MARSIX/`，96.27 s、122.03 BPM、14 m/s、**160 个折点 / 1348 m**，
@@ -1241,6 +1304,51 @@ B) 速度降到 6.68 m/s（形状不动，但整关 346 s 比音乐 174.7 s 长�
 - 落地：本关 `beat.json` 已恢复成根目录那份的**逐字节同版**（sha256 一致），路径按 160 颗重生成，
   `levels/来自我的声音-David叶音_刘家良MARSIX/level.json` 的 `path` = 160 点。
 
+**ADR-39：两条线并行开发后，合并的第一件事是重跑"能开始游戏"的自检（2026-10-31）**
+> 手机上那条线把输入从 `mousedown` 改成了 `pointerdown`（ADR-22/24），
+> 而截图工具仍在派发合成 `MouseEvent("mousedown")` ⇒ 合并后出图全是"起点远景空镜"，
+> 一眼看去像相机坏了/关卡没加载，实际是**游戏根本没开始**（`state` 停在 `idle`）。
+- 教训：**输入通道也是契约**。改了输入事件名，所有"假装玩家点一下"的工具（`shot.js`、`render-demo.js`、
+  以及将来任何自动化）都要跟着改；否则产出不会报错，只会静默出一堆"看起来不对劲"的图。
+- 落地：两处改为优先发 `PointerEvent("pointerdown", {bubbles:true, pointerType:"mouse"})`，
+  没有 PointerEvent 时回落 MouseEvent。自检判据固定为 `--check` 输出 `状态 playing` + 线头坐标在动。
+
+---
+
+**ADR-22：手机竖屏优先，操作改为「点屏幕」（2026-10-19）** ⚠️ **方向部分已被 ADR-24 推翻**
+发起人电脑送修，开发环境搬到手机，目标平台随之从 Windows 桌面改为手机浏览器。
+竖屏不是「顺手支持一下」而是主形态：横屏 16:9 是原设计，但手机上竖着拿才是常态，且原版 DL 本身就是竖屏手游。
+代价：横向视野只有横屏的约 1/4 → 机位必须后撤（`camFit`），近景会比横屏显得更远。
+操作从「键盘 ↑ / X」改为「点屏幕 / 左右半屏」，键盘保留给桌面。
+
+**ADR-23：放弃 Electron 打包 exe（2026-10-19，发起人拍板）**
+理由：① 打包链路只能在 Windows 上跑，手机上无法复现；② 浏览器本身就是客户端，
+打开 `http://localhost:8080` 即玩；③ 发起人原话「exe 现在暂时还没做，以后也不太可能做了」。
+影响：`docs/client-spec.md` 的「解压即玩」规格降级为历史参考；`启动客户端.bat` 保留（Windows 上仍可用）。
+
+**ADR-24：手机上一律横屏，不玩竖屏（2026-10-19，发起人指出，修正 ADR-22）**
+发起人试玩后指出：**这个关卡本身就是为横屏设计的**（机位、雾、可见宽度全按 16:9 标的），
+手机上也要横过来玩。ADR-22 把它当"竖屏手游"是错的判断 —— 原版 DL 是竖屏，
+但**我们这一关的构图不是**，照着原版抄方向属于把结论套在证据上。
+落地：
+- 点 Play 后 `requestFullscreen()` → **再**锁 `landscape`（Android Chrome 允许方向锁的前提是全屏）；
+  全屏被拒时也再试一次锁。
+- 新增横屏手机专用布局 `@media (orientation: landscape) and (max-height: 560px)`：
+  选关整体收紧、封面限高 38vh、HUD 收到四角并避让左右 `safe-area`（刘海在侧面）。
+- 竖屏那套布局**保留但降级为兜底**：只在方向锁被拒/用户坚持竖拿时生效，
+  并盖一层「请把手机横过来」的提示（`#rotHint`）。
+- `camFit`（机位后撤）在横屏下恒为 1（`sqrt(16:9/aspect) ≤ 1` 被夹住），只服务竖屏兜底。
+
+**ADR-25：布景改用「场景建模」，不再「摆放景物」（2026-10-19 晚，发起人定调）**
+发起人原话：「用场景建模的思维进行布景，不要用摆放景物的思维进行布景」。
+落地成三条硬规矩：
+1. **先有地，再有物**：环境的第一性表达是地形（横断面剖线），不是物件数量；
+2. **物件必须是"建筑"**：成组、对齐、按节拍出现（本关 6.32 m/拍），每件 10 m 量级起，
+   不做碎石/杂草这类"点缀"；
+3. **分幕靠体量不靠渐变**：幕与幕之间用地形剖面的跳变 + 山门遮挡，而不是靠颜色慢慢糊过去。
+自检方法（可复用）：数"这一关有多少个独立决定" —— 旧版 3049 个（等于没有设计），
+新版 = 4 幕 + 57 件。
+
 ---
 
 ## 10. 关卡素材与设计说明
@@ -1282,6 +1390,30 @@ VGGT-1B 40 帧 fov 偏 −20° 且点云裂成两团）；MapAnything 单帧 fov
 ---
 
 ## 11. 开发环境与资源
+
+**⚠️ 2026-10-19 起：开发环境在手机上（Android）**
+- 仓库位置：`/sdcard/Documents/DLnotebook`；Node **v24**，**依然零 npm 依赖**，不用 `npm install`
+- ⚠️ **容器里跑不了 Chromium**（`Trace/breakpoint trap`，装完依赖也照崩）：
+  `tools/shot.js` 那套 CDP 截图在手机上用不了；要看画面请用 `tools/scene-preview.py`（Pillow 软件渲染）
+- 起客户端：`node tools/dev-server.js 8080` → 手机 Chrome 开 `http://127.0.0.1:8080`
+  - 给发起人的一键版：`sh /sdcard/Documents/DLnotebook/启动手机端.sh`（Android 上 `/sdcard` 不可执行，必须 `sh 脚本` 调用），说明写在 `手机启动说明.md`；真正自启动需要 Termux（本机目前没装）
+- 改完**直接刷新页面**即可（`dev-server` 的所有响应都带 `Cache-Control: no-store`）
+- **推送走 SSH**：remote 已改为 `git@github.com:Algfz/DLnotebook.git`。
+  为什么不用 HTTPS：本机 443 的 git 通道被卡死（`git push/ls-remote` 连续超时），而 **22 端口是通的**。
+  密钥在 `~/.ssh/id_ed25519`（2026-10-19 在手机上生成，公钥已登记到发起人的 GitHub 账号），
+  客户端是容器里 apt 装的 `openssh-client`（镜像原本没有 `ssh`）
+- **服务器要独立跑**：别用会话里的后台任务（会话重启就被杀，发起人会撞上"打不开/卡载入"的空窗期）。
+  用 `setsid nohup node tools/dev-server.js 8080 > /tmp/dlnotebook-server.log 2>&1 < /dev/null &`
+- **盲人通道（看不到屏幕时的调试手段）**：`tools/dev-server.js` 会打印每个请求；
+  页面里 `index.html` 的 `report()` 把启动/转屏/异常 POST 到 `/api/log`，
+  `main.js` 的 `trace()` 把 Play 流程逐段打点（tap → ac → json → audio → game）。
+  手机上没有 DevTools 也截不了屏时，这是唯一能看见"卡在哪一步"的办法
+- 实测（Breeze，手机横屏 751×363 CSS 像素，aspect 2.07）：点 Play → 读关卡 <0.3s →
+  解码 11MB mp3 约 2s → 建场景 <1s；**方向锁生效**（视口从 363×625 竖屏转成 751×363 横屏）
+- 能做：改代码 / 关卡 JSON、跑生成器脚本、起服务器试玩
+- 不能做：Electron 打包（ADR-23）、`tools/shot.js` 与 `render-demo.js`（写死 Windows Chrome 路径 + CDP 端口）、
+  `analyze-music.py`（要 numpy/scipy）、以及 `C:\DLnotebook-media\` 里的参考素材（不在手机上，`out/` 也不存在）
+
 
 **Breeze 的布景（2026-10-13）** —— `tools/breeze-decor.mjs`（`--apply` 写回 / `--clear` 清空 / `--gap=3` 换净空 /
 `--s=0.5` 换取证图比例）。Breeze 是**双线关卡**（白线 `lines[0]` + 黑线 `lines[1]`，各约 3.95 km），
@@ -1332,6 +1464,9 @@ node tools/analyze.js          # 分析踩音数据
 node tools/probe.js            # 各曲密度 vs 线速
 node build/gen-path.js        # 生成 level.json
 node build/gen-scenery.js --level "ring a bell"   # 布景：沿真实路线布三层纯几何块 → level.json 的 scenery
+node tools/scene-gen.mjs       # 重新生成《ring a bell》的布景（地形剖线 + 57 件建筑）
+python3 tools/scene-preview.py --level "ring a bell" --t 60 --out out/preview/x.png   # 软件渲染预览（不开浏览器）
+node tools/dev-server.js 8080  # 起客户端（请求日志 + /api/log 接收客户端打点）
 node tools/shot.js --level "ring a bell" --times 8,45,90   # 看单帧截图（调视觉用）
 python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
 ```
@@ -1383,6 +1518,10 @@ python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
 | 《ring a bell》密度过高 | ⚠️ 待定 | 681 点 / 3.9 个每秒，最短段 1.17m < 路宽 3m → 密集段路面重叠（已改用高架桥缓解视觉）。发起人确认暂不稀释，若后续要加 `--min-gap` 合并过密点 |
 | **密集踩音不是缺陷** | ✅ 已界定 | 发起人 2026-10-11 明确：高难关卡踩音本就密集（Breeze 线 A 3.6 转/秒、最小段 2.39m 属常态）。**不要建议抽稀**；整曲俯视预览糊成斜线只是尺度问题，用 `--view a,b` 放大即可 |
 | **双线关卡** | ✅ 客户端已实现（2026-10-11） | `level.json` 的 `lines[]`（线 A/B）已能在客户端**同时渲染**：每条线一条路面 + 一个线头 + 一条轨迹，各自独立输入（上箭头 / X）与独立判定。镜头以**线头中点**为中心、按 `cameraOrbit` 环绕（详见 §14 与 `docs/client-impl.md` §十） |
+| **手机横屏布局待试玩** | ⚠️ 待试玩 | `max-height: 560px` 的横屏断点是按常见 915×412 CSS 像素估的；选关封面限高 38vh、HUD 四角位置还需真机确认 |
+| **手机截屏/读屏不可用** | ⚠️ 环境限制 | 本机 `/app/ui/screenshot` 回 `SCREEN_TARGET_UNAVAILABLE`，AI 看不到画面 —— 视觉问题只能靠发起人截图或口头描述，需在「设置 → 设备能力授权」里开截屏 |
+| **新布景未经真机验证** | ⚠️ 待试玩 | 2026-10-19 重做的四幕地形 + 57 件建筑只在软件渲染预览里看过（`tools/scene-preview.py`），真机的雾/光照/取景观感待发起人确认 |
+| **`out/` 参考素材不在手机上** | ⚠️ 环境限制 | 6.4GB 素材在电脑的 `C:\DLnotebook-media\`，手机上 `out/` 根本不存在；依赖 `out/research/**` 的复查暂不可做 |
 
 ---
 
@@ -1421,7 +1560,7 @@ python tools/analyze-music.py  # 音乐结构分析（需 numpy + scipy）
    ⚠️ 发起人**没时间手动布景**，所以必须"我自动生成 + 批量出缩略图给他挑"，不能只给他一个编辑器
 
 3. **检查点** — 175 秒的关卡死亡从头重来，体验差
-4. **Electron 打包** — 与目录同名 exe，遵循社区「解压即玩」
+4. ~~**Electron 打包**~~ — **已放弃**（ADR-23，2026-10-19），交付形态改为「浏览器即客户端」
 5. ✅ **「两条线」玩法实验**（2026-10-11 实现，待试玩）— 玩家**同时控制两条线**增加难度。
    已就绪：采音器双轨踩音、`level.json` 的 `lines[]`（几何 + 颜色 + 按键）、`gen-path.js` 双线几何、
    `PathPreview.html` 多线渲染、**客户端 `game.js` 多线渲染 / 双路输入 / 逐线判定**

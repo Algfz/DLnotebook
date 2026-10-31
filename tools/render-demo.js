@@ -409,9 +409,12 @@ async function main() {
   log("  关卡已就绪，画布 " + O.w + "x" + O.h);
 
   // 点一下画布开始（idle → playing）。此时 __vt 还是 0，所以音频时钟的 t0 = 0。
+  // ⚠️ 客户端已改听 pointerdown（2026-10-19），只发 MouseEvent 会停在 idle。
   await cdp.eval(`(() => {
-    document.getElementById("gameCanvas").dispatchEvent(
-      new MouseEvent("mousedown", { button: 0, bubbles: true }));
+    const cv = document.getElementById("gameCanvas");
+    const opt = { button: 0, buttons: 1, bubbles: true, cancelable: true, pointerType: "mouse", isPrimary: true };
+    cv.dispatchEvent(window.PointerEvent ? new PointerEvent("pointerdown", opt)
+                                         : new MouseEvent("mousedown", opt));
     if (!${O.hud}) document.getElementById("hud").style.display = "none";
     window.dispatchEvent(new Event("resize"));     // 让 renderer 按最终视口重新 setSize
     return true;

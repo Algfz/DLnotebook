@@ -774,9 +774,70 @@ function motifPaving(pts, W, M, surf, palMats) {
   return out;
 }
 
+/* E 剖面（profile）：用一条**横断面剖线**定义整个地形。
+   这是"场景建模"用的母题：设计师给的是"从路中心往外，地面在第 X 米处落到第 Y 米"，
+   而不是"往路两边撒一些石头"。所有台面/崖壁都沿路连续生成，转角由 sm 平滑统一处理。
+
+   params.profile = [[off, h], ...]，off 从路中心向外的距离（米），h 相对路面的高度。
+   左右镜像；相邻两点之间：先铺水平台面（在 h_i），再在同一 off 处竖一堵立面到 h_{i+1}。
+   例（山脊 + 深谷 + 远崖）：
+     [[1.6,0],[3.2,0],[3.2,-9],[10,-18],[26,-26],[60,-30],[72,18],[84,24]]
+   读法：路面 0~1.6m；肩宽到 3.2m 仍是路面高度；3.2m 处垂直落下 9m；
+   9m 外是缓坡台地，26m 处到 -26m；60m 处谷底 -30m；72m 处拔起一道 48m 高的崖壁到 +18m。 */
+function motifProfile(pts, W, M, surf) {
+  const prof = (W.profile && W.profile.length >= 2 ? W.profile : [[1.6, 0], [60, 0]])
+    .slice().sort((a, b) => a[0] - b[0]);
+  // inset：地面整体压到路面以下多少米。参考 Astra 那代复刻：路是一条**凸起**的带子，
+  // 坐在一整块台面之上；齐平时路和地会糊成一张纸。
+  const IN = W.inset == null ? 0 : W.inset;
+  const surf0 = surf - IN;
+  const sm = smoothCoords(pts, W.smooth == null ? 2 : W.smooth);
+  // 远处（off > smoothFarFrom）用**更重的平滑**：近处要给路让位、不能抹，
+  // 但 100m 外的崖壁如果还跟着每 3m 一个 90° 折点走，就会碎成一块块"板"。
+  const smFar = smoothCoords(pts, W.smoothFar == null ? 7 : W.smoothFar);
+  const FAR_FROM = W.smoothFarFrom == null ? 40 : W.smoothFarFrom;
+  const out = [];
+  const th = W.th == null ? 6 : W.th;
+  for (const sign of [1, -1]) {
+    for (let i = 0; i < prof.length - 1; i++) {
+      const o0 = prof[i][0], h0 = prof[i][1];
+      const o1 = prof[i + 1][0], h1 = prof[i + 1][1];
+      // ⚠️ 不能"近环用 sm、远环用 smFar"——两条曲线的顶点位置不同，
+      //    交界的那个 offset 上会裂出缝（预览里看得很清楚：一圈飘着的薄片）。
+      //    按偏移量把两条曲线**混合**，相邻两环在同一个 offset 上求值，接缝天然闭合。
+      const curve = (off) => {
+        const t = Math.max(0, Math.min(1, (off - 3) / (FAR_FROM - 3)));
+        if (t <= 0) return sm;
+        if (t >= 1) return smFar;
+        const A = sm, B = smFar, out = [];
+        for (let j = 0; j < A.length; j++) {
+          out.push({ x: A[j].x + (B[j].x - A[j].x) * t,
+                     y: A[j].y + (B[j].y - A[j].y) * t,
+                     z: A[j].z + (B[j].z - A[j].z) * t,
+                     t: A[j].t });
+        }
+        return out;
+      };
+      const S0 = curve(o0), S1 = curve(o1);
+      // 水平台面：一格一亮一暗，读起来才有"层"（官方关的台阶感来自明暗交替）
+      out.push(flatBand(S0, sign * o0, S1, sign * o1, surf0 + h0,
+        i % 2 ? M.far : M.mid, "prof-flat-" + i));
+      // 立面：同一 off 处的高度跳变
+      if (Math.abs(h1 - h0) > 1e-6) {
+        out.push(vertBand(S1, sign * o1, surf0 + Math.min(h0, h1), surf0 + Math.max(h0, h1),
+          M.near, "prof-wall-" + i));
+      }
+    }
+    // 最外沿补一堵立面，让最后一级台地看起来有厚度（不然边缘是纸片）
+    const last = prof[prof.length - 1];
+    out.push(vertBand(sm, sign * last[0], surf0 + last[1] - th, surf0 + last[1], M.mid, "prof-lip"));
+  }
+  return out;
+}
+
 // ⚠️ splitRuns 把"母题名 + 色卡都相同"的相邻段并成一段（段内 params 取第一段的），
 //    所以"平板上切了槽"的那一段必须用**另一个母题名**，否则槽不会出现。
-const MOTIFS = { board: motifBoard, boardSlot: motifBoard, bridge: motifBoard, deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, islands: motifTerraces, cloud: motifCloud, paving: motifPaving };
+const MOTIFS = { board: motifBoard, boardSlot: motifBoard, bridge: motifBoard, deck: motifDeck, canyon: motifCanyon, terraces: motifTerraces, islands: motifTerraces, cloud: motifCloud, paving: motifPaving, profile: motifProfile };
 
 // 每种母题缺省的尺寸参数（关卡里可以逐个覆盖）
 export const DEFAULT_PARAMS = {
@@ -788,6 +849,8 @@ export const DEFAULT_PARAMS = {
   // 于是路凭空比地面高出 drop，再由 props 的 bridge 摆件（护栏/桥面/桥墩）补成一座高架桥。
   bridge: { walk: 3.0, half: 150, th: 9.0, slot: 0, hi: 0, drop: 7.0 },
   deck: { walk: 13.0, shelf: 2.4, th: 3.2, step: 1.6 },
+  // 剖面母题：默认一整片平地（不传 profile 时等价于 board 的无限板）
+  profile: { profile: [[1.6, 0], [60, 0]], smooth: 2, th: 6 },
   canyon: { walk: 4.4, slot: 2.2, hi: 4.0, floorW: 12, plateauW: 30, th: 3.0 },
   // ⚠️ 主台是"一串圆盘"：gap 必须 < 2*rx*0.82（最小半径），否则两块台子之间会有洞，
   //    道具会飘在洞上。gap 10 / 最小半径 8.2 → 连着。
@@ -830,6 +893,8 @@ export const PALETTES = {
   ice:   { near: 0x27506e, mid: 0x5f89a6, far: 0xcfe2ec },   // 冰蓝：云海
   jade:  { near: 0x2f6b48, mid: 0x74ad91, far: 0xc4e8d5 },   // 草绿
   cream: { near: 0xa89f8e, mid: 0xe9e3d7, far: 0xfdfbf6 },
+  // 暖石台：断面（near）明显比台面深，边缘才立得住；far 淡到接近雾色，远处自然消失
+  dune:  { near: 0x6b5b46, mid: 0xc9b183, far: 0xe8dcc0 },
   // 石板原后半段的两张色卡（石板都是蓝的，差异在「台面」和「断面」的冷暖）
   stone2: { near: 0x7f8798, mid: 0xd6d2bd, far: 0xb9c2d8,
             slabTop: 0x9aa7c8, slabTopL: 0xb0bcd8, slabTopD: 0x8290b8,

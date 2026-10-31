@@ -15,6 +15,13 @@ const fmt = t => {
   return Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
 };
 
+/* 是不是触屏设备（手机/平板）。
+   为什么要判断：手机上转向靠"点屏幕"，桌面上靠键盘；提示文案与 HUD 也按这个分叉。
+   pointer: coarse 是"主输入是手指"，触屏笔记本是 fine（有鼠标），所以这条比
+   "ontouchstart in window" 更准；两者取或，覆盖老浏览器。 */
+const TOUCH = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+              ("ontouchstart" in window && navigator.maxTouchPoints > 0);
+
 /* ---------------------- 设置持久化 ---------------------- */
 const SET_KEY = "dlfan.settings";
 const DEFAULTS = {
@@ -32,6 +39,11 @@ catch (e) { settings = Object.assign({}, DEFAULTS); }
 function saveSettings() {
   try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch (e) { /* 忽略 */ }
 }
+
+/* 盲人通道：把关键进度打到本地开发服务器的控制台（由 tools/dev-server.js 打印）。
+   为什么要有：手机上没有 DevTools、截不了屏，AI 只能靠这些打点判断"卡在哪一步"。
+   服务器不在时 report 内部已 catch，完全无害。 */
+const trace = m => { try { if (window.__report) window.__report("play: " + m); } catch (e) { /* 忽略 */ } };
 
 function showErr(e) {
   const b = $("#errBox");
@@ -316,8 +328,45 @@ function fillCalRef() {
 }
 
 /* ---------------------- 开始游戏 ---------------------- */
+/* 手机全屏 + 锁横屏。
+   ⚠️ 为什么是**横屏**：这个关卡的机位、雾、可见宽度全是按 16:9 横屏标的（见 AGENT.md §14），
+   竖屏只是为了"手机竖着拿"这个习惯。2026-10-19 发起人指出：游戏本身就是横屏设计，手机上也该横过来玩。
+   → 原 ADR-22 的"竖屏优先"被推翻，见 ADR-24。
+
+   为什么必须放在点击后的同步代码里：浏览器要求全屏 API 由"用户手势"触发，
+   中间只要 await 过一次（加载关卡、解码音频），手势就失效、静默被拒。
+   方向锁在 Android Chrome 上**必须先进入全屏**才允许，所以锁的动作挂到全屏的 Promise 后面；
+   全屏被拒时也再试一次锁（某些机型不需要全屏）。失败都不影响玩。 */
+function enterImmersive() {
+  if (!TOUCH) return;
+  const lockLandscape = () => {
+    try {
+      if (screen.orientation && screen.orientation.lock) {
+        const p = screen.orientation.lock("landscape");
+        if (p && p.catch) p.catch(() => {});
+      }
+    } catch (e) { /* 不支持方向锁，按用户拿手机的姿势走 */ }
+  };
+  try {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) {
+      const p = el.requestFullscreen({ navigationUI: "hide" });
+      if (p && p.then) p.then(lockLandscape, lockLandscape);
+      else lockLandscape();
+    } else {
+      lockLandscape();
+    }
+  } catch (e) {
+    lockLandscape();           // 浏览器不支持全屏，照常玩
+  }
+}
+
 async function startGame() {
   if (!curLevel) return;
+  trace("tap level=" + (curLevel && curLevel.dir));
+  // 截图模式不要全屏、不要锁横屏：那是给别人玩的时候用的，
+  // 拍一张图就把用户的手机转过去，纯属添乱（用户已经提过一次了）
+  if (!/capture=1/.test(location.search)) enterImmersive();                       // 必须在 await 之前（见上面的说明）
   const btn = $("#btnPlay");
   const old = btn.textContent;
   btn.textContent = "载入中…";
@@ -325,12 +374,16 @@ async function startGame() {
   try {
     ensureAC();
     stopPreview();
+    trace("ac state=" + AC.state + " sampleRate=" + AC.sampleRate);
 
     const level = await loadLevelJSON(curLevel.dir);
+    trace("json ok, path=" + ((level.path || []).length) + " lines=" + ((level.lines || []).length));
     levelData = level;
     if (!audioBuf || audioBuf.__dir !== curLevel.dir) {
+      trace("audio 开始解码 " + curLevel.music);
       audioBuf = await loadAudioBuffer(AC, curLevel.dir, curLevel.music);
       audioBuf.__dir = curLevel.dir;
+      trace("audio ok, 时长=" + audioBuf.duration.toFixed(1) + "s");
     }
 
     // 先显示游戏视图，再创建 Game（否则 canvas 尺寸为 0）
@@ -348,6 +401,9 @@ async function startGame() {
       roadWidth: 3.0,
       lineWidth: 1.0,
     });
+    // 按设置限制渲染分辨率：手机 DPR 常是 3，按 2 倍渲染会明显掉帧
+    game.setQuality(settings.quality);
+    trace("game ok, 关卡时长=" + game.dur.toFixed(1) + "s 相机aspect=" + game.camera.aspect.toFixed(2));
 
     // 调试钩子：把 Game 实例挂到 window，供 tools/shot.js 之类的离线工具
     // 在页面里改参数后立刻截图对比（正常玩不受影响，reload 即消失）
@@ -371,6 +427,7 @@ async function startGame() {
     $("#startHint").style.opacity = "1";
     $("#chkGuide").checked = settings.guide;
   } catch (e) {
+    trace("FAIL " + ((e && (e.stack || e.message)) || e));
     showErr(e);
     $("#viewGame").classList.add("hide");
     $("#viewSelect").classList.remove("hide");
@@ -426,12 +483,23 @@ function renderHudRows() {
 }
 
 // 开始提示：只列「需要玩家操作」的线（自动播放的线不用按键）
+// 手机上不可能让玩家按 ↑ / X，所以触屏设备换成"点屏幕"的说法，
+// 双线关卡还要告诉他左半屏/右半屏分别管哪条线（否则玩家不知道该点哪里）。
 function updateStartHint() {
   if (!game) return;
   const names = game.lines.filter(L => !L.auto).map(L => keyName(L.key));
-  $("#startHint").textContent = names.length
-    ? "点击屏幕或按 " + names.join(" / ") + " 开始游戏"
-    : "点击屏幕开始游戏（全部线都是自动播放）";
+  let text;
+  if (TOUCH) {
+    if (!game.lines.some(L => !L.auto)) text = "点击屏幕开始游戏（全部线都是自动播放）";
+    else if (game.lines.length > 1) {
+      text = "点击屏幕开始游戏\n左半屏 " + lineName(1) + " ／ 右半屏 " + lineName(0);
+    } else text = "点击屏幕开始游戏";
+  } else {
+    text = names.length
+      ? "点击屏幕或按 " + names.join(" / ") + " 开始游戏"
+      : "点击屏幕开始游戏（全部线都是自动播放）";
+  }
+  $("#startHint").textContent = text;
 }
 
 function refreshKeyBtn(btn, i) {
@@ -542,11 +610,35 @@ function bindUI() {
 
   $("#btnBack").onclick = backToSelect;
 
-  // 游戏输入：每条线一个按键（多线关卡由关卡数据给出，默认 上箭头 / X）；
-  // 鼠标左键与空格 = 第一条线（右手），兼容单线关卡。
-  $("#gameCanvas").addEventListener("mousedown", e => {
-    if (e.button === 0 && game) game.onTap(0);
-  });
+  /* 游戏输入。
+     桌面：每条线一个按键（多线关卡由关卡数据给出，默认 ↑ / X）；鼠标左键 = 第一条线。
+     手机：没有键盘，**点屏幕转向**；双线关卡按左右半屏分给两条线
+     （右半屏 = 线 A 白线/右手，左半屏 = 线 B 黑线/左手，跟原来的 ↑ / X 分工一致）。
+     为什么统一用 pointerdown 而不是 mousedown + touchstart 各写一遍：
+     pointer 事件已经把鼠标、手指、触控笔合在一起了；同时监听 touch 与 mouse
+     会在手机上让一次点按触发两次 —— 一按转两次，玩家会莫名其妙地死在第二个弯。 */
+  const cv = $("#gameCanvas");
+  cv.addEventListener("pointerdown", e => {
+    if (!game) return;
+    e.preventDefault();                    // 阻止双击缩放与长按菜单
+    const r = cv.getBoundingClientRect();
+    let idx = 0;
+    if (game.lines.length > 1) idx = (e.clientX - r.left) < r.width / 2 ? 1 : 0;
+    game.onTap(idx);
+  }, { passive: false });
+  // 长按画面不要弹系统菜单（手机上按住不放会跳"保存图片"之类的浮层）
+  cv.addEventListener("contextmenu", e => e.preventDefault());
+
+  // 延迟校准：手机上没有空格，改成跟着蜂鸣「点屏幕」。
+  // capture 阶段拦、并跳过表单控件本身 —— 否则"点开始校准"那一下会被当成一次敲击。
+  window.addEventListener("pointerdown", e => {
+    if (!cal.active) return;
+    const t = e.target;
+    if (t && t.closest && t.closest("button, input, select, label, a")) return;
+    calTap();
+  }, true);
+
+  // 键盘输入（桌面保留）
   window.addEventListener("keydown", e => {
     // 在输入框/下拉框里打字时按键不归游戏管
     // （否则在「延迟补偿」里按 ↑↓ 调数字会同时把线转掉，还会 preventDefault 掉步进）
@@ -611,11 +703,7 @@ function bindUI() {
   $("#selQuality").onchange = e => {
     settings.quality = e.target.value;
     saveSettings();
-    if (game) {
-      const pr = { high: 2, medium: 1.5, low: 1 }[settings.quality] || 1.5;
-      game.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pr));
-      game.resize();
-    }
+    if (game) game.setQuality(settings.quality);
   };
   $("#btnSetClose").onclick = () => $("#setModal").classList.add("hide");
 
@@ -640,4 +728,42 @@ async function init() {
   requestAnimationFrame(loop);
 }
 
-init();
+/* ---------------------- 截图模式（?capture=1） ----------------------
+   用途：AI 在手机上看不到画面。带这个参数打开页面，它会自己选关、开局、
+   把时间轴推到指定时刻，然后把 canvas 导成 PNG POST 给本地服务器（落盘 out/shot/）。
+   正常游玩不经过这里。 */
+async function runCapture() {
+  const q = new URLSearchParams(location.search);
+  const times = (q.get("times") || "20,70,130").split(",").map(Number).filter((n) => isFinite(n));
+  const idx = Math.max(0, Math.min(levels.length - 1, Number(q.get("level") || 0)));
+  const W = Number(q.get("w") || 1600), H = Number(q.get("h") || 900);
+  const tag = q.get("tag") || "shot";
+  try {
+    selectLevel(idx);
+    await startGame();
+    if (!game) { trace("capture: game 没建起来"); return; }
+    // 首帧状态在等玩家点击：截图模式自己按一下，否则时间推了也不动（三张图会长得一模一样）
+    if (game.state === "idle") game.onTap(0);
+    // 手机上视口只有 751×363，直接导图太小 —— 把绘制缓冲区设成 16:9 的高分辨率
+    game.renderer.setSize(W, H, false);
+    game.camera.aspect = W / H;
+    game.camera.updateProjectionMatrix();
+    game.resize = function () {};              // 防止随后窗口事件把它改回去
+    for (const t of times) {
+      for (let i = 0; i < 90; i++) window.__setTime(t - 3 + (3 * i) / 90);   // 先把动画/镜头稳住
+      window.__setTime(t);
+      await new Promise((r) => setTimeout(r, 80));
+      const data = game.renderer.domElement.toDataURL("image/png");
+      await fetch("/api/shot?name=" + encodeURIComponent(tag + "-t" + t), { method: "POST", body: data });
+      trace("capture t=" + t + " ok, " + Math.round(data.length / 1024) + "KB");
+    }
+    trace("capture 全部完成");
+    setTimeout(() => { location.href = "about:blank"; }, 800);
+  } catch (e) {
+    trace("capture FAIL " + ((e && e.stack) || e));
+  }
+}
+
+init().then(() => {
+  if (/[?&]capture=1/.test(location.search)) setTimeout(runCapture, 200);
+});

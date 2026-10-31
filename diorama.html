@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Diorama — 纯建模练习</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1620; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 12px; bottom: 10px; color: #8fa2b8;
+    font: 12px/1.5 system-ui, sans-serif; pointer-events: none; user-select: none;
+  }
+</style>
+</head>
+<body>
+<div id="hud">等距浮岛 · 纯几何 · 拖拽旋转 / 滚轮缩放</div>
+
+<!-- 为什么用正交相机：参考图（Astra 那张 DL、桌面模型那张）都是**等距正交**视角。
+     透视相机一开，画面立刻变成"第一人称游戏"；正交才有"看一个模型"的秩序感。 -->
+<script type="importmap">
+{ "imports": { "three": "/src/vendor/three.module.min.js" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+
+/* ---------------------------------------------------------------- 场景 */
+const scene = new THREE.Scene();
+const SKY = 0x0e1620;
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(0x16222e, 60, 160);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// 等距：斜 35° 看下去，正交
+const ASP = innerWidth / innerHeight;
+const V = 34;                                  // 视野高度（世界单位）
+const camera = new THREE.OrthographicCamera(-V * ASP, V * ASP, V, -V, 1, 400);
+camera.position.set(46, 42, 46);
+camera.lookAt(0, 0, 0);
+
+/* ---------------------------------------------------------------- 光 */
+// 主光偏低角，制造长影子；补光冷色，把背光面从死黑里拉回来
+const sun = new THREE.DirectionalLight(0xfff0d8, 2.1);
+sun.position.set(-38, 46, 26);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -60; sun.shadow.camera.right = 60;
+sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
+sun.shadow.camera.far = 160;
+sun.shadow.bias = -0.0008;
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x2a3a46, 0.85));
+
+/* ---------------------------------------------------------------- 材质 */
+const mat = (hex, rough = 0.92, flat = true) =>
+  new THREE.MeshStandardMaterial({ color: hex, roughness: rough, metalness: 0, flatShading: flat });
+
+const M = {
+  grassTop:  mat(0x8fae7a),
+  grassSide: mat(0x6d8b5c),
+  soil:      mat(0x6b4f3a),
+  rock:      mat(0x4b3b30),
+  path:      mat(0xf2e6c8),
+  pathEdge:  mat(0xcbb894),
+  trunk:     mat(0x6b4a35),
+  sakura:    mat(0xf3b7c9),
+  sakura2:   mat(0xe79bb3),
+  leaf:      mat(0x6f9b63),
+  roof:      mat(0x3c4a5a),
+  wall:      mat(0xe8e0cf),
+  post:      mat(0x7a5a42),
+  water:     new THREE.MeshStandardMaterial({ color: 0x8fc6c9, roughness: 0.25, metalness: 0.1 }),
+};
+
+const world = new THREE.Group();
+scene.add(world);
+const add = (geo, m, x = 0, y = 0, z = 0, ry = 0) => {
+  const o = new THREE.Mesh(geo, m);
+  o.position.set(x, y, z);
+  o.rotation.y = ry;
+  o.castShadow = o.receiveShadow = true;
+  world.add(o);
+  return o;
+};
+
+/* ---------------------------------------------------------------- 浮岛：一整块厚板 */
+// 参考图的关键：**地的边缘是画面里最锋利的一条线**。所以做成三层——
+// 草皮（亮）、土层（中）、岩层（暗），每层向内缩一点，形成台阶状断面。
+function slab(halfW, topY, thick, layers) {
+  // 顶面
+  add(new THREE.BoxGeometry(halfW * 2, 1.2, halfW * 2), M.grassTop, 0, topY, 0);
+  // 断面：一层层往下收
+  let y = topY - 0.6, w = halfW * 2;
+  for (const [dh, shrink, m] of layers) {
+    y -= dh / 2;
+    add(new THREE.BoxGeometry(w, dh, w), m, 0, y, 0);
+    y -= dh / 2;
+    w -= shrink;
+  }
+}
+slab(19, 0, 6, [
+  [2.2, 1.2, M.grassSide],
+  [2.6, 1.6, M.soil],
+  [4.0, 3.0, M.rock],
+]);
+
+/* ---------------------------------------------------------------- 路：一条奶油色带子 */
+// 用 CatmullRom 采样成一条带宽度的折带（不用 Tube，Tube 会鼓起来）
+function ribbon(points, width, y) {
+  const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(p[0], y, p[1])));
+  const N = 120, pos = [], idx = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const p = curve.getPointAt(t);
+    const d = curve.getTangentAt(t);
+    const nx = d.z, nz = -d.x;
+    const L = Math.hypot(nx, nz) || 1;
+    const hw = width / 2;
+    pos.push(p.x + nx / L * hw, y, p.z + nz / L * hw);
+    pos.push(p.x - nx / L * hw, y, p.z - nz / L * hw);
+    if (i < N) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, M.path);
+  m.receiveShadow = true;
+  world.add(m);
+}
+ribbon([[-17, 13], [-8, 8], [-2, 2], [3, -4], [3, -12], [-4, -16]], 2.6, 0.66);
+ribbon([[3, -12], [9, -14], [15, -10]], 2.6, 0.66);
+
+/* ---------------------------------------------------------------- 樱树：一树两件 */
+function sakura(x, z, s = 1, hue = 0) {
+  const trunk = new THREE.CylinderGeometry(0.18 * s, 0.26 * s, 2.4 * s, 6);
+  add(trunk, M.trunk, x, 0.6 + 1.2 * s, z);
+  const leafMat = hue ? M.sakura2 : M.sakura;
+  for (let i = 0; i < 3; i++) {
+    const r = (1.15 + i * 0.22) * s;
+    const g = new THREE.IcosahedronGeometry(r, 0);
+    const p = g.attributes.position;
+    for (let k = 0; k < p.count; k++) {
+      p.setXYZ(k, p.getX(k) * (0.9 + Math.random() * 0.2),
+                  p.getY(k) * (0.8 + Math.random() * 0.25),
+                  p.getZ(k) * (0.9 + Math.random() * 0.2));
+    }
+    g.computeVertexNormals();
+    add(g, leafMat, x + (i - 1) * 0.7 * s, 0.6 + (2.6 + i * 0.5) * s, z + (i - 1) * 0.4 * s);
+  }
+}
+const trees = [
+  [-13, 3, 1.5], [-9, -3, 1.2], [-15, -6, 1.3], [-5, 10, 1.1],
+  [10, 2, 1.4], [13, -3, 1.1], [7, 8, 1.2], [14, 6, 1.0],
+  [-1, -9, 1.2], [-8, -12, 1.4],
+];
+trees.forEach(([x, z, s], i) => sakura(x, z, s, i % 2));
+
+/* ---------------------------------------------------------------- 亭子：四柱 + 悬浮屋顶 */
+function pavilion(x, z, s = 1) {
+  const g = new THREE.Group();
+  g.position.set(x, 0.6, z);
+  for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 3.2, 0.22), M.post);
+    post.position.set(dx * 1.6 * s, 1.6 * s, dz * 1.6 * s);
+    post.castShadow = true;
+    g.add(post);
+  }
+  // 屋顶：两层错开的板，暗色——参考图里屋面的深色是画面的"重音"
+  const r1 = new THREE.Mesh(new THREE.BoxGeometry(4.6 * s, 0.28, 4.6 * s), M.roof);
+  r1.position.y = 3.3 * s; r1.rotation.y = Math.PI / 4;
+  const r2 = new THREE.Mesh(new THREE.BoxGeometry(3.2 * s, 0.24, 3.2 * s), M.roof);
+  r2.position.y = 3.7 * s; r2.rotation.y = Math.PI / 4;
+  const base = new THREE.Mesh(new THREE.BoxGeometry(4.0 * s, 0.2, 4.0 * s), M.pathEdge);
+  base.position.y = 0.1;
+  [r1, r2, base].forEach(o => { o.castShadow = true; o.receiveShadow = true; g.add(o); });
+  world.add(g);
+}
+pavilion(9, 0, 1.0);
+
+/* ---------------------------------------------------------------- 鸟居：路要穿过它 */
+function torii(x, z, ry, s = 1) {
+  const g = new THREE.Group();
+  g.position.set(x, 0.6, z);
+  g.rotation.y = ry;
+  for (const dx of [-2.2, 2.2]) {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.34, 4.4 * s, 0.34), M.pathEdge);
+    p.position.set(dx, 2.2 * s, 0);
+    p.castShadow = true; g.add(p);
+  }
+  const top = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.42, 0.6), M.roof);
+  top.position.y = 4.5 * s; top.castShadow = true; g.add(top);
+  const top2 = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.3, 0.5), M.roof);
+  top2.position.y = 4.0 * s; top2.castShadow = true; g.add(top2);
+  world.add(g);
+}
+torii(0, 4.2, Math.atan2(-6, -6), 1.0);
+
+/* ---------------------------------------------------------------- 水塘：给画面一个"低点" */
+const pond = add(new THREE.CylinderGeometry(4.2, 4.2, 0.24, 9), M.water, 5, 0.52, -8);
+pond.receiveShadow = true;
+
+/* ---------------------------------------------------------------- 节奏块：路边的小方石 */
+for (let i = 0; i < 14; i++) {
+  const t = i / 13;
+  const x = -16 + t * 18, z = 12 - t * 26;
+  add(new THREE.BoxGeometry(0.5, 0.5 + (i % 3) * 0.25, 0.5), M.pathEdge, x + (i % 2 ? 1.9 : -1.9), 0.9, z);
+}
+
+/* ---------------------------------------------------------------- 渲染 / 自适应 */
+function resize() {
+  const a = innerWidth / innerHeight;
+  camera.left = -V * a; camera.right = V * a; camera.top = V; camera.bottom = -V;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+}
+addEventListener("resize", resize);
+resize();
+
+// 拖拽旋转（看模型用）
+let drag = null;
+renderer.domElement.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, a: camera.position.clone() }; });
+renderer.domElement.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = (e.clientX - drag.x) * 0.008;
+  const r = 64, yaw = Math.atan2(drag.a.x, drag.a.z) + dx;
+  camera.position.set(Math.sin(yaw) * r * 0.72 + 10, 44, Math.cos(yaw) * r * 0.72 + 10);
+  camera.lookAt(0, 0, 0);
+});
+addEventListener("pointerup", () => { drag = null; });
+
+/* ---------------------------------------------------------------- 自截图（?shot=1）
+   和游戏里同一套"AI 眼睛"：渲染 → toDataURL → POST /api/shot。
+   不需要 CDP、不需要系统截屏、不需要用户转屏。 */
+const SHOT = /[?&]shot=1/.test(location.search);
+if (SHOT) renderer.setPixelRatio(2);
+function loop() {
+  renderer.render(scene, camera);
+  if (SHOT && !window.__done) {
+    window.__done = true;
+    setTimeout(async () => {
+      renderer.render(scene, camera);
+      const data = renderer.domElement.toDataURL("image/png");
+      const tag = new URLSearchParams(location.search).get("tag") || "diorama";
+      await fetch("/api/shot?name=" + encodeURIComponent(tag), { method: "POST", body: data }).catch(() => {});
+      location.href = "about:blank";
+    }, 600);
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

@@ -70,6 +70,48 @@ function listLevels() {
 const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent(req.url.split("?")[0]);
 
+  // 每次请求记一行：排查「浏览器到底有没有连上服务器」时最直接 ——
+  // 页面打不开时，日志里一条都没有 = 没连上（地址/端口问题）；
+  // 有 / 和各个 .js 的请求 = 连上了，问题在客户端脚本里。
+  console.log("  " + new Date().toTimeString().slice(0, 8) + "  " + req.method + " " + urlPath);
+
+  // 客户端日志上报：页面把启动信息/报错 POST 过来，服务端打到控制台。
+  // 为什么要有这个：开发机（手机）上截不了屏、也打不开 DevTools，
+  // AI 只能靠这条"盲人通道"看到视口尺寸、方向、以及客户端异常。
+  if (urlPath === "/api/log" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => { body += c; if (body.length > 4000) body = body.slice(0, 4000); });
+    req.on("end", () => {
+      console.log("  ▸ 客户端: " + String(body).replace(/\s+/g, " ").slice(0, 500));
+      res.writeHead(204, { "Cache-Control": "no-store" }); res.end();
+    });
+    return;
+  }
+
+  // 收客户端自己截的帧（客户端用 canvas.toDataURL 导的 PNG）。
+  // 为什么走这条路：手机上没有 CDP、系统截屏接口也不可用，
+  // 但 WebGL 在手机 Chrome 里是活的 —— 让页面把自己的画面交出来，
+  // 是唯一不依赖外部工具的"AI 眼睛"。
+  if (urlPath === "/api/shot" && req.method === "POST") {
+    const name = (new URL(req.url, "http://x")).searchParams.get("name") || "shot";
+    const safe = String(name).replace(/[^\w.-]+/g, "_").slice(0, 80);
+    const outDir = path.join(ROOT, "out", "shot");
+    let body = "", tooBig = false;
+    req.on("data", c => { body += c; if (body.length > 40 * 1024 * 1024) tooBig = true; });
+    req.on("end", () => {
+      if (tooBig) { res.writeHead(413); res.end("too big"); return; }
+      const m = /^data:image\/png;base64,([\s\S]+)$/.exec(body);
+      if (!m) { res.writeHead(400); res.end("expect dataURL"); return; }
+      try {
+        fs.mkdirSync(outDir, { recursive: true });
+        fs.writeFileSync(path.join(outDir, safe + ".png"), Buffer.from(m[1], "base64"));
+        console.log("  ▣ 截图已存 out/shot/" + safe + ".png");
+        res.writeHead(204); res.end();
+      } catch (e) { res.writeHead(500); res.end(String(e)); }
+    });
+    return;
+  }
+
   if (urlPath === "/api/levels") {
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
@@ -151,11 +193,19 @@ server.listen(PORT, HOST || undefined, () => {
   console.log("");
 
   // --open：服务器就绪后再打开浏览器（避免「启动客户端.bat」打开太早连不上）
-  // 用 explorer.exe 打开 URL 最可靠——cmd start 的引号经过 Node 转义后会错乱，
-  // 导致「Windows 找不到文件 ''」
+  // 为什么要跨平台：原来只写死 explorer.exe —— 项目已经搬到手机上开发，
+  // 这条在 Android/Linux 上会直接报 "spawn explorer.exe ENOENT"。
+  // 打不开也不要紧：上面已经打印了地址，手动点一下就行，所以整体 try 掉。
   if (process.argv.includes("--open")) {
+    const url = "http://localhost:" + PORT;
     const { spawn } = require("child_process");
-    spawn("explorer.exe", ["http://localhost:" + PORT],
-      { detached: true, stdio: "ignore" }).unref();
+    const opener = process.platform === "win32" ? "explorer.exe"
+                 : process.platform === "darwin" ? "open"
+                 : "xdg-open";
+    try {
+      spawn(opener, [url], { detached: true, stdio: "ignore" }).unref();
+    } catch (e) {
+      console.log("  （没能自动打开浏览器，请手动访问上面的地址）");
+    }
   }
 });

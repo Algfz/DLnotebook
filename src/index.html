@@ -2,7 +2,11 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 手机端要点：user-scalable=no 禁掉双指缩放（玩的时候会误触），
+     viewport-fit=cover 让画面铺到刘海/挖孔屏的边缘，留白交给 CSS 的 safe-area。 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#12141a">
+<meta name="mobile-web-app-capable" content="yes">
 <title>DLnotebook</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -127,7 +131,10 @@
     position: absolute; left: 50%; top: 62%; transform: translateX(-50%);
     font-size: 15px; color: rgba(255,255,255,.82); text-shadow: 0 2px 12px rgba(0,0,0,.8);
     background: rgba(0,0,0,.25); padding: 10px 22px; border-radius: 20px;
-    transition: opacity .3s; white-space: nowrap;
+    transition: opacity .3s;
+    /* pre-line：保留换行、允许自动折行。手机竖屏的双线关卡提示要占两行
+       （"左半屏 黑线 / 右半屏 白线"），用 nowrap 会被压成一行挤出屏幕。 */
+    white-space: pre-line;
   }
   #hudInfo {
     position: absolute; left: 20px; top: 20px; font-size: 12px; color: rgba(255,255,255,.62);
@@ -189,6 +196,135 @@
     background: #5a1a17; color: #ffd9d6; font: 11px Consolas, monospace;
     padding: 8px 14px; max-height: 130px; overflow: auto; white-space: pre-wrap;
   }
+
+  /* ================= 触屏基础（手机/平板） =================
+     为什么不写在 @media 里：这些都是"有触摸就给上"的无害规则，
+     写了条件反而会在「笔记本带触屏」这种组合上漏掉。 */
+  html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+  body {
+    -webkit-user-select: none; user-select: none;      /* 长按不要选中文字 */
+    -webkit-text-size-adjust: 100%;                    /* 横竖屏切换时不要自动放大字号 */
+  }
+  /* 画布吃掉所有触摸手势：不滚动、不缩放、不触发浏览器的手势识别 */
+  #gameCanvas { touch-action: none; }
+  /* 游戏内按钮的按下态：触屏没有 hover，用 :active 给反馈 */
+  #hud button:active, #hud label:active { background: rgba(60,70,86,.9); }
+
+  /* 手机上没有键盘：按键绑定那一行（"操作按键：↑"）既没用又占地 */
+  @media (pointer: coarse) { #keyRows { display: none; } }
+
+  /* ================= 竖屏（兜底，不是主场景） =================
+     ⚠️ 2026-10-19 修正：关卡是按 16:9 横屏设计的，手机上也该横过来玩（ADR-24）。
+     这一套竖屏布局只在"方向锁被拒 / 用户就是竖着拿"时兜底 —— 能玩，但不是目标形态。
+     这里做两件事：
+       ① 选关界面从「左列表 + 右详情」改成上下单列；
+       ② 游戏 HUD 收到四角、按钮放大到拇指点得中。
+     取景本身由 game.js 的 resize() 处理（机位后撤，见 camFit）。 */
+  @media (orientation: portrait) {
+    /* ---- 选关 ---- */
+    .selMain {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(0, 30vh) minmax(0, 1fr);
+      gap: 14px; padding: calc(58px + env(safe-area-inset-top)) 18px calc(16px + env(safe-area-inset-bottom));
+      align-items: stretch;
+    }
+    .selList { max-height: none; padding-right: 0; min-height: 0; }
+    .selDetail { max-width: none; gap: 13px; min-height: 0; overflow-y: auto; }
+    .lvItem { padding: 9px; margin-bottom: 4px; }
+    .lvThumb { width: 52px; height: 52px; }
+    .cover { border-radius: 10px; }
+    .title { font-size: 22px; }
+    .artist { font-size: 13px; }
+    .actions { justify-content: space-between; gap: 10px; }
+    .actions .playBtn { flex: 1; font-size: 17px; padding: 14px 0; }
+    .previewRow button { width: 44px; height: 44px; }
+    .selTop { top: calc(12px + env(safe-area-inset-top)); right: 14px; }
+    .selTop button { padding: 10px 18px; font-size: 14px; }
+
+    /* ---- 游戏 HUD ---- */
+    #hudInfo { left: 14px; top: calc(12px + env(safe-area-inset-top)); font-size: 11px; line-height: 1.6; }
+    .tr { right: 14px; top: calc(12px + env(safe-area-inset-top)); }
+    .bl { left: 14px; bottom: calc(12px + env(safe-area-inset-bottom)); }
+    .brCol {
+      right: 14px; bottom: calc(12px + env(safe-area-inset-bottom));
+      max-width: 66vw; gap: 8px;
+    }
+    .hudBtn { padding: 10px 16px; font-size: 14px; }
+    #hud .keyBtn, #hud label { padding: 9px 12px; font-size: 12px; }
+    #hud .br { gap: 8px; }
+    #startHint {
+      top: 66%; font-size: 14px; padding: 10px 18px;
+      max-width: 88vw; text-align: center; line-height: 1.5;
+    }
+
+    /* ---- 弹窗：小屏上要能滚，不能把「完成」顶出屏幕 ---- */
+    .modalBox, .modalBox.wide { width: 100%; max-width: 92vw; padding: 18px; max-height: 88vh; overflow-y: auto; }
+    .fRow label { min-width: 68px; }
+  }
+
+  /* ================= 横屏手机（主场景） =================
+     关卡按 16:9 横屏设计（机位/雾/可见宽度，见 AGENT.md §14），所以手机上也横过来玩。
+     手机横屏的特点是"矮"（常见 915×412 这种 CSS 像素），桌面那套 62px 内边距 +
+     330px 侧栏会把内容挤出屏幕，所以这里整体收紧、并且把左右让给刘海/挖孔。 */
+  @media (orientation: landscape) and (max-height: 560px) {
+    /* ---- 选关 ---- */
+    .selMain {
+      grid-template-columns: 42vw 1fr; gap: 18px; align-items: start;
+      padding: calc(10px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+               calc(10px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+    }
+    .selList { max-height: calc(100vh - 40px); }
+    .lvItem { padding: 7px; margin-bottom: 4px; }
+    .lvThumb { width: 42px; height: 42px; }
+    .lvMeta .t { font-size: 13px; }
+    .selDetail { gap: 8px; max-width: none; }
+    /* 封面在横屏里最容易"吃掉高度"：给它高度上限，靠 cover 裁切 */
+    .cover { aspect-ratio: auto; height: 38vh; border-radius: 8px; }
+    .title { font-size: 19px; }
+    .artist { font-size: 12px; margin-top: -4px; }
+    .subtitle { font-size: 11px; }
+    .previewRow button { width: 34px; height: 34px; font-size: 12px; }
+    .actions .playBtn { font-size: 15px; padding: 9px 26px; }
+    .selTop { top: calc(8px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); }
+    .selTop button { padding: 7px 13px; font-size: 12px; }
+
+    /* ---- 游戏 HUD：四角，别挡住中上方的路面 ---- */
+    #hudInfo { left: calc(10px + env(safe-area-inset-left)); top: calc(8px + env(safe-area-inset-top)); font-size: 10px; line-height: 1.45; }
+    .tr { right: calc(10px + env(safe-area-inset-right)); top: calc(8px + env(safe-area-inset-top)); }
+    .bl { left: calc(10px + env(safe-area-inset-left)); bottom: calc(8px + env(safe-area-inset-bottom)); }
+    .brCol { right: calc(10px + env(safe-area-inset-right)); bottom: calc(8px + env(safe-area-inset-bottom)); gap: 6px; max-width: 56vw; }
+    .hudBtn { padding: 7px 12px; font-size: 12px; }
+    #hud .keyBtn, #hud label { padding: 6px 9px; font-size: 11px; }
+    #hud .br { gap: 6px; }
+    #startHint { top: 74%; font-size: 13px; padding: 7px 15px; }
+
+    /* ---- 弹窗：横屏高度紧张，限高必须能滚 ---- */
+    .modalBox, .modalBox.wide { width: 100%; max-width: 78vw; padding: 14px; max-height: 92vh; overflow-y: auto; }
+    .fRow { margin-bottom: 9px; }
+    .fRow label { min-width: 62px; font-size: 12px; }
+    .modalFoot { margin-top: 12px; }
+    #calBars { height: 40px; }
+  }
+
+  /* ================= 拿竖了：提示横过来 =================
+     进入游戏后如果还是竖屏（方向锁被拒 / 浏览器不支持全屏），
+     与其让玩家在错误的取景里送死，不如直接盖一层提示。
+     pointer-events: none 是为了不吞掉触摸（万一他就想这么玩）。 */
+  #rotHint {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+    background: rgba(8,10,14,.94); color: var(--fg); pointer-events: none;
+    font-size: 15px; text-align: center; padding: 24px;
+  }
+  #rotHint .ico { font-size: 44px; line-height: 1; animation: rot 2.4s ease-in-out infinite; }
+  #rotHint .sub { font-size: 12px; color: var(--dim); }
+  @keyframes rot {
+    0%, 45% { transform: rotate(0deg); }
+    55%, 100% { transform: rotate(-90deg); }
+  }
+  @media (orientation: portrait) {
+    #viewGame:not(.hide) ~ #rotHint { display: flex; }
+  }
 </style>
 </head>
 <body>
@@ -212,11 +348,37 @@
   }
   window.__fatal = showFatal;
 
+  /* 盲人通道：把启动/异常信息 POST 给本地开发服务器（tools/dev-server.js 会打出来）。
+     为什么需要：手机上没有 DevTools、截屏也不可用，AI 看不到画面，
+     只能靠这条通道知道「视口多大、是横还是竖、有没有报错」。开发服务器不在时完全无害。 */
+  function report(msg) {
+    try {
+      fetch("/api/log", { method: "POST", body: String(msg).slice(0, 3000), keepalive: true }).catch(function () {});
+    } catch (e) { /* 没有服务器就算了 */ }
+  }
+  window.__report = report;
+  function viewportLine(tag) {
+    return tag + " viewport=" + window.innerWidth + "x" + window.innerHeight +
+      " dpr=" + (window.devicePixelRatio || 1).toFixed(2) +
+      " orient=" + (window.innerWidth > window.innerHeight ? "landscape" : "portrait") +
+      " touch=" + (("ontouchstart" in window) ? 1 : 0) +
+      " ua=" + (navigator.userAgent || "").slice(0, 60);
+  }
+  window.addEventListener("load", function () { report(viewportLine("start")); });
+  // 转屏/改窗口：布局问题多半在这一行里看得出来
+  var _vk = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(_vk);
+    _vk = setTimeout(function () { report(viewportLine("resize")); }, 400);
+  });
+
   window.addEventListener("error", function (e) {
+    report("js-error: " + (e.message || "未知") + " @ " + String(e.filename || "").split("/").pop() + ":" + (e.lineno || 0));
     showFatal("脚本错误：" + (e.message || "未知") +
       (e.filename ? "\n位置：" + e.filename.split("/").pop() + ":" + e.lineno : ""));
   });
   window.addEventListener("unhandledrejection", function (e) {
+    report("js-rejection: " + String((e.reason && (e.reason.stack || e.reason.message)) || e.reason));
     showFatal("未处理的异常：" + ((e.reason && e.reason.stack) || e.reason));
   });
 
@@ -278,8 +440,15 @@
         <button id="btnLat" class="hudBtn">音频延迟</button>
       </div>
     </div>
-    <div id="startHint">点击屏幕或按空格、上箭头开始游戏</div>
+    <div id="startHint">点击屏幕开始游戏</div>
   </div>
+</div>
+
+<!-- 竖着拿手机时盖一层提示：这个关卡是按横屏设计的，竖屏取景会让玩家莫名其妙送死 -->
+<div id="rotHint">
+  <div class="ico">📱</div>
+  <div>这个关卡是横屏设计的<br>请把手机横过来玩</div>
+  <div class="sub">（点 Play 时会自动转横屏；没转过来的话请手动旋转）</div>
 </div>
 
 <!-- ==================== 音频延迟校准（弹窗） ==================== -->
@@ -357,6 +526,36 @@
 <div id="whiteFade"></div>
 
 <div class="err" id="errBox"></div>
+
+<!-- ==================== 截图模式（?capture=1） ====================
+     AI 在手机上看不到画面（没有 CDP、截屏接口不可用）。这里让**页面自己**把画面交出来：
+     用虚拟时钟把游戏驱动到指定时刻，再把 canvas 导成 PNG 发给本地服务器。
+     只在带 ?capture=1 时生效，正常玩完全不受影响。 -->
+<script>
+(function () {
+  if (!/[?&]capture=1/.test(location.search)) return;
+  try {
+    localStorage.setItem("dlfan.settings", JSON.stringify({
+      latency: 0, volume: 0, guide: false, autoLines: [true, true], keys: [], quality: "high",
+    }));
+  } catch (e) {}
+  window.__vt = 0;
+  try { Object.defineProperty(performance, "now", { value: () => window.__vt * 1000, configurable: true, writable: true }); } catch (e) {}
+  for (var n of ["BaseAudioContext", "AudioContext", "webkitAudioContext"]) {
+    var C = window[n]; if (!C || !C.prototype) continue;
+    try { Object.defineProperty(C.prototype, "currentTime", { get: function () { return window.__vt; }, configurable: true }); } catch (e) {}
+  }
+  var cbs = [];
+  window.requestAnimationFrame = function (cb) { var id = cbs.length + 1000000; cbs.push({ id: id, cb: cb }); return id; };
+  window.cancelAnimationFrame = function (id) { var i = cbs.findIndex(function (o) { return o.id === id; }); if (i >= 0) cbs.splice(i, 1); };
+  window.__setTime = function (t) {
+    window.__vt = t;
+    var list = cbs.splice(0);
+    for (var i = 0; i < list.length; i++) list[i].cb(t * 1000);
+  };
+  window.__captureMode = true;
+})();
+</script>
 
 <!-- 检测 ES 模块是否真正执行了（importmap/模块静默失败时 main.js 不会跑） -->
 <script>
