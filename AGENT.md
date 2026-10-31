@@ -342,7 +342,7 @@ DLnotebook/
 | 密度 | `node tools/probe.js` | 各曲踩音密度 vs 线速的权衡表（判断某关是否"过密"） |
 | 音乐结构 | `python tools/analyze-music.py [音频]` | 段落/能量/亮度/onset/旋律轮廓 → 同目录 `music-analysis.json`；需 numpy + scipy |
 | 生成 | `node build/gen-path.js [关卡目录]` | `.beat.json` → `level.json`（理想轨迹 + 客户端关卡）；`--elevate` 高架、`--b-x/--b-y/--b-z` 双线平移/抬高、`--view a,b` 放大预览 |
-| **踩点抽稀** | `node tools/thin-marks.mjs <beat.json> --min-dt 0.30 [--out 另存] [--dry]` | 把挨得太近的 mark 合并掉：两个 mark 只差 0.09s 时那一段长 1.2m，比路宽（3m）还窄，两个 90° 弯挤成一团、路面自己叠着糊成疙瘩。贪心保留（每颗留下的仍是真踩点） |
+| **踩点抽稀（默认禁用）** | `node tools/thin-marks.mjs <beat.json> --min-dt 0.30 [--dry]` | ⚠️ **只许用 `--dry` 做诊断，不许写回**：踩音是发起人的数据（AGENT.md:1372「不要建议抽稀」/ ADR-38）。工具保留是因为它能算出"哪几段比路宽还窄"，但那属于**说明现象**，不是**改数据**的理由 |
 | 布景 | `node build/gen-scenery.js --level "ring a bell"` | 沿**真实路线**布近/中/远三层纯几何块 → 写回 `level.json` 的 `scenery`（v2 分层格式）；`--seed/--density/--clear/--dry`；缺 `--level` 时仍取 `levels/` 下最近修改的关卡 |
 | 布景手工编辑 | 双击 `tools/SceneryEditor.html` | 拖入 `level.json` + `dance-line.json`（或整个文件夹）→ 可视化放置/移动/缩放/删除布景块 → 「导出 level.json」覆盖原文件 |
 | 预览 | 双击 `tools/PathPreview.html`，拖入**关卡文件夹** | 俯视看路径，播放时红线沿路径移动，验证结构与音画同步；**支持多线**（含 `lines[]` 时同时画两条线） |
@@ -749,9 +749,9 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 38
 
 ### 📋 待办
 - [x] **新关《来自我的声音》demo（2026-10-31）**：白调 + 悬空（**不写 `terrain`**）+ 无布景（`place=[]`）。
-      `levels/来自我的声音-David叶音_刘家良MARSIX/`，96.27 s、122.03 BPM、14 m/s、119 个折点 / 1348 m，
+      `levels/来自我的声音-David叶音_刘家良MARSIX/`，96.27 s、122.03 BPM、14 m/s、**160 个折点 / 1348 m**，
       路宽 3 m，主题新增 `white`（见 ADR-36），相机三段 `{tilt, dist, yaw}`（见 ADR-37）。
-      踩点先用 `thin-marks.mjs --min-dt 0.30` 抽稀（160 → 119 颗），否则最短段 1.23 m < 路宽。
+      **踩音原封不动**（160 颗，与仓库根目录那份 sha256 一致）；最短段 1.23 m < 路宽属于正常，不要动踩音（ADR-38）。
       出图 `out/shot/来自我的声音-David叶音_刘家良MARSIX/`、成片 `out/smy-demo-1080p30.mp4`。
 - [ ] **本关布景已清空，等方向**（2026-10-18 白天，发起人："把这个关卡所有布景全删了"）：
       `place[] = []`、`terrain = {base:{motif:"board", walk:3, half:150, th:9}, endcap:false}`、无 `spans`、
@@ -1228,6 +1228,18 @@ B) 速度降到 6.68 m/s（形状不动，但整关 346 s 比音乐 174.7 s 长�
 - 悬空关的机位参考：`tilt 34~42`、`dist 24~32`；要求"看得清折线形状"就往 45°/40m 走，
   要求"贴地压迫感"就往 30°/20m 走。
 - 新关用 `gen-path.js --level` 生成的 `camera` 是**老写法**，出图前必须自己改成 `tilt/dist`。
+
+**ADR-38：踩音（`*.beat.json`）是发起人的数据，任何情况下都不许改（2026-10-31）**
+> 做《来自我的声音》demo 时我看见"最短段 1.23 m < 路宽 3 m"，就自作主张用 `thin-marks.mjs`
+> 把 160 颗踩点合并成 119 颗，被发起人一句"**不要自作主张修改我的踩音**"否掉。
+
+- 这是**已经写在文档里的老规矩**，本轮是我没照做：`AGENT.md` 结论表「密集踩音不是缺陷」——
+  发起人 2026-10-11 明确「高难关卡踩音本就密集（Breeze 3.6 转/秒、最小段 2.39 m 属常态），**不要建议抽稀**」；
+  同节还写了「< 路宽的段长不是错误，路面块重叠属正常」。**改数据之前先搜这两条。**
+- 正确做法：踩音一个字节都不动；如果视觉上挤，只在**渲染层**解决（路面按折线做圆角/削角、让步块拼接不共面），
+  或者把这个现象**讲给发起人**让他决定——不替他做决定。
+- 落地：本关 `beat.json` 已恢复成根目录那份的**逐字节同版**（sha256 一致），路径按 160 颗重生成，
+  `levels/来自我的声音-David叶音_刘家良MARSIX/level.json` 的 `path` = 160 点。
 
 ---
 
