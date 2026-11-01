@@ -28,11 +28,17 @@ if exist "%LocalAppData%\Programs\nodejs\node.exe" set "RUNTIME=%LocalAppData%\P
 if defined RUNTIME goto run_node
 
 set "PY="
+rem Windows 10/11 ship a fake python.exe in WindowsApps that opens the
+rem Microsoft Store instead of running. It must not count as installed.
 where py >nul 2>nul
-if not errorlevel 1 set "PY=py"
+if not errorlevel 1 for /f "delims=" %%p in ('where py') do (
+  echo %%p|findstr /i /c:"WindowsApps" >nul || set "PY=py"
+)
 if defined PY goto run_py
 where python >nul 2>nul
-if not errorlevel 1 set "PY=python"
+if not errorlevel 1 for /f "delims=" %%p in ('where python') do (
+  echo %%p|findstr /i /c:"WindowsApps" >nul || set "PY=python"
+)
 if defined PY goto run_py
 
 goto run_ps
