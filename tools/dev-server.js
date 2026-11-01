@@ -196,6 +196,9 @@ server.listen(PORT, HOST || undefined, () => {
   // 为什么要跨平台：原来只写死 explorer.exe —— 项目已经搬到手机上开发，
   // 这条在 Android/Linux 上会直接报 "spawn explorer.exe ENOENT"。
   // 打不开也不要紧：上面已经打印了地址，手动点一下就行，所以整体 try 掉。
+  // ⚠️ 光 try/catch 兜不住：spawn 的 ENOENT 是**异步** emit 的 'error' 事件，
+  //   没有监听器时 Node 会直接抛 unhandled 'error' 把整个进程带走（服务器当场死）。
+  //   所以必须挂 on("error")。2026-11-01 就是这么崩的（PATH 里没有 explorer.exe 时）。
   if (process.argv.includes("--open")) {
     const url = "http://localhost:" + PORT;
     const { spawn } = require("child_process");
@@ -203,7 +206,11 @@ server.listen(PORT, HOST || undefined, () => {
                  : process.platform === "darwin" ? "open"
                  : "xdg-open";
     try {
-      spawn(opener, [url], { detached: true, stdio: "ignore" }).unref();
+      const child = spawn(opener, [url], { detached: true, stdio: "ignore" });
+      child.on("error", () => {
+        console.log("  （没能自动打开浏览器，请手动访问上面的地址）");
+      });
+      child.unref();
     } catch (e) {
       console.log("  （没能自动打开浏览器，请手动访问上面的地址）");
     }

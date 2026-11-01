@@ -810,6 +810,23 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 38
 - 合并后自检：`node --check` 全过（src/js/*.js、tools/*.mjs）、两关都能跑完整程
   （ring a bell t=174 / 来自我的声音 t=94 都是 `playing`）、`dev-server.js` 起在 8099 回 200。
 
+### ✅ 2026-11-01 · 修「别人克隆后双击就跑不起来」
+
+发起人的朋友克隆仓库后双击 `启动客户端.bat`，窗口里只有 `'node' 不是内部或外部命令，也不是可运行的程序`。
+三件事一起修了：
+
+- **启动器自检运行时**（`启动客户端.bat`）：`where node` → 试 `%ProgramFiles%\nodejs\`、
+  `%ProgramFiles(x86)%\nodejs\`、`%LocalAppData%\Programs\nodejs\` 三个常见安装位置（装完没重开窗口、
+  或 PATH 没写进去的机器都能救）→ 都没有就退回 `python -m http.server 8080`（玩法一样，只是没有请求日志）
+  → 再没有就打印 nodejs.org 下载地址与三步说明。**不再让"缺运行时"表现成一句英文报错。**
+- ⚠️ **`.bat` 必须是 GBK + CRLF**：写成 UTF-8 会被 cmd 按字节拆行（中文变乱码 + 多出一堆
+  `'rlevel' 不是内部或外部命令`），写成纯 LF 也会被拆；已用 .NET 的 `GetEncoding(936)` 落盘并规整成 CRLF。
+  以后改这个文件都用同一条路，别用编辑器的"UTF-8"。
+- ⚠️ **`tools/dev-server.js` 的 `--open` 会炸进程**：`spawn("explorer.exe")` 的 `ENOENT` 是**异步** emit 的
+  `'error'` 事件，原来只有 `try/catch`（同步异常）兜不住 ⇒ Node 抛 unhandled `'error'` 把服务器整个带走。
+  已加 `child.on("error", …)`，打不开浏览器只打印一句提示，服务照常跑。
+- `README.md` 补「第一次跑（给朋友 / 换电脑）」三步 + 两个坑（没 Node 会退 Python；别用 UTF-8 另存 .bat）。
+
 ### 📋 待办
 - [x] **新关《来自我的声音》demo（2026-10-31）**：白调 + 悬空（**不写 `terrain`**）+ 无布景（`place=[]`）。
       `levels/来自我的声音-David叶音_刘家良MARSIX/`，96.27 s、122.03 BPM、14 m/s、**160 个折点 / 1348 m**，
