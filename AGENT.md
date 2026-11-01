@@ -1359,6 +1359,9 @@ B) 速度降到 6.68 m/s（形状不动，但整关 346 s 比音乐 174.7 s 长�
   4. **`/api/levels` 必须实现**：客户端选关页靠它列关卡，缺了就显示"levels/ 下没有找到任何 level.json"，
      看起来像关卡丢了。
   5. **端口复用**：`TcpListener` 要开 `ReuseAddress`，否则被杀掉的进程留下 TIME_WAIT，连点两次报端口被占。
+  6. **Win10/11 的 `python.exe` 是假入口**：`WindowsApps` 下那个占位程序只会弹 Microsoft Store。
+     `where python` 命中它就会误判"装了 Python"，把商店弹出来。启动器现在逐个检查 `where` 的结果、
+     跳过含 `WindowsApps` 的路径，没有真 Python 就直接落 PowerShell 分支。
 - 自检（每次改启动链都要跑）：把 PATH 只留 `C:\Windows\System32` 起一次 `启动客户端.bat`，
   断言 `/` 与 `/api/levels` 都是 200，并能用 `shot.js` 跑出 `状态 playing`。脚本：`out/v10/test-launcher.mjs`。
 
