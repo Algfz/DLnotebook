@@ -1,0 +1,9 @@
+# 换行符规则（2026-11-01 加）
+#
+# 为什么必须显式写：.bat 由 cmd 按字节逐行解析，**只认 CRLF**；
+# 而 git 的 core.autocrlf 每个人设置不一样（默认值随安装时的选择而变），
+# 朋友那边 autocrlf=false 时 clone 下来就是 LF ⇒ cmd 把整行拆碎，
+# 报一串「'rlevel' 不是内部或外部命令」。这条属性让 checkout 永远给 CRLF。
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.sh   text eol=lf

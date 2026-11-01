@@ -819,13 +819,19 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 38
   `%ProgramFiles(x86)%\nodejs\`、`%LocalAppData%\Programs\nodejs\` 三个常见安装位置（装完没重开窗口、
   或 PATH 没写进去的机器都能救）→ 都没有就退回 `python -m http.server 8080`（玩法一样，只是没有请求日志）
   → 再没有就打印 nodejs.org 下载地址与三步说明。**不再让"缺运行时"表现成一句英文报错。**
-- ⚠️ **`.bat` 必须是 GBK + CRLF**：写成 UTF-8 会被 cmd 按字节拆行（中文变乱码 + 多出一堆
-  `'rlevel' 不是内部或外部命令`），写成纯 LF 也会被拆；已用 .NET 的 `GetEncoding(936)` 落盘并规整成 CRLF。
-  以后改这个文件都用同一条路，别用编辑器的"UTF-8"。
+- ⚠️ **`.bat` 只用 ASCII + 必须 CRLF**（当天改了两轮才定下来）：
+  - 第一轮把中文写进 .bat（GBK）：**本机测着是好的**，朋友那边仍然炸。原因是人人的
+    `core.autocrlf` 不同 —— 他那边 `autocrlf=false`，checkout 出来是 **LF**，而 cmd 只认 CRLF，
+    于是整行被拆碎，报一串 `'rlevel' 不是内部或外部命令`。
+  - 定案：① 新增 `.gitattributes`（`*.bat`/`*.cmd` → `eol=crlf`，`*.sh` → `eol=lf`），
+    让 checkout 的换行符与个人配置无关；② 启动器内容改成**纯 ASCII**（英文提示），
+    中文说明留在 README / AGENT.md —— 这样控制台代码页是 936 还是 65001 都无所谓。
+  - 验收口径（可复用）：用 node 做一次干净 clone（`git -c core.autocrlf=false clone`），
+    检查 `.bat` 的 `CRLF>0 / 裸LF=0 / 非ASCII=0`。脚本：`out/v10/verify-clone2.mjs`（未提交，属一次性验证）。
 - ⚠️ **`tools/dev-server.js` 的 `--open` 会炸进程**：`spawn("explorer.exe")` 的 `ENOENT` 是**异步** emit 的
   `'error'` 事件，原来只有 `try/catch`（同步异常）兜不住 ⇒ Node 抛 unhandled `'error'` 把服务器整个带走。
   已加 `child.on("error", …)`，打不开浏览器只打印一句提示，服务照常跑。
-- `README.md` 补「第一次跑（给朋友 / 换电脑）」三步 + 两个坑（没 Node 会退 Python；别用 UTF-8 另存 .bat）。
+- `README.md` 补「第一次跑（给朋友 / 换电脑）」三步 + 两个坑（没 Node 会退到 Python；`.bat` 不能改成 UTF-8/LF）。
 
 ### 📋 待办
 - [x] **新关《来自我的声音》demo（2026-10-31）**：白调 + 悬空（**不写 `terrain`**）+ 无布景（`place=[]`）。
