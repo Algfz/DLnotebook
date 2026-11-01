@@ -7,6 +7,11 @@ rem  DLnotebook launcher (Windows)
 rem  ASCII only on purpose: cmd parses batch files byte-wise, so
 rem  non-ASCII text breaks on machines with a different code page.
 rem  Line endings MUST be CRLF (enforced by .gitattributes).
+rem
+rem  Order of preference:
+rem    1. node    - full dev server, request log, auto-open
+rem    2. python  - plain static server, no log
+rem    3. PowerShell - built in on every Windows box, zero install
 rem ============================================================
 
 set "RUNTIME="
@@ -14,6 +19,7 @@ where node >nul 2>nul
 if not errorlevel 1 set "RUNTIME=node"
 if defined RUNTIME goto run_node
 
+rem node may be installed but missing from PATH in this shell
 if exist "%ProgramFiles%\nodejs\node.exe" set "RUNTIME=%ProgramFiles%\nodejs\node.exe"
 if defined RUNTIME goto run_node
 if exist "%ProgramFiles(x86)%\nodejs\node.exe" set "RUNTIME=%ProgramFiles(x86)%\nodejs\node.exe"
@@ -29,7 +35,7 @@ where python >nul 2>nul
 if not errorlevel 1 set "PY=python"
 if defined PY goto run_py
 
-goto no_runtime
+goto run_ps
 
 rem ------------------------------------------------------------
 :run_node
@@ -65,19 +71,39 @@ pause
 exit /b 0
 
 rem ------------------------------------------------------------
+:run_ps
+echo.
+echo   DLnotebook
+echo   address: http://localhost:8080
+echo.
+echo   Neither Node.js nor Python was found on this computer.
+echo   Using the PowerShell server that ships with Windows, so
+echo   nothing has to be installed. The browser opens by itself
+echo   a few seconds after the server is up.
+echo.
+echo   Keep this window open while playing. Press Ctrl+C to stop.
+echo.
+rem the PowerShell that ships with Windows; call it by full path because
+rem a broken PATH is exactly the situation this branch exists for
+set "PS="
+if exist "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not defined PS set "PS=powershell"
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "tools\serve.ps1" -Port 8080
+echo.
+echo   Server stopped.
+pause
+exit /b 0
+
+rem ------------------------------------------------------------
 :no_runtime
 echo.
 echo   ==========================================================
-echo    Node.js is NOT installed on this computer.
+echo    Could not start any local server on this computer.
 echo.
-echo    How to fix (about 1 minute):
-echo      1. open   https://nodejs.org/zh-cn
-echo      2. download the LTS version, run the installer,
-echo         and keep the default options all the way through
-echo      3. close this window and double-click this file again
-echo.
-echo    NOTE: after installing you MUST open this window again,
-echo          otherwise the new node is not in PATH yet.
+echo    This is unusual - Windows always has PowerShell. Things to try:
+echo      1. right click this file and choose "Run as administrator"
+echo      2. install Node.js from https://nodejs.org and run this again
+echo      3. open src/index.html directly in Chrome or Edge
 echo   ==========================================================
 echo.
 pause

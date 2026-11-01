@@ -48,7 +48,7 @@
 
 | 层 | 选择 | 理由 |
 |---|---|---|
-| 客户端运行时 | **手机/桌面浏览器 + 本地 Node 静态服务**（`tools/dev-server.js`） | Electron 打包已放弃（ADR-23）：浏览器直接开就是客户端，手机上一样 |
+| 客户端运行时 | **手机/桌面浏览器 + 本地静态服务**：首选 `tools/dev-server.js`（Node），没装 Node 也不装 Python 的机器退到 `tools/serve.ps1`（Windows 自带 PowerShell，ADR-40） | Electron 打包已放弃（ADR-23）：浏览器直接开就是客户端，手机上一样 |
 | 3D 渲染 | **Three.js**（WebGL） | DL 画面为低多边形几何+后期，无需 Unity 级管线 |
 | 音频 | **Web Audio API** | 提供精确音频时钟，是音画同步的基础 |
 | 关卡数据 | **JSON** | AI 读写最稳、可 diff、可脚本生成 |
@@ -350,6 +350,7 @@ DLnotebook/
 | 布景手工编辑 | 双击 `tools/SceneryEditor.html` | 拖入 `level.json` + `dance-line.json`（或整个文件夹）→ 可视化放置/移动/缩放/删除布景块 → 「导出 level.json」覆盖原文件 |
 | 预览 | 双击 `tools/PathPreview.html`，拖入**关卡文件夹** | 俯视看路径，播放时红线沿路径移动，验证结构与音画同步；**支持多线**（含 `lines[]` 时同时画两条线） |
 | 运行客户端 | 双击 `启动客户端.bat`（= `node tools/dev-server.js --open`）→ http://localhost:8080 | 开发服务器。浏览器在 `file://` 下无法 fetch 本地 JSON，**必须走 HTTP** |
+| 零安装静态服务器 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools/serve.ps1 -Port 8080` | **给"没装 Node、也没 Python"的机器兜底**：Windows 自带 PowerShell 5.1 就能起 HTTP，`启动客户端.bat` 自动按 Node → Python → PowerShell 降级（ADR-40）。纯 ASCII、单线程、`Connection: close`；MIME 表覆盖 html/js/mjs/json/css/svg/png/jpg/mp3/mp4/woff2；已实现 `/api/levels`（客户端选关页靠它，缺失会显示"levels/ 下没有找到任何 level.json"）与 `POST /api/* → 204`（吞掉 `/api/log`、`/api/shot`） |
 | 渲染演示视频 | `node tools/render-demo.js --level "Breeze"` | **离线渲染**演示视频（默认 4K/60fps、隐藏 HUD），见下方「离线渲染」 |
 | 看单帧截图 | `node tools/shot.js --level "ring a bell" --times 8,45,90` | **调视觉用**：只抓指定时刻的静止画面（几秒出图），可用 `--setup-file x.js` 注入改动后立刻对比。见下方「看单帧」 |
 | 出关卡总平面图 | `node tools/plan-level.mjs` | **俯视总平面图**：在 Node 里 `import` 仓库自带 three + 关卡的 `buildPlaced()`，把 InstancedMesh 逐实例拆开，画出 655 件方块的俯视位置 → `out/level-plan.svg/.png`。见下方「两张俯视图」 |
@@ -834,7 +835,10 @@ node tools/render-demo.js --level "Breeze (Original Mix)-Axero" --fps 120 --w 38
 - `README.md` 补「第一次跑（给朋友 / 换电脑）」三步 + 两个坑（没 Node 会退到 Python；`.bat` 不能改成 UTF-8/LF）。
 
 ### 📋 待办
-- [x] **新关《来自我的声音》demo（2026-10-31）**：白调 + 悬空（**不写 `terrain`**）+ 无布景（`place=[]`）。
+- [x] **零安装启动链（2026-11-01）**：`启动客户端.bat` 改为 Node → Python → PowerShell 三级降级，
+      新增 `tools/serve.ps1`（纯 ASCII，详见 ADR-40 与 §7 工具表）。朋友那台"没装过 Node"的机器
+      双击即可玩；自检脚本 `out/v10/test-launcher.mjs`（PATH 只留 System32）已跑通：`/` 与 `/api/levels` 均 200。
+- [ ] **新关《来自我的声音》demo（2026-10-31）**：白调 + 悬空（**不写 `terrain`**）+ 无布景（`place=[]`）。
       `levels/来自我的声音-David叶音_刘家良MARSIX/`，96.27 s、122.03 BPM、14 m/s、**160 个折点 / 1348 m**，
       路宽 3 m，主题新增 `white`（见 ADR-36），相机三段 `{tilt, dist, yaw}`（见 ADR-37）。
       **踩音原封不动**（160 颗，与仓库根目录那份 sha256 一致）；最短段 1.23 m < 路宽属于正常，不要动踩音（ADR-38）。
@@ -1335,6 +1339,28 @@ B) 速度降到 6.68 m/s（形状不动，但整关 346 s 比音乐 174.7 s 长�
   以及将来任何自动化）都要跟着改；否则产出不会报错，只会静默出一堆"看起来不对劲"的图。
 - 落地：两处改为优先发 `PointerEvent("pointerdown", {bubbles:true, pointerType:"mouse"})`，
   没有 PointerEvent 时回落 MouseEvent。自检判据固定为 `--check` 输出 `状态 playing` + 线头坐标在动。
+
+---
+
+**ADR-40：交付物必须"零安装可跑"——启动器保留第三级 PowerShell 兜底（2026-11-01）**
+> 起因：朋友 clone 后双击 `启动客户端.bat`，窗口只打印
+> `'node' 不是内部或外部命令，也不是可运行的程序` 就退出。发起人补了一句关键约束：
+> **「他不可能装过node」**——所以"让朋友装 Node"不是解法，是拒绝。
+- 结论：**Windows 上唯一的必装东西只有 Windows 自己**。启动器按 **Node → Python → PowerShell** 降级，
+  最后一级 `tools/serve.ps1` 用系统自带的 PowerShell 5.1 起一个静态 HTTP 服务，功能上与
+  `dev-server.js` 等价（都能选关、能播放），只少了请求日志与打点通道。
+- 实现要点（都是踩过的坑）：
+  1. **`.bat` 必须纯 ASCII + CRLF**：cmd 逐字节解析，任何中文都可能在不同代码页下被拆成"不是内部或外部命令"。
+     `.ps1` 同理——PowerShell 5.1 读**无 BOM** 的脚本按 ANSI 解码，中文字节里碰巧像引号就 parser error。
+  2. **按绝对路径调 PowerShell**：`%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`。
+     PATH 坏掉正是这一级要救的场景，不能指望 `powershell` 在 PATH 里。
+  3. **响应要"发完再关"**：`Socket.Close()` 会在发送缓冲未排空时发 RST，大文件（three.module.min.js 669 KB）
+     被截断，浏览器侧表现为 `assert(!this.paused)`。正确顺序是 `Shutdown(Send)` → 读到 0 → `Close()`。
+  4. **`/api/levels` 必须实现**：客户端选关页靠它列关卡，缺了就显示"levels/ 下没有找到任何 level.json"，
+     看起来像关卡丢了。
+  5. **端口复用**：`TcpListener` 要开 `ReuseAddress`，否则被杀掉的进程留下 TIME_WAIT，连点两次报端口被占。
+- 自检（每次改启动链都要跑）：把 PATH 只留 `C:\Windows\System32` 起一次 `启动客户端.bat`，
+  断言 `/` 与 `/api/levels` 都是 200，并能用 `shot.js` 跑出 `状态 playing`。脚本：`out/v10/test-launcher.mjs`。
 
 ---
 
